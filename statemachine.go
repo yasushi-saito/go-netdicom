@@ -10,17 +10,11 @@ type StateType struct {
 }
 
 var Sta1 = &StateType{"Sta1", "Idle"}
-
-// Association establishment
 var Sta2 = &StateType{"Sta2", "Transport connection open (Awaiting A-ASSOCIATE-RQ PDU)"}
 var Sta3 = &StateType{"Sta3", "Awaiting local A-ASSOCIATE response primitive (from local user)"}
 var Sta4 = &StateType{"Sta4", "Awaiting transport connection opening to complete (from local transport service"}
 var Sta5 = &StateType{"Sta5", "Awaiting A-ASSOCIATE-AC or A-ASSOCIATE-RJ PDU"}
-
-// Data transfer
 var Sta6 = &StateType{"Sta6", "Association established and ready for data transfer"}
-
-// Association release
 var Sta7 = &StateType{"Sta7", "Awaiting A-RELEASE-RP PDU"}
 var Sta8 = &StateType{"Sta8", "Awaiting local A-RELEASE response primitive (from local user)"}
 var Sta9 = &StateType{"Sta9", "Release collision requestor side; awaiting A-RELEASE response (from local user)"}
@@ -105,7 +99,7 @@ var Dt2 = &StateAction{"DT-2", "Send P-DATA indication primitive",
 // Assocation Release related actions
 var Ar1 = &StateAction{"AR-1", "Send A-RELEASE-RQ PDU",
 	func(sm *StateMachine) *StateType {
-		sendPdu(sm, New_A_RELEASE_RQ(sm.Params))
+		sendPdu(sm, New_A_RELEASE_RQ())
 		return Sta7
 	}}
 var Ar2 = &StateAction{"AR-2", "Issue A-RELEASE indication primitive",
@@ -115,13 +109,13 @@ var Ar2 = &StateAction{"AR-2", "Issue A-RELEASE indication primitive",
 
 var Ar3 = &StateAction{"AR-3", "Issue A-RELEASE confirmation primitive and close transport connection",
 	func(sm *StateMachine) *StateType {
-		sendPdu(sm, New_A_RELEASE_RP(sm.Params))
+		sendPdu(sm, New_A_RELEASE_RP())
 		closeConnection(sm)
 		return Sta1
 	}}
 var Ar4 = &StateAction{"AR-4", "Issue A-RELEASE-RP PDU and start ARTIM timer",
 	func(sm *StateMachine) *StateType {
-		sendPdu(sm, New_A_RELEASE_RP(sm.Params))
+		sendPdu(sm, New_A_RELEASE_RP())
 		startTimer(sm)
 		return Sta13
 	}}
@@ -139,13 +133,14 @@ var Ar6 = &StateAction{"AR-6", "Issue P-DATA indication",
 
 var Ar7 = &StateAction{"AR-7", "Issue P-DATA-TF PDU",
 	func(sm *StateMachine) *StateType {
-		sendPdu(sm, New_DATA_TF(sm.Params))
+		sendPdu(sm, New_P_DATA_TF(sm.PData))
 		return Sta8
 	}}
 
 var Ar8 = &StateAction{"AR-8", "Issue A-RELEASE indication (release collision): if association-requestor, next state is Sta9, if not next state is Sta10",
 	func(sm *StateMachine) *StateType {
-		if sm.requestor == 1 {
+		panic("aoeu")
+		if sm.Requestor == 1 {
 			return Sta9
 		} else {
 			return Sta10
@@ -154,7 +149,7 @@ var Ar8 = &StateAction{"AR-8", "Issue A-RELEASE indication (release collision): 
 
 var Ar9 = &StateAction{"AR-9", "Send A-RELEASE-RP PDU",
 	func(sm *StateMachine) *StateType {
-		sendPdu(sm, New_A_RELEASE_RP(sm.Params))
+		sendPdu(sm, New_A_RELEASE_RP())
 		return Sta11
 	}}
 
@@ -166,11 +161,11 @@ var Ar10 = &StateAction{"AR-10", "Issue A-RELEASE confimation primitive",
 // Association abort related actions
 var Aa1 = &StateAction{"AA-1", "Send A-ABORT PDU (service-user source) and start (or restart if already started) ARTIM timer",
 	func(sm *StateMachine) *StateType {
-		diagnostic := 0
+		diagnostic := byte(0)
 		if sm.currentState == Sta2 {
 			diagnostic = 2
 		}
-		sendPdu(sm, New_A_ABORT_RQ(0, diagnostic))
+		sendPdu(sm, New_A_ABORT(0, diagnostic))
 		restartTimer(sm)
 		return Sta13
 	}}
@@ -201,19 +196,19 @@ var Aa5 = &StateAction{"AA-5", "Stop ARTIM timer",
 
 var Aa6 = &StateAction{"AA-6", "Ignore PDU",
 	func(sm *StateMachine) *StateType {
-		sm.Params = Params{}
+		sm.PData = nil
 		return Sta13
 	}}
 
 var Aa7 = &StateAction{"AA-7", "Send A-ABORT PDU",
 	func(sm *StateMachine) *StateType {
-		sendPdu(sm, New_A_ABORT_RQ(0, 0))
+		sendPdu(sm, New_A_ABORT(0, 0))
 		return Sta13
 	}}
 
 var Aa8 = &StateAction{"AA-8", "Send A-ABORT PDU (service-dul source), issue an A-P-ABORT indication and start ARTIM timer",
 	func(sm *StateMachine) *StateType {
-		sendPdu(sm, New_A_ABORT_RQ(2, 0))
+		sendPdu(sm, New_A_ABORT(2, 0))
 		startTimer(sm)
 		return Sta13
 	}}
@@ -393,6 +388,7 @@ type SessionParams struct {
 type StateMachine struct {
 	Params           SessionParams
 	PData            []PresentationDataValueItem
+	Requestor        int32
 	connectionStatus int // Idle, Connecting, etc
 	conn             net.Conn
 	currentState     *StateType
@@ -424,8 +420,9 @@ func closeConnection(sm *StateMachine) {
 func sendPdu(sm *StateMachine, pdu PDU) {
 }
 
-func startTimer(sm *StateMachine) {}
-func stopTimer(sm *StateMachine)  {}
+func startTimer(sm *StateMachine)   { panic("startTimer") }
+func restartTimer(sm *StateMachine) { panic("restartTimer") }
+func stopTimer(sm *StateMachine)    { panic("stopTimer") }
 
 func getNextEvent(sm *StateMachine) *StateTransitionEvent {
 	if sm.connectionStatus == Idle {
@@ -440,22 +437,32 @@ func getNextEvent(sm *StateMachine) *StateTransitionEvent {
 		sm.connectionStatus = Connected
 		return Evt2
 	}
-	pdu, err := readPdu()
-	if _, ok := pdu.(A_ASSOCIATE_AC); ok {
+	pdu, err := DecodePDU(sm.conn)
+	if err != nil {
+		return Evt19
+	}
+	if _, ok := pdu.(*A_ASSOCIATE_AC); ok {
 		return Evt3
 	}
-	if _, ok := pdu.(A_ASSOCIATE_RJ); ok {
+	if _, ok := pdu.(*A_ASSOCIATE_RJ); ok {
 		return Evt4
 	}
-	if _, ok := pdu.(A_ASSOCIATE_RQ); ok {
+	if _, ok := pdu.(*A_ASSOCIATE_RQ); ok {
 		return Evt6
 	}
+	panic("oaue")
+}
+
+func findAction(
+	event *StateTransitionEvent,
+	currentState *StateType) *StateAction {
+	panic("blah")
 }
 
 func runStep(sm *StateMachine) {
 	for {
-		event = getNextEvent(sm)
-		action = findAction(event, sm.currentState)
+		event := getNextEvent(sm)
+		action := findAction(event, sm.currentState)
 		sm.currentState = action.Callback(sm)
 	}
 }
