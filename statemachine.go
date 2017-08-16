@@ -21,7 +21,7 @@ var Sta9 = &StateType{"Sta9", "Release collision requestor side; awaiting A-RELE
 var Sta10 = &StateType{"Sta10", "Release collision acceptor side; awaiting A-RELEASE-RP PDU"}
 var Sta11 = &StateType{"Sta11", "Release collision requestor side; awaiting A-RELEASE-RP PDU"}
 var Sta12 = &StateType{"Sta12", "Release collision acceptor side; awaiting A-RELEASE response primitive (from local user)"}
-var Sta13 = &StateType{"Sta13", "Awaiting Transport Connection Close Indication (Association no longer exists)"}Sta1
+var Sta13 = &StateType{"Sta13", "Awaiting Transport Connection Close Indication (Association no longer exists)"}
 
 type StateAction struct {
 	Name        string
@@ -31,22 +31,16 @@ type StateAction struct {
 
 var Ae1 = &StateAction{"AE-1",
 	"Issue TRANSPORT CONNECT request primitive to local transport service",
-	func(sm *StateMachine) (*StateType, *StateTransitionEvent) {
-		assert(sm.conn == nil)
-		conn, err := net.Dial("tcp", sm.Params.Peer)
-		if err != nil {
-			return Sta4, Evt17
-		}
-		sm.conn = conn
-		return Sta4, Evt2
+	func(sm *StateMachine) *StateType {
+		go networkReaderThread(sm.netCh, sm.Params.Peer)
+		return Sta4
 	}}
 
 var Ae2 = &StateAction{"AE-2", "Send A-ASSOCIATE-RQ-PDU",
-	func(sm *StateMachine) (*StateType, *StateTransitionEvent) {
+	func(sm *StateMachine) *StateType{
 		sendPdu(sm, New_A_ASSOCIATE_RQ(sm.Params))
 		startTimer(sm)
-		startReadingPdu(sm)
-		return Sta5, nil
+		return Sta5
 	}}
 
 var Ae3 = &StateAction{"AE-3", "Issue A-ASSOCIATE confirmation (accept) primitive",
@@ -223,28 +217,63 @@ type StateTransitionEvent struct {
 	Description string
 }
 
-var Evt1 = &StateTransitionEvent{"Evt1", "A-ASSOCIATE request (local user)"}
-var Evt2 = &StateTransitionEvent{"Evt2", "Transport connect confirmation (local transport service)"}
-var Evt3 = &StateTransitionEvent{"Evt3", "A-ASSOCIATE-AC PDU (received on transport connection)"}
-var Evt4 = &StateTransitionEvent{"Evt4", "A-ASSOCIATE-RJ PDU (received on transport connection)"}
-var Evt5 = &StateTransitionEvent{"Evt5", "Transport connection indication (local transport service)"}
-var Evt6 = &StateTransitionEvent{"Evt6", "A-ASSOCIATE-RQ PDU (on tranport connection)"}
-var Evt7 = &StateTransitionEvent{"Evt7", "A-ASSOCIATE response primitive (accept)"}
-var Evt8 = &StateTransitionEvent{"Evt8", "A-ASSOCIATE response primitive (reject)"}
-var Evt9 = &StateTransitionEvent{"Evt9", "P-DATA request primitive"}
-var Evt10 = &StateTransitionEvent{"Evt10", "P-DATA-TF PDU (on transport connection)"}
-var Evt11 = &StateTransitionEvent{"Evt11", "A-RELEASE request primitive"}
-var Evt12 = &StateTransitionEvent{"Evt12", "A-RELEASE-RQ PDU (on transport)"}
-var Evt13 = &StateTransitionEvent{"Evt13", "A-RELEASE-RP PDU (on transport)"}
-var Evt14 = &StateTransitionEvent{"Evt14", "A-RELEASE response primitive"}
-var Evt15 = &StateTransitionEvent{"Evt15", "A-ABORT request primitive"}
-var Evt16 = &StateTransitionEvent{"Evt16", "A-ABORT PDU (on transport)"}
-var Evt17 = &StateTransitionEvent{"Evt17", "Transport connection closed indication (local transport service)"}
-var Evt18 = &StateTransitionEvent{"Evt18", "ARTIM timer expired (Association reject/release timer)"}
-var Evt19 = &StateTransitionEvent{"Evt19", "Unrecognized or invalid PDU received"}
+type EventType int
+const (
+	Evt1 = iota
+	Evt2
+	Evt3
+	Evt4
+	Evt5
+	Evt6
+	Evt7
+	Evt8
+	Evt9
+	Evt10
+	Evt11
+	Evt12
+	Evt13
+	Evt14
+	Evt15
+	Evt16
+	Evt17
+	Evt18
+	Evt19
+)
+
+type StateEvent struct {
+	event EventType
+	pdu PDU
+	err error
+	conn net.Conn
+	data []PresentationDataValueItem  // data to send. only for Evt9
+}
+
+//func PDUReceivedEvent(event EventType, pdu PDU) StateEvent{
+//	return StateEvent{event: event, pdu: pdu, err: nil, conn: nil, data: nil}
+//}
+
+// var Evt1 = &StateTransitionEvent{"Evt1", "A-ASSOCIATE request (local user)"}
+// var Evt2 = &StateTransitionEvent{"Evt2", "Transport connect confirmation (local transport service)"}
+// var Evt3 = &StateTransitionEvent{"Evt3", "A-ASSOCIATE-AC PDU (received on transport connection)"}
+// var Evt4 = &StateTransitionEvent{"Evt4", "A-ASSOCIATE-RJ PDU (received on transport connection)"}
+// var Evt5 = &StateTransitionEvent{"Evt5", "Transport connection indication (local transport service)"}
+// var Evt6 = &StateTransitionEvent{"Evt6", "A-ASSOCIATE-RQ PDU (on tranport connection)"}
+// var Evt7 = &StateTransitionEvent{"Evt7", "A-ASSOCIATE response primitive (accept)"}
+// var Evt8 = &StateTransitionEvent{"Evt8", "A-ASSOCIATE response primitive (reject)"}
+// var Evt9 = &StateTransitionEvent{"Evt9", "P-DATA request primitive"}
+// var Evt10 = &StateTransitionEvent{"Evt10", "P-DATA-TF PDU (on transport connection)"}
+// var Evt11 = &StateTransitionEvent{"Evt11", "A-RELEASE request primitive"}
+// var Evt12 = &StateTransitionEvent{"Evt12", "A-RELEASE-RQ PDU (on transport)"}
+// var Evt13 = &StateTransitionEvent{"Evt13", "A-RELEASE-RP PDU (on transport)"}
+// var Evt14 = &StateTransitionEvent{"Evt14", "A-RELEASE response primitive"}
+// var Evt15 = &StateTransitionEvent{"Evt15", "A-ABORT request primitive"}
+// var Evt16 = &StateTransitionEvent{"Evt16", "A-ABORT PDU (on transport)"}
+// var Evt17 = &StateTransitionEvent{"Evt17", "Transport connection closed indication (local transport service)"}
+// var Evt18 = &StateTransitionEvent{"Evt18", "ARTIM timer expired (Association reject/release timer)"}
+// var Evt19 = &StateTransitionEvent{"Evt19", "Unrecognized or invalid PDU received"}
 
 type StateTransition struct {
-	event   *StateTransitionEvent
+	event   EventType
 	current *StateType
 	action  *StateAction
 }
@@ -392,8 +421,10 @@ type StateMachine struct {
 	Params           SessionParams
 	PData            []PresentationDataValueItem
 	Requestor        int32
-	connectionStatus int // Idle, Connecting, etc
-	conn             net.Conn
+
+	netCh chan StateEvent
+	upperLayerCh chan StateEvent
+	conn net.Conn
 	currentState     *StateType
 }
 
@@ -403,20 +434,7 @@ func doassert(x bool) {
 	}
 }
 
-func startReadingPdu(sm *StateMachine) {
-	doassert(sm.conn != nil)
-	doassert(sm.connectionStatus == Connected)
-	sm.connectionStatus = ReadingPDU
-}
-
-func startConnection(sm *StateMachine) {
-	doassert(sm.conn == nil)
-	doassert(sm.connectionStatus == Idle)
-	sm.connectionStatus = Connecting
-}
-
 func closeConnection(sm *StateMachine) {
-	doassert(sm.conn != nil)
 	sm.conn.Close()
 }
 
@@ -427,61 +445,83 @@ func startTimer(sm *StateMachine)   { panic("startTimer") }
 func restartTimer(sm *StateMachine) { panic("restartTimer") }
 func stopTimer(sm *StateMachine)    { panic("stopTimer") }
 
-func getNextEvent(sm *StateMachine) *StateTransitionEvent {
-	if sm.connectionStatus == Idle {
-		panic("blaoeu")
-	}
-	if sm.connectionStatus == Connecting {
-		conn, err := net.Dial("tcp", sm.Params.Peer)
-		if err != nil {
-			return Evt17
-		}
-		sm.conn = conn
-		sm.connectionStatus = Connected
-		return Evt2
-	}
-	if sm.connectionStatus == ReadyToSend
-	pdu, err := DecodePDU(sm.conn)
+func networkReaderThread(ch chan StateEvent, peer string) {
+	conn, err := net.Dial("tcp", peer)
 	if err != nil {
-		return Evt19
+		ch <- StateEvent{event: Evt17, pdu: nil, err: err}
+		close(ch)
+		return
 	}
-	if _, ok := pdu.(*A_ASSOCIATE_AC); ok {
-		return Evt3
+	ch <- StateEvent{event: Evt5, pdu: nil, err: nil}
+	for {
+		pdu, err := DecodePDU(conn)
+		if err != nil {
+			ch <- StateEvent{event: Evt19, pdu: nil, err: err}
+			continue
+		}
+		if n, ok := pdu.(*A_ASSOCIATE_AC); ok {
+			ch <- StateEvent{event: Evt3, pdu: n, err: nil}
+		}
+		if n, ok := pdu.(*A_ASSOCIATE_RJ); ok {
+			ch <- StateEvent{event: Evt4, pdu: n, err: nil}
+		}
+		if n, ok := pdu.(*P_DATA_TF); ok {
+			ch <- StateEvent{event: Evt10, pdu: n, err: nil}
+		}
+		if n, ok := pdu.(*A_RELEASE_RQ); ok {
+			ch <- StateEvent{event: Evt12, pdu: n, err: nil}
+		}
+		if n, ok := pdu.(*A_RELEASE_RP); ok {
+			ch <- StateEvent{event: Evt13, pdu: n, err: nil}
+		}
 	}
-	if _, ok := pdu.(*A_ASSOCIATE_RJ); ok {
-		return Evt4
-	}
-	if _, ok := pdu.(*A_ASSOCIATE_RQ); ok {
-		return Evt6
-	}
-	panic("oaue")
+	ch <- StateEvent{event: Evt17, pdu: nil, err: nil}
+	close(ch)
 }
 
-func findAction(
-	event *StateTransitionEvent,
-	currentState *StateType) *StateAction {
+func getNextEvent(sm *StateMachine) StateEvent {
+	doassert(sm.netCh != nil)
+	event := <- sm.netCh
+	switch event.event {
+	case Evt2:
+		doassert(event.conn != nil)
+		sm.conn = event.conn
+	case Evt17:
+		sm.conn = nil
+	}
+	return event
+}
+
+func findAction(currentState *StateType, 	event EventType) *StateAction {
 	panic("blah")
 }
 
-func runStep(sm *StateMachine) {
-	event := getNextEvent(sm)
-	action := findAction(sm.currentState, event)
+func NewStateMachineForServiceUser() *StateMachine {
+	sm := &StateMachine{}
+	sm.netCh = make(chan StateEvent)
+	sm.upperLayerCh = make(chan StateEvent)
+
+	action := findAction(Sta1, Evt1)
 	sm.currentState = action.Callback(sm)
+	RunStateMachineUntilQuiescent(sm)
+	return sm
 }
 
-func NewStateMachine(
-	initialState* StateType,
-	initialEvent* StateTransitionEvent) *StateMachine {
-	sm := &StateMachine{}
-	action := findAction(initialState, initialEvent)
+func SendData(sm *StateMachine, data []PresentationDataValueItem) {
+	doassert(sm.PData == nil)
+	sm.upperLayerCh <- StateEvent{event: Evt9, pdu: nil, conn: nil, data: data}
+	RunStateMachineUntilQuiescent(sm)
+}
 
-	for {
-		nextState, nextEvent := action.Callback(sm)
-		sm.currentState = nextState
-		if nextEvent == nil {
-			break
-		}
-		action := findAction(sm.currentState, nextEvent)
+func StartRelease(sm *StateMachine) {
+	sm.upperLayerCh <- StateEvent{event: Evt11}
+	RunStateMachineUntilQuiescent(sm)
+}
+
+func RunStateMachineUntilQuiescent(sm*StateMachine) {
+	for sm.currentState != Sta6 && sm.currentState != Sta1 {
+		event := getNextEvent(sm)
+		action := findAction(sm.currentState, event.event)
+		sm.currentState = action.Callback(sm)
 	}
-	return sm
 }

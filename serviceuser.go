@@ -1,7 +1,7 @@
 package netdicom
 
 import (
-	"github.com/yasushi-saito/go-dicom"
+	// "github.com/yasushi-saito/go-dicom"
 )
 
 type ServiceUser struct {
@@ -9,23 +9,14 @@ type ServiceUser struct {
 }
 
 func NewServiceUser() *ServiceUser {
-	return &ServiceUser{sm: NewStateMachine(Sta1, Evt1)}
+	return &ServiceUser{sm: NewStateMachineForServiceUser()}
 }
 
-func CStore(su *ServiceUser,
-	ds* dicom.DicomFile) {
-	di = NewPresentationDataValueItem(ds)
-	if !IsReadyToRequest(su.sm) {
-		SetError(sm, "blah")
-		return
-	}
-	SetPdata(su.sm, []PresentationDataValueItem{di})
-	SendEvent(su.sm, Evt9)
-	return nil
+func CStore(su *ServiceUser, data []byte) {
+	di := NewPresentationDataValueItem(0/*todo*/, data)
+	SendData(su.sm, []PresentationDataValueItem{di})
 }
 
-func Release(su *ServiceUser) error {
-	for su.currentState != Sta1 {
-		next
-	}
+func Release(su *ServiceUser) {
+	StartRelease(su.sm)
 }

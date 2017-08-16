@@ -1,6 +1,7 @@
 package netdicom
 
 import (
+	"net"
 	"encoding/binary"
 	"io"
 )
@@ -100,6 +101,15 @@ type PresentationDataValueItem struct {
 	ContextID byte
 	Value     []byte
 }
+
+func NewPresentationDataValueItem(contextID byte, value[]byte) PresentationDataValueItem {
+	return PresentationDataValueItem{
+		Length: uint32(1 + len(value)),
+		ContextID: contextID,
+		Value: value,
+	}
+}
+
 
 func DecodePresentationDataValueItem(d *Decoder) *PresentationDataValueItem {
 	item := &PresentationDataValueItem{}
@@ -390,3 +400,21 @@ func fillString(v string, length int) string {
 	}
 	return v
 }
+
+type networkConnectedPDU struct {
+	Conn net.Conn
+}
+
+func (pdu *networkConnectedPDU) Encode(e*Encoder) {panic("Not implemented")}
+
+type networkDisconnectedPDU struct {
+	Err error
+}
+
+func (pdu *networkDisconnectedPDU) Encode(e*Encoder) {panic("Not implemented")}
+
+type malformedPDU struct {
+	Err error
+}
+
+func (pdu *malformedPDU) Encode(e*Encoder) {panic("Not implemented")}
