@@ -21,7 +21,7 @@ var Sta9 = &StateType{"Sta9", "Release collision requestor side; awaiting A-RELE
 var Sta10 = &StateType{"Sta10", "Release collision acceptor side; awaiting A-RELEASE-RP PDU"}
 var Sta11 = &StateType{"Sta11", "Release collision requestor side; awaiting A-RELEASE-RP PDU"}
 var Sta12 = &StateType{"Sta12", "Release collision acceptor side; awaiting A-RELEASE response primitive (from local user)"}
-var Sta13 = &StateType{"Sta13", "Awaiting Transport Connection Close Indication (Association no longer exists)"}
+var Sta13 = &StateType{"Sta13", "Awaiting Transport Connection Close Indication (Association no longer exists)"}Sta1
 
 type StateAction struct {
 	Name        string
@@ -31,17 +31,22 @@ type StateAction struct {
 
 var Ae1 = &StateAction{"AE-1",
 	"Issue TRANSPORT CONNECT request primitive to local transport service",
-	func(sm *StateMachine) *StateType {
-		startConnection(sm)
-		return Sta4
+	func(sm *StateMachine) (*StateType, *StateTransitionEvent) {
+		assert(sm.conn == nil)
+		conn, err := net.Dial("tcp", sm.Params.Peer)
+		if err != nil {
+			return Sta4, Evt17
+		}
+		sm.conn = conn
+		return Sta4, Evt2
 	}}
 
 var Ae2 = &StateAction{"AE-2", "Send A-ASSOCIATE-RQ-PDU",
-	func(sm *StateMachine) *StateType {
+	func(sm *StateMachine) (*StateType, *StateTransitionEvent) {
 		sendPdu(sm, New_A_ASSOCIATE_RQ(sm.Params))
 		startTimer(sm)
 		startReadingPdu(sm)
-		return Sta5
+		return Sta5, nil
 	}}
 
 var Ae3 = &StateAction{"AE-3", "Issue A-ASSOCIATE confirmation (accept) primitive",
@@ -217,8 +222,6 @@ type StateTransitionEvent struct {
 	Name        string
 	Description string
 }
-
-var Evt0 = &StateTransitionEvent{"Evt0", "idle"}
 
 var Evt1 = &StateTransitionEvent{"Evt1", "A-ASSOCIATE request (local user)"}
 var Evt2 = &StateTransitionEvent{"Evt2", "Transport connect confirmation (local transport service)"}
@@ -426,7 +429,7 @@ func stopTimer(sm *StateMachine)    { panic("stopTimer") }
 
 func getNextEvent(sm *StateMachine) *StateTransitionEvent {
 	if sm.connectionStatus == Idle {
-		return Evt0
+		panic("blaoeu")
 	}
 	if sm.connectionStatus == Connecting {
 		conn, err := net.Dial("tcp", sm.Params.Peer)
@@ -437,6 +440,7 @@ func getNextEvent(sm *StateMachine) *StateTransitionEvent {
 		sm.connectionStatus = Connected
 		return Evt2
 	}
+	if sm.connectionStatus == ReadyToSend
 	pdu, err := DecodePDU(sm.conn)
 	if err != nil {
 		return Evt19
@@ -460,9 +464,24 @@ func findAction(
 }
 
 func runStep(sm *StateMachine) {
+	event := getNextEvent(sm)
+	action := findAction(sm.currentState, event)
+	sm.currentState = action.Callback(sm)
+}
+
+func NewStateMachine(
+	initialState* StateType,
+	initialEvent* StateTransitionEvent) *StateMachine {
+	sm := &StateMachine{}
+	action := findAction(initialState, initialEvent)
+
 	for {
-		event := getNextEvent(sm)
-		action := findAction(event, sm.currentState)
-		sm.currentState = action.Callback(sm)
+		nextState, nextEvent := action.Callback(sm)
+		sm.currentState = nextState
+		if nextEvent == nil {
+			break
+		}
+		action := findAction(sm.currentState, nextEvent)
 	}
+	return sm
 }
