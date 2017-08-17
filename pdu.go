@@ -1,6 +1,7 @@
 package netdicom
 
 import (
+	"fmt"
 	"bytes"
 	"net"
 	"encoding/binary"
@@ -20,10 +21,11 @@ type Decoder struct {
 	byteOrder binary.ByteOrder
 	implicit  bool
 	in        io.Reader
+	err    error
 
 	Type   byte
+	// 1 byte reserved
 	Length uint32
-	Err    error
 }
 
 func NewDecoder(
@@ -31,14 +33,18 @@ func NewDecoder(
 	implicit bool,
 	in io.Reader) *Decoder {
 	d := &Decoder{}
-
 	d.byteOrder = byteOrder
 	d.implicit = implicit
-	d.Err = binary.Read(in, d.byteOrder, &d.Type)
-	if d.Err != nil {
+	d.err = binary.Read(in, d.byteOrder, &d.Type)
+	if d.err != nil {
 		return d
 	}
-	d.Err = binary.Read(in, d.byteOrder, &d.Length)
+	var skip byte
+	d.err = binary.Read(in, d.byteOrder, &skip)
+	if d.err != nil {
+		return d
+	}
+	d.err = binary.Read(in, d.byteOrder, &d.Length)
 	d.in = io.LimitReader(in, int64(d.Length))
 	return d
 }
@@ -67,7 +73,17 @@ func (d *Decoder) DecodeBytes(length int32) []byte {
 	return nil
 }
 
-func (d *Decoder) skip(bytes int) {
+func (d *Decoder) Skip(bytes int) {
+	junk := make([]byte, bytes)
+	n, err := d.in.Read(junk)
+	if err != nil {
+		d.err = err
+		return
+	}
+	if n != bytes {
+		d.err = fmt.Errorf("Failed to skip %d bytes (read %d bytes instead)", bytes, n)
+		return
+	}
 }
 
 type Encoder struct {
@@ -77,7 +93,6 @@ type Encoder struct {
 	pduType byte
 	err     error
 	buf *bytes.Buffer
-
 }
 
 func NewEncoder() *Encoder {
@@ -179,25 +194,25 @@ type PDUHeader struct {
 
 func DecodePDU(in io.Reader) (PDU, error) {
 	d := NewDecoder(binary.LittleEndian, true, in)
-	if d.Err != nil {
-		return nil, d.Err
+	if d.err != nil {
+		return nil, d.err
 	}
 
 	switch d.Type {
 	case type_A_ASSOCIATE_RQ:
 		pdu := decodeA_ASSOCIATE_RQ(d)
-		if d.Err != nil {
-			return nil, d.Err
+		if d.err != nil {
+			return nil, d.err
 		}
 		return pdu, nil
-	// case type_A_ASSOCIATE_AC:
-	// 	pdu := decodeu_ASSOCIATE_AC(d)
-	// 	if d.Err != nil { return nil, d.Err }
-	// 	return pdu
+	case type_A_ASSOCIATE_AC:
+		pdu := decodeA_ASSOCIATE_AC(d)
+		if d.err != nil { return nil, d.err }
+		return pdu, nil
 	case type_A_ASSOCIATE_RJ:
 		pdu := decodeA_ASSOCIATE_RJ(d)
-		if d.Err != nil {
-			return nil, d.Err
+		if d.err != nil {
+			return nil, d.err
 		}
 		return pdu, nil
 	}
@@ -240,7 +255,7 @@ func New_A_RELEASE_RQ() *A_RELEASE_RQ {
 }
 
 func (pdu *A_RELEASE_RQ) Decode(d *Decoder) {
-	d.skip(4)
+	d.Skip(4)
 }
 
 func (pdu *A_RELEASE_RQ) Encode(e *Encoder) {
@@ -260,7 +275,7 @@ func New_A_RELEASE_RP() *A_RELEASE_RP {
 }
 
 func (pdu *A_RELEASE_RP) Decode(d *Decoder) {
-	d.skip(4)
+	d.Skip(4)
 }
 
 func (pdu *A_RELEASE_RP) Encode(e *Encoder) {
@@ -288,10 +303,10 @@ func New_A_ASSOCIATE_RQ(params SessionParams) *A_ASSOCIATE_RQ {
 func decodeA_ASSOCIATE_RQ(d *Decoder) *A_ASSOCIATE_RQ {
 	pdu := &A_ASSOCIATE_RQ{}
 	pdu.ProtocolVersion = d.DecodeUint16()
-	d.skip(2) // Reserved
+	d.Skip(2) // Reserved
 	pdu.CalledAeTitle = d.DecodeString(16)
 	pdu.CallingAeTitle = d.DecodeString(16)
-	d.skip(8 * 4)
+	d.Skip(8 * 4)
 	pdu.VariableItems = decodeVariableItems(d)
 	return pdu
 }
@@ -337,10 +352,10 @@ type A_ASSOCIATE_AC struct {
 func decodeA_ASSOCIATE_AC(d *Decoder) *A_ASSOCIATE_AC {
 	pdu := &A_ASSOCIATE_AC{}
 	pdu.ProtocolVersion = d.DecodeUint16()
-	d.skip(2) // Reserved
+	d.Skip(2) // Reserved
 	pdu.ReservedAET = d.DecodeString(16)
 	pdu.ReservedAEC = d.DecodeString(16)
-	d.skip(8 * 4)
+	d.Skip(8 * 4)
 	pdu.VariableItems = decodeVariableItems(d)
 	return pdu
 }
@@ -375,7 +390,7 @@ func New_A_ASSOCIATE_RJ(params SessionParams) *A_ASSOCIATE_RJ {
 
 func decodeA_ASSOCIATE_RJ(d *Decoder) *A_ASSOCIATE_RJ {
 	pdu := &A_ASSOCIATE_RJ{}
-	d.skip(1) // reserved
+	d.Skip(1) // reserved
 	pdu.Result = d.DecodeByte()
 	pdu.Source = d.DecodeByte()
 	pdu.ReasonDiagnostic = d.DecodeByte()
@@ -407,7 +422,7 @@ func New_A_ABORT(source, reasonDiagnostic byte) *A_ABORT {
 }
 
 func (pdu *A_ABORT) Decode(d *Decoder) {
-	d.skip(2) // two bytes reserved
+	d.Skip(2) // two bytes reserved
 	pdu.Source = d.DecodeByte()
 	pdu.ReasonDiagnostic = d.DecodeByte()
 }
@@ -432,7 +447,7 @@ func New_P_DATA_TF(items []PresentationDataValueItem) *P_DATA_TF {
 }
 
 func (pdu *P_DATA_TF) Decode(d *Decoder) {
-	for d.Err == nil {
+	for d.err == nil {
 		item := DecodePresentationDataValueItem(d)
 		if item == nil {
 			break

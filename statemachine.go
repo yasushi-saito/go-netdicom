@@ -546,6 +546,18 @@ func NewStateMachineForServiceUser(provider string) *StateMachine {
 	return sm
 }
 
+func NewStateMachineForServiceProvider(int port) *StateMachine {
+	sm := &StateMachine{}
+	sm.Params.Verbose = true
+	sm.netCh = make(chan StateEvent, 128)
+	sm.upperLayerCh = make(chan StateEvent, 128)
+	event := StateEvent{event: Evt1, provider: provider}
+	action := findAction(Sta1, event.event)
+	sm.currentState = action.Callback(sm, event)
+	RunStateMachineUntilQuiescent(sm)
+	return sm
+}
+
 func SendData(sm *StateMachine, data []PresentationDataValueItem) {
 	log.Printf("Send data")
 	doassert(sm.PData == nil)
