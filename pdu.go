@@ -50,8 +50,8 @@ type UserInformationItem struct {
 	Data []byte // P3.8, Annex D.
 }
 
-func (item *UserInformationItem) Encode(e *Encoder) {
-	panic("aoeu")
+func (v *UserInformationItem) Encode(e *Encoder) {
+	e.EncodeBytes(v.Data)
 }
 
 func decodeUserInformationItem(d *Decoder, length uint16) *UserInformationItem {
@@ -110,7 +110,13 @@ func decodePresentationContextItem(d *Decoder, length uint16) *PresentationConte
 	return v
 }
 
-func (item *PresentationContextItem) Encode(e *Encoder) { panic("aoeu") }
+func (v *PresentationContextItem) Encode(e *Encoder) {
+	e.EncodeByte(v.ContextID)
+	e.EncodeZeros(3)
+	for _, s := range(v.Items) {
+		s.Encode(e)
+	}
+}
 
 func (item *PresentationContextItem) DebugString() string {
 	return fmt.Sprintf("presentationcontext{id: %d items:%s",

@@ -51,7 +51,7 @@ var Ae1 = &StateAction{"AE-1",
 
 var Ae2 = &StateAction{"AE-2", "Send A-ASSOCIATE-RQ-PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		sendPdu(sm, New_A_ASSOCIATE_RQ(sm.Params))
+		sendPDU(sm, New_A_ASSOCIATE_RQ(sm.Params))
 		startTimer(sm)
 		return Sta5
 	}}
@@ -86,7 +86,7 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 		if pdu.ProtocolVersion != 0x0001 {
 			log.Printf("Wrong remote protocol version 0x%x", pdu.ProtocolVersion)
 			rj := A_ASSOCIATE_RJ{Result:1, Source:2, Reason:2}
-			sendPdu(sm, &rj)
+			sendPDU(sm, &rj)
 			startTimer(sm)
 			return Sta13
 		}
@@ -116,16 +116,13 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 	}}
 var Ae7 = &StateAction{"AE-7", "Send A-ASSOCIATE-AC PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		pdu := New_A_ASSOCIATE_RQ(sm.Params)
-		sendPdu(sm, pdu)
+		sendPDU(sm, event.pdu.(*A_ASSOCIATE_AC))
 		return Sta6
 	}}
 
 var Ae8 = &StateAction{"AE-8", "Send A-ASSOCIATE-RJ PDU and start ARTIM timer",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		panic("AE-8")
-		pdu := &A_ASSOCIATE_RJ{}
-		sendPdu(sm, pdu)
+		sendPDU(sm, event.pdu.(*A_ASSOCIATE_RJ))
 		startTimer(sm)
 		return Sta13
 	}}
@@ -134,7 +131,7 @@ var Ae8 = &StateAction{"AE-8", "Send A-ASSOCIATE-RJ PDU and start ARTIM timer",
 var Dt1 = &StateAction{"DT-1", "Send P-DATA-TF PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
 		pdu := New_P_DATA_TF(sm.PData)
-		sendPdu(sm, pdu)
+		sendPDU(sm, pdu)
 		return Sta6
 	}}
 
@@ -146,7 +143,7 @@ var Dt2 = &StateAction{"DT-2", "Send P-DATA indication primitive",
 // Assocation Release related actions
 var Ar1 = &StateAction{"AR-1", "Send A-RELEASE-RQ PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		sendPdu(sm, New_A_RELEASE_RQ())
+		sendPDU(sm, New_A_RELEASE_RQ())
 		return Sta7
 	}}
 var Ar2 = &StateAction{"AR-2", "Issue A-RELEASE indication primitive",
@@ -156,13 +153,13 @@ var Ar2 = &StateAction{"AR-2", "Issue A-RELEASE indication primitive",
 
 var Ar3 = &StateAction{"AR-3", "Issue A-RELEASE confirmation primitive and close transport connection",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		sendPdu(sm, New_A_RELEASE_RP())
+		sendPDU(sm, New_A_RELEASE_RP())
 		closeConnection(sm)
 		return Sta1
 	}}
 var Ar4 = &StateAction{"AR-4", "Issue A-RELEASE-RP PDU and start ARTIM timer",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		sendPdu(sm, New_A_RELEASE_RP())
+		sendPDU(sm, New_A_RELEASE_RP())
 		startTimer(sm)
 		return Sta13
 	}}
@@ -180,7 +177,7 @@ var Ar6 = &StateAction{"AR-6", "Issue P-DATA indication",
 
 var Ar7 = &StateAction{"AR-7", "Issue P-DATA-TF PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		sendPdu(sm, New_P_DATA_TF(sm.PData))
+		sendPDU(sm, New_P_DATA_TF(sm.PData))
 		return Sta8
 	}}
 
@@ -196,7 +193,7 @@ var Ar8 = &StateAction{"AR-8", "Issue A-RELEASE indication (release collision): 
 
 var Ar9 = &StateAction{"AR-9", "Send A-RELEASE-RP PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		sendPdu(sm, New_A_RELEASE_RP())
+		sendPDU(sm, New_A_RELEASE_RP())
 		return Sta11
 	}}
 
@@ -212,7 +209,7 @@ var Aa1 = &StateAction{"AA-1", "Send A-ABORT PDU (service-user source) and start
 		if sm.currentState == Sta2 {
 			diagnostic = 2
 		}
-		sendPdu(sm, New_A_ABORT(0, diagnostic))
+		sendPDU(sm, New_A_ABORT(0, diagnostic))
 		restartTimer(sm)
 		return Sta13
 	}}
@@ -249,13 +246,13 @@ var Aa6 = &StateAction{"AA-6", "Ignore PDU",
 
 var Aa7 = &StateAction{"AA-7", "Send A-ABORT PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		sendPdu(sm, New_A_ABORT(0, 0))
+		sendPDU(sm, New_A_ABORT(0, 0))
 		return Sta13
 	}}
 
 var Aa8 = &StateAction{"AA-8", "Send A-ABORT PDU (service-dul source), issue an A-P-ABORT indication and start ARTIM timer",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		sendPdu(sm, New_A_ABORT(2, 0))
+		sendPDU(sm, New_A_ABORT(2, 0))
 		startTimer(sm)
 		return Sta13
 	}}
@@ -473,7 +470,7 @@ func closeConnection(sm *StateMachine) {
 	sm.conn.Close()
 }
 
-func sendPdu(sm *StateMachine, pdu PDU) {
+func sendPDU(sm *StateMachine, pdu PDU) {
 	doassert(sm.conn != nil)
 	encoder := NewEncoder()
 	pdu.Encode(encoder)
@@ -491,7 +488,7 @@ func sendPdu(sm *StateMachine, pdu PDU) {
 		sm.netCh <- StateEvent{event: Evt17, err: err}
 		return
 	}
-	log.Printf("Sent %v", pdu.DebugString())
+	log.Printf("sendPDU: %v", pdu.DebugString())
 }
 
 func startTimer(sm *StateMachine) {
@@ -519,7 +516,7 @@ func networkReaderThread(ch chan StateEvent, conn net.Conn) {
 		if err != nil {
 			log.Printf("Failed to read PDU: %v", err)
 			ch <- StateEvent{event: Evt19, pdu: nil, err: err}
-			continue
+			break
 		}
 		if pdu == nil {
 			break
@@ -605,13 +602,19 @@ func RunStateMachineForServiceProvider(conn net.Conn, callbacks StateCallbacks) 
 	sm := &StateMachine{}
 	sm.Params.Verbose = true
 	sm.Callbacks = callbacks
+	sm.conn = conn
 	sm.netCh = make(chan StateEvent, 128)
 	sm.upperLayerCh = make(chan StateEvent, 128)
 	event := StateEvent{event: Evt5, conn: conn}
 	action := findAction(Sta1, event.event)
 	sm.currentState = action.Callback(sm, event)
 	for sm.currentState != Sta1 {
-		RunStateMachineUntilQuiescent(sm)
+		event := getNextEvent(sm)
+		action := findAction(sm.currentState, event.event)
+		log.Printf("Running action %v", action.Name)
+		sm.currentState = action.Callback(sm, event)
+		log.Printf("Got event:%v action:%v, next:%s",
+			event, action, sm.currentState)
 	}
 	log.Print("Connection shutdown")
 }
@@ -634,6 +637,7 @@ func RunStateMachineUntilQuiescent(sm *StateMachine) {
 	for sm.currentState != Sta6 && sm.currentState != Sta1 {
 		event := getNextEvent(sm)
 		action := findAction(sm.currentState, event.event)
+		log.Printf("Running action %v", action.Name)
 		sm.currentState = action.Callback(sm, event)
 		log.Printf("Got event:%v action:%v, next:%s",
 			event, action, sm.currentState)

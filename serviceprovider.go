@@ -3,7 +3,6 @@ package netdicom
 import (
 	"log"
 	"net"
-// "github.com/yasushi-saito/go-dicom"
 )
 
 type ServiceProvider struct {
@@ -17,8 +16,16 @@ type ServiceProviderSession struct {
 	sm* StateMachine
 }
 
+func onAssociateRequest(pdu A_ASSOCIATE_RQ) ([]SubItem, bool) {
+	return pdu.Items, true
+}
+
 func NewServiceProvider(listenAddr string) *ServiceProvider {
-	return &ServiceProvider{listenAddr: listenAddr}
+	sp := &ServiceProvider{
+		listenAddr: listenAddr,
+	}
+	sp.callbacks.OnAssociateRequest = onAssociateRequest
+	return sp
 }
 
 func (sp *ServiceProvider) Run() error {
