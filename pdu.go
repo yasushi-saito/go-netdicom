@@ -1,6 +1,7 @@
 package netdicom
 
 import (
+	"bytes"
 	"net"
 	"encoding/binary"
 	"io"
@@ -8,6 +9,7 @@ import (
 
 type PDU interface {
 	Encode(*Encoder)
+	DebugString() string
 }
 
 type VariableItem interface {
@@ -69,8 +71,34 @@ func (d *Decoder) skip(bytes int) {
 }
 
 type Encoder struct {
+	byteOrder binary.ByteOrder
+	implicit  bool
+
 	pduType byte
-	Err     error
+	err     error
+	buf *bytes.Buffer
+
+}
+
+func NewEncoder() *Encoder {
+	e := &Encoder{}
+	e.byteOrder = binary.LittleEndian
+	e.buf = &bytes.Buffer{}
+	return e
+}
+
+func (e *Encoder) Finish() ([]byte, error) {
+	if e.pduType == 0 {
+		panic("pduType not set")
+	}
+	// Reserve the header bytes. It will be filled in Finish.
+	header := make([]byte, 6) // First 6 bytes of buf.
+	header[0] = e.pduType
+	header[1] = 0  // Reserved.
+	e.byteOrder.PutUint32(header[2:6], uint32(e.buf.Len() - 6))
+
+	data := append(header, e.buf.Bytes()...)
+	return data, e.err
 }
 
 func (e *Encoder) SetType(t byte) {
@@ -78,22 +106,27 @@ func (e *Encoder) SetType(t byte) {
 }
 
 func (e *Encoder) EncodeByte(v byte) {
+	binary.Write(e.buf, e.byteOrder, &v)
 }
 
 func (e *Encoder) EncodeUint16(v uint16) {
+	binary.Write(e.buf, e.byteOrder, &v)
 }
 
 func (e *Encoder) EncodeUint32(v uint32) {
+	binary.Write(e.buf, e.byteOrder, &v)
 }
 
 func (e *Encoder) EncodeString(v string) {
+	e.buf.Write([]byte(v))
 }
 
 func (e *Encoder) EncodeZeros(bytes int) {
+	e.buf.Next(bytes)
 }
 
 func (e *Encoder) EncodeBytes(v []byte) {
-	panic("aoue")
+	e.buf.Write(v)
 }
 
 type PresentationDataValueItem struct {
@@ -215,6 +248,10 @@ func (pdu *A_RELEASE_RQ) Encode(e *Encoder) {
 	e.EncodeZeros(4)
 }
 
+func (pdu *A_RELEASE_RQ) DebugString() string {
+	return "A_RELEASE_RQ"
+}
+
 type A_RELEASE_RP struct {
 }
 
@@ -229,6 +266,10 @@ func (pdu *A_RELEASE_RP) Decode(d *Decoder) {
 func (pdu *A_RELEASE_RP) Encode(e *Encoder) {
 	e.SetType(type_A_RELEASE_RP)
 	e.EncodeZeros(4)
+}
+
+func (pdu *A_RELEASE_RP) DebugString() string {
+	return "A_RELEASE_RP"
 }
 
 type A_ASSOCIATE_RQ struct {
@@ -263,6 +304,10 @@ func (pdu *A_ASSOCIATE_RQ) Encode(e *Encoder) {
 	e.EncodeString(fillString(pdu.CallingAeTitle, 16))
 	e.EncodeZeros(8 * 4)
 	e.EncodeUint32(0) // TODO
+}
+
+func (pdu *A_ASSOCIATE_RQ) DebugString() string {
+	return "A_ASSOCIATE_RQ"
 }
 
 type ApplicationContextItem struct {
@@ -312,6 +357,10 @@ func (pdu *A_ASSOCIATE_AC) Encode(e *Encoder) {
 	}
 }
 
+func (pdu *A_ASSOCIATE_AC) DebugString() string {
+	return "A_ASSOCIATE_AC"
+}
+
 type A_ASSOCIATE_RJ struct {
 	Header           PDUHeader
 	Result           byte
@@ -341,6 +390,10 @@ func (pdu *A_ASSOCIATE_RJ) Encode(e *Encoder) {
 	e.EncodeByte(pdu.ReasonDiagnostic)
 }
 
+func (pdu *A_ASSOCIATE_RJ) DebugString() string {
+	return "A_ASSOCIATE_RJ"
+}
+
 type A_ABORT struct {
 	Source           byte
 	ReasonDiagnostic byte
@@ -366,6 +419,10 @@ func (pdu *A_ABORT) Encode(e *Encoder) {
 	e.EncodeByte(pdu.ReasonDiagnostic)
 }
 
+func (pdu *A_ABORT) DebugString() string {
+	return "A_ABORT"
+}
+
 type P_DATA_TF struct {
 	Items []PresentationDataValueItem
 }
@@ -389,6 +446,10 @@ func (pdu *P_DATA_TF) Encode(e *Encoder) {
 	for _, item := range pdu.Items {
 		item.Encode(e)
 	}
+}
+
+func (pdu *P_DATA_TF) DebugString() string {
+	return "P_DATA_TF"
 }
 
 func fillString(v string, length int) string {
