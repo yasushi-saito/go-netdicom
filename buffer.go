@@ -85,6 +85,12 @@ type Decoder struct {
 	limits []int
 }
 
+func (e *Decoder) SetError(err error) {
+	if e.err == nil {
+		e.err = err
+	}
+}
+
 func (d *Decoder) PushLimit(limit int) {
 	d.limits = append(d.limits, d.pos + limit)
 }

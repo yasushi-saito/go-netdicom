@@ -104,13 +104,15 @@ func decodeSubItemWithName(d *Decoder, itemType byte, length uint16) *SubItemWit
 	return v
 }
 
-// P3.8 9.3.2.1
-type ApplicationContextItem SubItemWithName // Type==10H
+// The name that should be used for ApplicationContextItem.Name.
+const DefaultApplicationContextItemName = "1.2.840.10008.3.1.1.1"
 
 // P3.8 9.3.2.2
 type PresentationContextItem struct {
 	ContextID byte
-	// 3 bytes reserved
+	// 1 byte reserved
+	Result byte // Used only in ASSOCIATE_AC, zero in .._RQ
+	// 1 byte reserved
 	Items []SubItem // List of {Abstract,Transfer}SyntaxSubItem
 }
 
@@ -119,9 +121,14 @@ func decodePresentationContextItem(d *Decoder, length uint16) *PresentationConte
 	d.PushLimit(int(length))
 	defer d.PopLimit()
 	v.ContextID = d.DecodeByte()
-	d.Skip(3)
+	d.Skip(1)
+	v.Result = d.DecodeByte()
+	d.Skip(1)
 	for d.Available() > 0 && d.Error() == nil {
 		v.Items = append(v.Items, decodeSubItem(d))
+	}
+	if v.ContextID % 2 != 1 {
+		d.SetError(fmt.Errorf("PresentationContextItem ID must be odd, but found %x", v.ContextID))
 	}
 	return v
 }
@@ -149,7 +156,7 @@ func (item *PresentationContextItem) DebugString() string {
 
 // P3.8 9.3.2.2.1 & 9.3.2.2.2
 type AbstractSyntaxSubItem SubItem // Type=30H
-type TransferSyntaxSubItem SubItem // Type=40H
+//type TransferSyntaxSubItem SubItem // Type=40H
 
 type PresentationDataValueItem struct {
 	Length    uint32

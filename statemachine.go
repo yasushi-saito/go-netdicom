@@ -51,7 +51,6 @@ var Ae1 = &StateAction{"AE-1",
 
 var Ae2 = &StateAction{"AE-2", "Send A-ASSOCIATE-RQ-PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		panic("AUE")
 		sendPDU(sm, &A_ASSOCIATE{
 			Type: PDUTypeA_ASSOCIATE_RQ,
 			ProtocolVersion: CurrentProtocolVersion,

@@ -17,7 +17,33 @@ type ServiceProviderSession struct {
 }
 
 func onAssociateRequest(pdu A_ASSOCIATE) ([]SubItem, bool) {
-	return pdu.Items, true
+	responses := []SubItem{
+		&SubItemWithName{
+			Type: ItemTypeApplicationContext,
+			Name: DefaultApplicationContextItemName,
+		},
+	}
+
+	for _, item := range(pdu.Items) {
+		if n, ok := item.(*PresentationContextItem); ok {
+			var syntaxItem SubItem
+			for _, subitem := range(n.Items) {
+				log.Printf("Received PresentaionContext(%x): %v", n.ContextID, subitem.DebugString())
+				if n, ok := subitem.(*SubItemWithName); ok && n.Type == ItemTypeTransferSyntax {
+					syntaxItem = n
+					break
+				}
+			}
+			doassert(syntaxItem != nil)
+			responses = append(responses,
+				&PresentationContextItem{
+					ContextID: n.ContextID,
+					Result: 0, // accepted
+					Items: []SubItem{syntaxItem}})
+		}
+	}
+	responses = append(responses, &UserInformationItem{ Data: nil })
+	return responses, true
 }
 
 func NewServiceProvider(listenAddr string) *ServiceProvider {
