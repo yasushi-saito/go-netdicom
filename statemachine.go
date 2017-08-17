@@ -51,7 +51,13 @@ var Ae1 = &StateAction{"AE-1",
 
 var Ae2 = &StateAction{"AE-2", "Send A-ASSOCIATE-RQ-PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		sendPDU(sm, New_A_ASSOCIATE_RQ(sm.Params))
+		panic("AUE")
+		sendPDU(sm, &A_ASSOCIATE{
+			Type: PDUTypeA_ASSOCIATE_RQ,
+			ProtocolVersion: CurrentProtocolVersion,
+			CalledAETitle: sm.Params.CalledAETitle,
+			CallingAETitle: sm.Params.CallingAETitle,
+		})
 		startTimer(sm)
 		return Sta5
 	}}
@@ -82,7 +88,7 @@ service-dul: issue A-ASSOCIATE indication primitive
 otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 	func(sm *StateMachine, event StateEvent) *StateType {
 		stopTimer(sm)
-		pdu := event.pdu.(*A_ASSOCIATE_RQ)
+		pdu := event.pdu.(*A_ASSOCIATE)
 		if pdu.ProtocolVersion != 0x0001 {
 			log.Printf("Wrong remote protocol version 0x%x", pdu.ProtocolVersion)
 			rj := A_ASSOCIATE_RJ{Result:1, Source:2, Reason:2}
@@ -95,7 +101,8 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 			doassert(len(items) >0)
 			sm.upperLayerCh <- StateEvent{
 				event: Evt7,
-				pdu: &A_ASSOCIATE_AC{
+				pdu: &A_ASSOCIATE{
+					Type: PDUTypeA_ASSOCIATE_AC,
 					ProtocolVersion: CurrentProtocolVersion,
 					CalledAETitle: pdu.CalledAETitle,
 					CallingAETitle: pdu.CallingAETitle,
@@ -116,7 +123,7 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 	}}
 var Ae7 = &StateAction{"AE-7", "Send A-ASSOCIATE-AC PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		sendPDU(sm, event.pdu.(*A_ASSOCIATE_AC))
+		sendPDU(sm, event.pdu.(*A_ASSOCIATE))
 		return Sta6
 	}}
 
@@ -440,8 +447,8 @@ const (
 
 type SessionParams struct {
 	Verbose        bool
-	CallingAeTitle string
-	CalledAeTitle  string
+	CallingAETitle string
+	CalledAETitle  string
 }
 
 type StateMachine struct {
@@ -472,9 +479,7 @@ func closeConnection(sm *StateMachine) {
 
 func sendPDU(sm *StateMachine, pdu PDU) {
 	doassert(sm.conn != nil)
-	encoder := NewEncoder()
-	pdu.Encode(encoder)
-	data, err := encoder.Finish()
+	data, err := EncodePDU(pdu)
 	if err != nil {
 		log.Printf("Failed to encode: %v", err)
 		sm.conn.Close()
@@ -521,13 +526,14 @@ func networkReaderThread(ch chan StateEvent, conn net.Conn) {
 		if pdu == nil {
 			break
 		}
-		// log.Printf("Read PDU: %v", pdu.DebugString())
-		if n, ok := pdu.(*A_ASSOCIATE_RQ); ok {
-			ch <- StateEvent{event: Evt6, pdu: n, err: nil}
-			continue
-		}
-		if n, ok := pdu.(*A_ASSOCIATE_AC); ok {
-			ch <- StateEvent{event: Evt3, pdu: n, err: nil}
+		log.Printf("Read PDU: %v", pdu.DebugString())
+		if n, ok := pdu.(*A_ASSOCIATE); ok {
+			if n.Type == PDUTypeA_ASSOCIATE_RQ {
+				ch <- StateEvent{event: Evt6, pdu: n, err: nil}
+			} else {
+				doassert(n.Type == PDUTypeA_ASSOCIATE_AC)
+				ch <- StateEvent{event: Evt3, pdu: n, err: nil}
+			}
 			continue
 		}
 		if n, ok := pdu.(*A_ASSOCIATE_RJ); ok {
@@ -544,6 +550,10 @@ func networkReaderThread(ch chan StateEvent, conn net.Conn) {
 		}
 		if n, ok := pdu.(*A_RELEASE_RP); ok {
 			ch <- StateEvent{event: Evt13, pdu: n, err: nil}
+			continue
+		}
+		if n, ok := pdu.(*A_ABORT); ok {
+			ch <- StateEvent{event: Evt16, pdu: n, err: nil}
 			continue
 		}
 		panic(fmt.Sprintf("Unknown PDU type: %v", pdu.DebugString()))
@@ -595,7 +605,7 @@ func NewStateMachineForServiceUser(provider string) *StateMachine {
 
 type StateCallbacks struct {
 	// A_ASSOCIATE_RQ arrived from a client. STA3
-	OnAssociateRequest func(A_ASSOCIATE_RQ) ([]SubItem, bool)
+	OnAssociateRequest func(A_ASSOCIATE) ([]SubItem, bool)
 }
 
 func RunStateMachineForServiceProvider(conn net.Conn, callbacks StateCallbacks) {

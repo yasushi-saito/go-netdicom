@@ -16,7 +16,7 @@ type ServiceProviderSession struct {
 	sm* StateMachine
 }
 
-func onAssociateRequest(pdu A_ASSOCIATE_RQ) ([]SubItem, bool) {
+func onAssociateRequest(pdu A_ASSOCIATE) ([]SubItem, bool) {
 	return pdu.Items, true
 }
 

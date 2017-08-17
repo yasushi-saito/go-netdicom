@@ -10,8 +10,7 @@ import (
 
 type Encoder struct {
 	byteOrder binary.ByteOrder
-
-	pduType byte
+	// pduType byte
 	err     error
 	buf     *bytes.Buffer
 }
@@ -23,23 +22,29 @@ func NewEncoder() *Encoder {
 	return e
 }
 
-func (e *Encoder) Finish() ([]byte, error) {
-	if e.pduType == 0 {
-		panic("pduType not set")
+func (e *Encoder) SetError(err error) {
+	if e.err == nil {
+		e.err = err
 	}
-	// Reserve the header bytes. It will be filled in Finish.
-	header := make([]byte, 6) // First 6 bytes of buf.
-	header[0] = e.pduType
-	header[1] = 0 // Reserved.
-	e.byteOrder.PutUint32(header[2:6], uint32(e.buf.Len()))
-
-	data := append(header, e.buf.Bytes()...)
-	return data, e.err
 }
 
-func (e *Encoder) SetType(t byte) {
-	e.pduType = t
+func (e *Encoder) Finish() ([]byte, error) {
+	// if e.pduType == 0 {
+	// 	panic("pduType not set")
+	// }
+	// // Reserve the header bytes. It will be filled in Finish.
+	// header := make([]byte, 6) // First 6 bytes of buf.
+	// header[0] = e.pduType
+	// header[1] = 0 // Reserved.
+	// e.byteOrder.PutUint32(header[2:6], uint32(e.buf.Len()))
+
+	// data := append(header, e.buf.Bytes()...)
+	return e.buf.Bytes(), e.err
 }
+
+// func (e *Encoder) SetType(t byte) {
+// 	e.pduType = t
+// }
 
 func (e *Encoder) EncodeByte(v byte) {
 	binary.Write(e.buf, e.byteOrder, &v)

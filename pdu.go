@@ -5,25 +5,36 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 )
 
 type PDU interface {
-	Encode(*Encoder)
+	EncodePayload(*Encoder)
 	DebugString() string
 }
+
+// Possible Type field for PDUs.
+const (
+	PDUTypeA_ASSOCIATE_RQ = 1
+	PDUTypeA_ASSOCIATE_AC = 2
+	PDUTypeA_ASSOCIATE_RJ = 3
+	PDUTypeP_DATA_TF      = 4
+	PDUTypeA_RELEASE_RQ   = 5
+	PDUTypeA_RELEASE_RP   = 6
+	PDUTypeA_ABORT        = 7
+)
 
 type SubItem interface {
 	Encode(*Encoder)
 	DebugString() string
 }
 
+// Possible Type field values for SubItem.
 const (
-	type_ApplicationContextItem  = 0x10
-	type_PresentationContextItem = 0x20
-	type_AbstractSyntaxSubItem   = 0x30
-	type_TransferSyntaxSubItem   = 0x40
-	type_UserInformationItem     = 0x50
+	ItemTypeApplicationContext  = 0x10
+	ItemTypePresentationContext = 0x20
+	ItemTypeAbstractSyntax      = 0x30
+	ItemTypeTransferSyntax      = 0x40
+	ItemTypeUserInformation     = 0x50
 )
 
 func decodeSubItem(d *Decoder) SubItem {
@@ -31,15 +42,15 @@ func decodeSubItem(d *Decoder) SubItem {
 	d.Skip(1)
 	length := d.DecodeUint16()
 	// log.Printf("DecodeSubItem: item=0x%x length=%v, err=%v", itemType, length, d.Error())
-	if itemType == type_ApplicationContextItem ||
-		itemType == type_AbstractSyntaxSubItem ||
-		itemType == type_TransferSyntaxSubItem {
+	if itemType == ItemTypeApplicationContext ||
+		itemType == ItemTypeAbstractSyntax ||
+		itemType == ItemTypeTransferSyntax {
 		return decodeSubItemWithName(d, itemType, length)
 	}
-	if itemType == type_PresentationContextItem {
+	if itemType == ItemTypePresentationContext {
 		return decodePresentationContextItem(d, length)
 	}
-	if itemType == type_UserInformationItem {
+	if itemType == ItemTypeUserInformation {
 		return decodeUserInformationItem(d, length)
 	}
 	panic("aoeu")
@@ -50,7 +61,14 @@ type UserInformationItem struct {
 	Data []byte // P3.8, Annex D.
 }
 
+func encodeSubItemHeader(e* Encoder, itemType byte, length uint16) {
+	e.EncodeByte(itemType)
+	e.EncodeZeros(1)
+	e.EncodeUint16(length)
+}
+
 func (v *UserInformationItem) Encode(e *Encoder) {
+	encodeSubItemHeader(e, ItemTypeUserInformation, uint16(len(v.Data)))
 	e.EncodeBytes(v.Data)
 }
 
@@ -70,10 +88,8 @@ type SubItemWithName struct {
 }
 
 func (item *SubItemWithName) Encode(e *Encoder) {
-	e.EncodeByte(item.Type)
-	e.EncodeZeros(1)
+	encodeSubItemHeader(e, item.Type, uint16(len(item.Name)))
 	// TODO: handle unicode properly
-	e.EncodeUint16(uint16(len(item.Name)))
 	e.EncodeBytes([]byte(item.Name))
 }
 
@@ -111,15 +127,23 @@ func decodePresentationContextItem(d *Decoder, length uint16) *PresentationConte
 }
 
 func (v *PresentationContextItem) Encode(e *Encoder) {
+	itemEncoder := NewEncoder()
+	for _, s := range v.Items {
+		s.Encode(itemEncoder)
+	}
+	itemBytes, err := itemEncoder.Finish()
+	if (err != nil) {
+		e.SetError(err)
+		return
+	}
+	encodeSubItemHeader(e, ItemTypePresentationContext, uint16(8 + len(itemBytes)))
 	e.EncodeByte(v.ContextID)
 	e.EncodeZeros(3)
-	for _, s := range(v.Items) {
-		s.Encode(e)
-	}
+	e.EncodeBytes(itemBytes)
 }
 
 func (item *PresentationContextItem) DebugString() string {
-	return fmt.Sprintf("presentationcontext{id: %d items:%s",
+	return fmt.Sprintf("presentationcontext{id: %d items:%s}",
 		item.ContextID, subItemListDebugString(item.Items))
 }
 
@@ -155,10 +179,37 @@ func (item *PresentationDataValueItem) Encode(e *Encoder) {
 	e.EncodeBytes(item.Value)
 }
 
-type PDUHeader struct {
-	Type byte
-	// Reserved0 byte
-	Length uint32
+func EncodePDU(pdu PDU) ([]byte, error) {
+	var pduType byte
+	if n, ok := pdu.(*A_ASSOCIATE); ok {
+		pduType = n.Type
+	} else if _, ok := pdu.(*A_ASSOCIATE_RJ); ok {
+		pduType = PDUTypeA_ASSOCIATE_RJ
+	} else if _, ok := pdu.(*P_DATA_TF); ok {
+		pduType = PDUTypeP_DATA_TF
+	} else if _, ok := pdu.(*A_RELEASE_RQ); ok {
+		pduType = PDUTypeA_RELEASE_RQ
+	} else if _, ok := pdu.(*A_RELEASE_RP); ok {
+		pduType = PDUTypeA_RELEASE_RP
+	} else if _, ok := pdu.(*A_ABORT); ok {
+		pduType = PDUTypeA_ABORT
+	} else {
+		panic(fmt.Sprintf("Unknown PDU %v", pdu))
+	}
+
+	e := NewEncoder()
+	pdu.EncodePayload(e)
+	payload, err := e.Finish()
+	if err != nil {
+		return nil, err
+	}
+
+	// Reserve the header bytes. It will be filled in Finish.
+	header := make([]byte, 6) // First 6 bytes of buf.
+	header[0] = pduType
+	header[1] = 0 // Reserved.
+	e.byteOrder.PutUint32(header[2:6], uint32(len(payload)))
+	return append(header, payload...), nil
 }
 
 func DecodePDU(in io.Reader) (PDU, error) {
@@ -168,27 +219,29 @@ func DecodePDU(in io.Reader) (PDU, error) {
 	}
 	var pdu PDU = nil
 	switch d.Type {
-	case type_A_ASSOCIATE_RQ:
-		pdu = decodeA_ASSOCIATE_RQ(d)
+	case PDUTypeA_ASSOCIATE_RQ:
+		fallthrough
+	case PDUTypeA_ASSOCIATE_AC:
+		pdu = decodeA_ASSOCIATE(d, d.Type)
 		if d.err != nil {
 			return nil, d.err
 		}
-	case type_A_ASSOCIATE_AC:
-		pdu = decodeA_ASSOCIATE_AC(d)
-		if d.err != nil {
-			return nil, d.err
-		}
-	case type_A_ASSOCIATE_RJ:
+	case PDUTypeA_ASSOCIATE_RJ:
 		pdu = decodeA_ASSOCIATE_RJ(d)
+		if d.err != nil {
+			return nil, d.err
+		}
+	case PDUTypeA_ABORT:
+		pdu = decodeA_ABORT(d)
 		if d.err != nil {
 			return nil, d.err
 		}
 	}
 	if pdu == nil {
-		// type_P_DATA_TF      = 4
-		// type_A_RELEASE_RQ   = 5
-		// type_A_RELEASE_RP   = 6
-		// type_A_ABORT        = 7
+		// PDUTypeP_DATA_TF      = 4
+		// PDUTypeA_RELEASE_RQ   = 5
+		// PDUTypeA_RELEASE_RP   = 6
+		// PDUTypeA_ABORT        = 7
 		err := fmt.Errorf("DecodePDU: unknown message type %d", d.Type)
 		log.Panicf("%v", err)
 		return nil, err
@@ -200,30 +253,6 @@ func DecodePDU(in io.Reader) (PDU, error) {
 	return pdu, nil
 }
 
-// func decodeHeader(d *Decoder, pduType byte) (PDUHeader, length uint32) {
-// 	h := PDUHeader{}
-// 	h.Type = pduType
-// 	d.DecodeByte() // Reserved
-// 	h.Length = d.DecodeUint32()
-// 	return h
-// }
-
-func encodeHeader(header PDUHeader, e *Encoder) {
-	e.EncodeByte(header.Type)
-	e.EncodeZeros(1) // Reserved
-	e.EncodeUint32(header.Length)
-}
-
-const (
-	type_A_ASSOCIATE_RQ = 1
-	type_A_ASSOCIATE_AC = 2
-	type_A_ASSOCIATE_RJ = 3
-	type_P_DATA_TF      = 4
-	type_A_RELEASE_RQ   = 5
-	type_A_RELEASE_RP   = 6
-	type_A_ABORT        = 7
-)
-
 type A_RELEASE_RQ struct {
 }
 
@@ -231,12 +260,13 @@ func New_A_RELEASE_RQ() *A_RELEASE_RQ {
 	return &A_RELEASE_RQ{}
 }
 
-func (pdu *A_RELEASE_RQ) Decode(d *Decoder) {
+func DecodeA_RELEASE_RQ(d *Decoder) *A_RELEASE_RQ {
+	pdu := &A_RELEASE_RQ{}
 	d.Skip(4)
+	return pdu
 }
 
-func (pdu *A_RELEASE_RQ) Encode(e *Encoder) {
-	e.SetType(type_A_RELEASE_RQ)
+func (pdu *A_RELEASE_RQ) EncodePayload(e *Encoder) {
 	e.EncodeZeros(4)
 }
 
@@ -257,8 +287,7 @@ func (pdu *A_RELEASE_RP) Decode(d *Decoder) {
 	d.Skip(4)
 }
 
-func (pdu *A_RELEASE_RP) Encode(e *Encoder) {
-	e.SetType(type_A_RELEASE_RP)
+func (pdu *A_RELEASE_RP) EncodePayload(e *Encoder) {
 	e.EncodeZeros(4)
 }
 
@@ -266,77 +295,79 @@ func (pdu *A_RELEASE_RP) DebugString() string {
 	return fmt.Sprintf("A_RELEASE_RP(%v)", *pdu)
 }
 
-type A_ASSOCIATE_RQ struct {
-	ProtocolVersion uint16
-	// Reserved1 uint16
-	CalledAETitle  string
-	CallingAETitle string
-	Items          []SubItem
-}
+// type A_ASSOCIATE_RQ struct {
+// 	ProtocolVersion uint16
+// 	// Reserved uint16
+// 	CalledAETitle  string
+// 	CallingAETitle string
+// 	Items          []SubItem
+// }
 
-func New_A_ASSOCIATE_RQ(params SessionParams) *A_ASSOCIATE_RQ {
-	pdu := A_ASSOCIATE_RQ{}
-	pdu.ProtocolVersion = 1
-	return &pdu
-}
+// func New_A_ASSOCIATE_RQ(params SessionParams) *A_ASSOCIATE_RQ {
+// 	pdu := A_ASSOCIATE_RQ{}
+// 	pdu.ProtocolVersion = 1
+// 	return &pdu
+// }
+
+// func decodeA_ASSOCIATE_RQ(d *Decoder) *A_ASSOCIATE_RQ {
+// 	pdu := &A_ASSOCIATE_RQ{}
+// 	pdu.ProtocolVersion = d.DecodeUint16()
+// 	d.Skip(2) // Reserved
+// 	pdu.CalledAETitle = d.DecodeString(16)
+// 	pdu.CallingAETitle = d.DecodeString(16)
+// 	d.Skip(8 * 4)
+// 	for d.Available() > 0 && d.Error() == nil {
+// 		pdu.Items = append(pdu.Items, decodeSubItem(d))
+// 	}
+// 	return pdu
+// }
+
+// func (pdu *A_ASSOCIATE_RQ) Encode(e *Encoder) {
+// 	e.SetType(PDUTypeA_ASSOCIATE_RQ)
+// 	e.EncodeUint16(pdu.ProtocolVersion)
+// 	e.EncodeZeros(2) // Reserved
+// 	e.EncodeString(fillString(pdu.CalledAETitle, 16))
+// 	e.EncodeString(fillString(pdu.CallingAETitle, 16))
+// 	e.EncodeZeros(8 * 4)
+// 	e.EncodeUint32(0) // TODO
+// }
+//func (pdu *A_ASSOCIATE_RQ) DebugString() string {
+//	return fmt.Sprintf(
+//		"A_ASSOCIATE_RQ{version:%v calledaet:%s callingaet:%s items: %s",
+//		pdu.ProtocolVersion, pdu.CalledAETitle, pdu.CallingAETitle,
+//		subItemListDebugString(pdu.Items))
+//}
 
 func subItemListDebugString(items []SubItem) string {
 	buf := bytes.Buffer{}
+	buf.WriteString("{")
 	for i, subitem := range items {
 		if i > 0 {
-			buf.WriteString(", ")
+			buf.WriteString("\n")
 		}
 		buf.WriteString(subitem.DebugString())
 	}
+	buf.WriteString("}")
 	return buf.String()
-}
-
-func decodeA_ASSOCIATE_RQ(d *Decoder) *A_ASSOCIATE_RQ {
-	pdu := &A_ASSOCIATE_RQ{}
-	pdu.ProtocolVersion = d.DecodeUint16()
-	d.Skip(2) // Reserved
-	pdu.CalledAETitle = d.DecodeString(16)
-	pdu.CallingAETitle = d.DecodeString(16)
-	d.Skip(8 * 4)
-	for d.Available() > 0 && d.Error() == nil {
-		pdu.Items = append(pdu.Items, decodeSubItem(d))
-		log.Printf("Got item: %v", pdu.Items[len(pdu.Items)-1])
-	}
-	return pdu
-}
-
-func (pdu *A_ASSOCIATE_RQ) Encode(e *Encoder) {
-	e.SetType(type_A_ASSOCIATE_RQ)
-	e.EncodeUint16(pdu.ProtocolVersion)
-	e.EncodeZeros(2) // Reserved
-	e.EncodeString(fillString(pdu.CalledAETitle, 16))
-	e.EncodeString(fillString(pdu.CallingAETitle, 16))
-	e.EncodeZeros(8 * 4)
-	e.EncodeUint32(0) // TODO
-}
-
-func (pdu *A_ASSOCIATE_RQ) DebugString() string {
-	return fmt.Sprintf(
-		"A_ASSOCIATE_RQ{version:%v calledaet:%s callingaet:%s items: %s",
-		pdu.ProtocolVersion, pdu.CalledAETitle, pdu.CallingAETitle,
-		subItemListDebugString(pdu.Items))
 }
 
 const (
 	CurrentProtocolVersion uint16 = 1
 )
 
-// P3.8 9.3.3
-type A_ASSOCIATE_AC struct {
+// Defines A_ASSOCIATE_{RQ,AC}. P3.8 9.3.2 and 9.3.3
+type A_ASSOCIATE struct {
+	Type            byte // One of {PDUTypeA_Associate_RQ,PDUTypeA_Associate_AC}
 	ProtocolVersion uint16
-	// Reserved1 uint16
-	CalledAETitle  string   // Copied from A_ASSOCIATE_RQ
-	CallingAETitle string   // Copied from A_ASSOCIATE_RQ
-	Items       []SubItem
+	// Reserved uint16
+	CalledAETitle  string // For .._AC, the value is copied from A_ASSOCIATE_RQ
+	CallingAETitle string // For .._AC, the value is copied from A_ASSOCIATE_RQ
+	Items          []SubItem
 }
 
-func decodeA_ASSOCIATE_AC(d *Decoder) *A_ASSOCIATE_AC {
-	pdu := &A_ASSOCIATE_AC{}
+func decodeA_ASSOCIATE(d *Decoder, pduType byte) *A_ASSOCIATE {
+	pdu := &A_ASSOCIATE{}
+	pdu.Type = pduType
 	pdu.ProtocolVersion = d.DecodeUint16()
 	d.Skip(2) // Reserved
 	pdu.CalledAETitle = d.DecodeString(16)
@@ -344,13 +375,12 @@ func decodeA_ASSOCIATE_AC(d *Decoder) *A_ASSOCIATE_AC {
 	d.Skip(8 * 4)
 	for d.Available() > 0 && d.Error() == nil {
 		pdu.Items = append(pdu.Items, decodeSubItem(d))
-		log.Printf("Got item: %v", pdu.Items[len(pdu.Items)-1])
 	}
 	return pdu
 }
 
-func (pdu *A_ASSOCIATE_AC) Encode(e *Encoder) {
-	e.SetType(type_A_ASSOCIATE_RQ)
+func (pdu *A_ASSOCIATE) EncodePayload(e *Encoder) {
+	doassert(pdu.Type != 0)
 	e.EncodeUint16(pdu.ProtocolVersion)
 	e.EncodeZeros(2) // Reserved
 	e.EncodeString(fillString(pdu.CalledAETitle, 16))
@@ -361,14 +391,20 @@ func (pdu *A_ASSOCIATE_AC) Encode(e *Encoder) {
 	}
 }
 
-func (pdu *A_ASSOCIATE_AC) DebugString() string {
-	return "A_ASSOCIATE_AC"
+func (pdu *A_ASSOCIATE) DebugString() string {
+	name := "AC"
+	if pdu.Type == PDUTypeA_ASSOCIATE_RQ {
+		name = "RQ"
+	}
+	return fmt.Sprintf("A_ASSOCIATE_%s{version:%v called:'%v' calling:'%v' items:%s}",
+		name, pdu.ProtocolVersion,
+		pdu.CalledAETitle, pdu.CallingAETitle, subItemListDebugString(pdu.Items))
 }
 
 // P3.8 9.3.4
 type A_ASSOCIATE_RJ struct {
-	Result           byte
-	Source           byte
+	Result byte
+	Source byte
 	Reason byte
 }
 
@@ -380,14 +416,14 @@ const (
 
 // Possible values for A_ASSOCIATE_RJ.Source
 const (
-	SourceULServiceUser = 1
-	SourceULServiceProviderACSE = 2
+	SourceULServiceUser                 = 1
+	SourceULServiceProviderACSE         = 2
 	SourceULServiceProviderPresentation = 3
 )
 
 // Possible values for A_ASSOCIATE_RJ.Reason
 const (
-	ReasonNone = 1
+	ReasonNone                               = 1
 	ReasonApplicationContextNameNotSupported = 2
 )
 
@@ -407,8 +443,7 @@ func decodeA_ASSOCIATE_RJ(d *Decoder) *A_ASSOCIATE_RJ {
 	return pdu
 }
 
-func (pdu *A_ASSOCIATE_RJ) Encode(e *Encoder) {
-	e.SetType(type_A_ASSOCIATE_RJ)
+func (pdu *A_ASSOCIATE_RJ) EncodePayload(e *Encoder) {
 	e.EncodeZeros(1)
 	e.EncodeByte(pdu.Result)
 	e.EncodeByte(pdu.Source)
@@ -421,31 +456,32 @@ func (pdu *A_ASSOCIATE_RJ) DebugString() string {
 
 type A_ABORT struct {
 	Source           byte
-	ReasonDiagnostic byte
+	Reason byte
 }
 
-func New_A_ABORT(source, reasonDiagnostic byte) *A_ABORT {
+func New_A_ABORT(source, reason byte) *A_ABORT {
 	pdu := A_ABORT{
 		Source:           source,
-		ReasonDiagnostic: reasonDiagnostic}
+		Reason: reason}
 	return &pdu
 }
 
-func (pdu *A_ABORT) Decode(d *Decoder) {
-	d.Skip(2) // two bytes reserved
+func decodeA_ABORT(d *Decoder) *A_ABORT {
+	pdu := &A_ABORT{}
+	d.Skip(2)
 	pdu.Source = d.DecodeByte()
-	pdu.ReasonDiagnostic = d.DecodeByte()
+	pdu.Reason = d.DecodeByte()
+	return pdu
 }
 
-func (pdu *A_ABORT) Encode(e *Encoder) {
-	e.SetType(type_A_ABORT)
+func (pdu *A_ABORT) EncodePayload(e *Encoder) {
 	e.EncodeZeros(2)
 	e.EncodeByte(pdu.Source)
-	e.EncodeByte(pdu.ReasonDiagnostic)
+	e.EncodeByte(pdu.Reason)
 }
 
 func (pdu *A_ABORT) DebugString() string {
-	return "A_ABORT"
+	return fmt.Sprintf("A_ABORT{source:%d reason:%d}", pdu.Source, pdu.Reason)
 }
 
 type P_DATA_TF struct {
@@ -459,12 +495,10 @@ func New_P_DATA_TF(items []PresentationDataValueItem) *P_DATA_TF {
 func (pdu *P_DATA_TF) Decode(d *Decoder) {
 	for d.Available() > 0 && d.Error() == nil {
 		pdu.Items = append(pdu.Items, DecodePresentationDataValueItem(d))
-		log.Printf("Got item: %v", pdu.Items[len(pdu.Items)-1])
 	}
 }
 
-func (pdu *P_DATA_TF) Encode(e *Encoder) {
-	e.SetType(type_P_DATA_TF)
+func (pdu *P_DATA_TF) EncodePayload(e *Encoder) {
 	for _, item := range pdu.Items {
 		item.Encode(e)
 	}
@@ -483,21 +517,3 @@ func fillString(v string, length int) string {
 	}
 	return v
 }
-
-type networkConnectedPDU struct {
-	Conn net.Conn
-}
-
-func (pdu *networkConnectedPDU) Encode(e *Encoder) { panic("Not implemented") }
-
-type networkDisconnectedPDU struct {
-	Err error
-}
-
-func (pdu *networkDisconnectedPDU) Encode(e *Encoder) { panic("Not implemented") }
-
-type malformedPDU struct {
-	Err error
-}
-
-func (pdu *malformedPDU) Encode(e *Encoder) { panic("Not implemented") }
