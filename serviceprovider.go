@@ -36,6 +36,6 @@ func (sp *ServiceProvider) Run() error {
 			continue
 		}
 		log.Printf("Accept connection")
-		RunStateMachineForServiceProvider(conn)
+		go RunStateMachineForServiceProvider(conn)
 	}
 }

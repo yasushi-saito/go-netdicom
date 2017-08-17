@@ -1,11 +1,12 @@
 package netdicom
 
 import (
-	"fmt"
 	"bytes"
-	"net"
 	"encoding/binary"
+	"fmt"
 	"io"
+	"log"
+	"net"
 )
 
 type PDU interface {
@@ -21,9 +22,9 @@ type Decoder struct {
 	byteOrder binary.ByteOrder
 	implicit  bool
 	in        io.Reader
-	err    error
+	err       error
 
-	Type   byte
+	Type byte
 	// 1 byte reserved
 	Length uint32
 }
@@ -46,7 +47,18 @@ func NewDecoder(
 	}
 	d.err = binary.Read(in, d.byteOrder, &d.Length)
 	d.in = io.LimitReader(in, int64(d.Length))
+	log.Printf("NewDecoder: type=%d, length=%d", d.Type, d.Length)
 	return d
+}
+
+func (d *Decoder) Finish() error {
+	buf := make([]byte, 1)
+	n, err := d.in.Read(buf)
+	if err != nil {return err}
+	if n > 0 {
+		return fmt.Errorf("PDU not consume all the bytes")
+	}
+	return nil
 }
 
 func (d *Decoder) TryDecodeUint32() (uint32, bool) {
@@ -92,7 +104,7 @@ type Encoder struct {
 
 	pduType byte
 	err     error
-	buf *bytes.Buffer
+	buf     *bytes.Buffer
 }
 
 func NewEncoder() *Encoder {
@@ -109,8 +121,8 @@ func (e *Encoder) Finish() ([]byte, error) {
 	// Reserve the header bytes. It will be filled in Finish.
 	header := make([]byte, 6) // First 6 bytes of buf.
 	header[0] = e.pduType
-	header[1] = 0  // Reserved.
-	e.byteOrder.PutUint32(header[2:6], uint32(e.buf.Len() - 6))
+	header[1] = 0 // Reserved.
+	e.byteOrder.PutUint32(header[2:6], uint32(e.buf.Len()-6))
 
 	data := append(header, e.buf.Bytes()...)
 	return data, e.err
@@ -150,14 +162,13 @@ type PresentationDataValueItem struct {
 	Value     []byte
 }
 
-func NewPresentationDataValueItem(contextID byte, value[]byte) PresentationDataValueItem {
+func NewPresentationDataValueItem(contextID byte, value []byte) PresentationDataValueItem {
 	return PresentationDataValueItem{
-		Length: uint32(1 + len(value)),
+		Length:    uint32(1 + len(value)),
 		ContextID: contextID,
-		Value: value,
+		Value:     value,
 	}
 }
-
 
 func DecodePresentationDataValueItem(d *Decoder) *PresentationDataValueItem {
 	item := &PresentationDataValueItem{}
@@ -197,30 +208,38 @@ func DecodePDU(in io.Reader) (PDU, error) {
 	if d.err != nil {
 		return nil, d.err
 	}
-
+	var pdu PDU = nil
 	switch d.Type {
 	case type_A_ASSOCIATE_RQ:
-		pdu := decodeA_ASSOCIATE_RQ(d)
+		pdu = decodeA_ASSOCIATE_RQ(d)
 		if d.err != nil {
 			return nil, d.err
 		}
-		return pdu, nil
 	case type_A_ASSOCIATE_AC:
-		pdu := decodeA_ASSOCIATE_AC(d)
-		if d.err != nil { return nil, d.err }
-		return pdu, nil
-	case type_A_ASSOCIATE_RJ:
-		pdu := decodeA_ASSOCIATE_RJ(d)
+		pdu = decodeA_ASSOCIATE_AC(d)
 		if d.err != nil {
 			return nil, d.err
 		}
-		return pdu, nil
+	case type_A_ASSOCIATE_RJ:
+		pdu = decodeA_ASSOCIATE_RJ(d)
+		if d.err != nil {
+			return nil, d.err
+		}
 	}
-	// type_P_DATA_TF      = 4
-	// type_A_RELEASE_RQ   = 5
-	// type_A_RELEASE_RP   = 6
-	// type_A_ABORT        = 7
-	panic("aoeu")
+	if pdu == nil {
+		// type_P_DATA_TF      = 4
+		// type_A_RELEASE_RQ   = 5
+		// type_A_RELEASE_RP   = 6
+		// type_A_ABORT        = 7
+		err := fmt.Errorf("DecodePDU: unknown message type %d", d.Type)
+		log.Panicf("%v", err)
+		return nil, err
+	}
+	if err := d.Finish(); err != nil {
+		log.Panicf("DecodePDU: %v", err)
+		return nil, err
+	}
+	return pdu, nil
 }
 
 // func decodeHeader(d *Decoder, pduType byte) (PDUHeader, length uint32) {
@@ -264,7 +283,7 @@ func (pdu *A_RELEASE_RQ) Encode(e *Encoder) {
 }
 
 func (pdu *A_RELEASE_RQ) DebugString() string {
-	return "A_RELEASE_RQ"
+	return fmt.Sprintf("A_RELEASE_RQ(%v)", *pdu)
 }
 
 type A_RELEASE_RP struct {
@@ -284,7 +303,7 @@ func (pdu *A_RELEASE_RP) Encode(e *Encoder) {
 }
 
 func (pdu *A_RELEASE_RP) DebugString() string {
-	return "A_RELEASE_RP"
+	return fmt.Sprintf("A_RELEASE_RP(%v)", *pdu)
 }
 
 type A_ASSOCIATE_RQ struct {
@@ -322,7 +341,7 @@ func (pdu *A_ASSOCIATE_RQ) Encode(e *Encoder) {
 }
 
 func (pdu *A_ASSOCIATE_RQ) DebugString() string {
-	return "A_ASSOCIATE_RQ"
+	return fmt.Sprintf("A_ASSOCIATE_RQ(%v)", *pdu)
 }
 
 type ApplicationContextItem struct {
@@ -481,16 +500,16 @@ type networkConnectedPDU struct {
 	Conn net.Conn
 }
 
-func (pdu *networkConnectedPDU) Encode(e*Encoder) {panic("Not implemented")}
+func (pdu *networkConnectedPDU) Encode(e *Encoder) { panic("Not implemented") }
 
 type networkDisconnectedPDU struct {
 	Err error
 }
 
-func (pdu *networkDisconnectedPDU) Encode(e*Encoder) {panic("Not implemented")}
+func (pdu *networkDisconnectedPDU) Encode(e *Encoder) { panic("Not implemented") }
 
 type malformedPDU struct {
 	Err error
 }
 
-func (pdu *malformedPDU) Encode(e*Encoder) {panic("Not implemented")}
+func (pdu *malformedPDU) Encode(e *Encoder) { panic("Not implemented") }

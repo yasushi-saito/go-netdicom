@@ -68,7 +68,11 @@ var Ae4 = &StateAction{"AE-4", "Issue A-ASSOCIATE confirmation (reject) primitiv
 
 var Ae5 = &StateAction{"AE-5", "Issue Transport connection response primitive; start ARTIM timer",
 	func(sm *StateMachine, event StateEvent) *StateType {
+		doassert(event.conn != nil)
 		startTimer(sm)
+		go func(ch chan StateEvent, conn net.Conn) {
+			networkReaderThread(ch, conn)
+		}(sm.netCh, event.conn)
 		return Sta2
 	}}
 
@@ -150,7 +154,7 @@ var Ar7 = &StateAction{"AR-7", "Issue P-DATA-TF PDU",
 
 var Ar8 = &StateAction{"AR-8", "Issue A-RELEASE indication (release collision): if association-requestor, next state is Sta9, if not next state is Sta10",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		panic("aoeu")
+		panic("AR8")
 		if sm.Requestor == 1 {
 			return Sta9
 		} else {
@@ -476,6 +480,7 @@ func stopTimer(sm *StateMachine) {
 }
 
 func networkReaderThread(ch chan StateEvent, conn net.Conn) {
+	log.Printf("Starting network reader for %v", conn)
 	for {
 		pdu, err := DecodePDU(conn)
 		if err != nil {
@@ -486,7 +491,7 @@ func networkReaderThread(ch chan StateEvent, conn net.Conn) {
 		if pdu == nil {
 			break
 		}
-		log.Print("Read PDU: %v", pdu.DebugString())
+		log.Printf("Read PDU: %v", pdu.DebugString())
 		if n, ok := pdu.(*A_ASSOCIATE_AC); ok {
 			ch <- StateEvent{event: Evt3, pdu: n, err: nil}
 		}
