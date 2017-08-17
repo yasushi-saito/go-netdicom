@@ -81,7 +81,7 @@ type Decoder struct {
 }
 
 func (d *Decoder) PushLimit(limit int) {
-	d.limits = append(d.limits, limit)
+	d.limits = append(d.limits, d.pos + limit)
 }
 
 func (d *Decoder) PopLimit() {
@@ -141,19 +141,6 @@ func (d *Decoder) Read(p []byte) (int, error) {
 
 func (d *Decoder) Available() int {
 	return d.limits[len(d.limits)-1] - d.pos
-}
-
-func (d *Decoder) TryDecodeUint32() (uint32, bool) {
-	var v uint32
-	err := binary.Read(d, d.byteOrder, &v)
-	if err == io.EOF {
-		return 0, false
-	}
-	if err != nil {
-		d.err = err
-		return 0, false
-	}
-	return v, true
 }
 
 func (d *Decoder) DecodeByte() (v byte) {

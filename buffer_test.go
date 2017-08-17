@@ -53,6 +53,21 @@ func TestBasic(t *testing.T) {
 	}
 }
 
+func TestPartialData(t *testing.T) {
+	e := netdicom.NewEncoder()
+	e.SetType(1)
+	e.EncodeByte(10)
+	encoded, err := e.Finish()
+	if err != nil {
+		t.Error(encoded)
+	}
+	// Read uint16, when there's only one byte in buffer.
+	d := netdicom.NewDecoder(bytes.NewBuffer(encoded))
+	if _ = d.DecodeUint16(); d.Error() == nil {
+		t.Errorf("DecodeUint16")
+	}
+}
+
 func TestLimit(t *testing.T) {
 	e := netdicom.NewEncoder()
 	e.SetType(1)
@@ -65,7 +80,7 @@ func TestLimit(t *testing.T) {
 		t.Error(encoded)
 	}
 
-	// Allow reading the first two bytes
+	// Allow reading only the first two bytes
 	d := netdicom.NewDecoder(bytes.NewBuffer(encoded))
 	if d.Available() != 3 {
 		t.Errorf("Available %d", d.Available())

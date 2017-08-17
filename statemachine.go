@@ -1,6 +1,7 @@
 package netdicom
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"time"
@@ -81,6 +82,36 @@ service-dul: issue A-ASSOCIATE indication primitive
 otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 	func(sm *StateMachine, event StateEvent) *StateType {
 		stopTimer(sm)
+		pdu := event.pdu.(*A_ASSOCIATE_RQ)
+		if pdu.ProtocolVersion != 0x0001 {
+			log.Printf("Wrong remote protocol version 0x%x", pdu.ProtocolVersion)
+			rj := A_ASSOCIATE_RJ{Result:1, Source:2, Reason:2}
+			sendPdu(sm, &rj)
+			startTimer(sm)
+			return Sta13
+		}
+		items, ok := sm.Callbacks.OnAssociateRequest(*pdu)
+		if ok {
+			doassert(len(items) >0)
+			sm.upperLayerCh <- StateEvent{
+				event: Evt7,
+				pdu: &A_ASSOCIATE_AC{
+					ProtocolVersion: CurrentProtocolVersion,
+					CalledAETitle: pdu.CalledAETitle,
+					CallingAETitle: pdu.CallingAETitle,
+					Items: items,
+				},
+			}
+		} else {
+			sm.upperLayerCh <- StateEvent{
+				event: Evt8,
+				pdu: &A_ASSOCIATE_RJ{
+					Result: ResultRejectedPermanent,
+					Source: SourceULServiceProviderACSE,
+					Reason: 1,
+				},
+			}
+		}
 		return Sta3
 	}}
 var Ae7 = &StateAction{"AE-7", "Send A-ASSOCIATE-AC PDU",
@@ -92,7 +123,8 @@ var Ae7 = &StateAction{"AE-7", "Send A-ASSOCIATE-AC PDU",
 
 var Ae8 = &StateAction{"AE-8", "Send A-ASSOCIATE-RJ PDU and start ARTIM timer",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		pdu := New_A_ASSOCIATE_RJ(sm.Params)
+		panic("AE-8")
+		pdu := &A_ASSOCIATE_RJ{}
 		sendPdu(sm, pdu)
 		startTimer(sm)
 		return Sta13
@@ -417,12 +449,13 @@ type SessionParams struct {
 
 type StateMachine struct {
 	Params    SessionParams
+	Callbacks StateCallbacks
 	PData     []PresentationDataValueItem
 	Requestor int32
 
 	// For receiving PDU and network status events.
 	netCh chan StateEvent
-	// For receiving commands from the upper layen (C_STORE, etc)
+	// For receiving commands from the upper layer (C_STORE, etc)
 	upperLayerCh chan StateEvent
 	// For Timer expiration event
 	timerCh      chan StateEvent
@@ -491,22 +524,32 @@ func networkReaderThread(ch chan StateEvent, conn net.Conn) {
 		if pdu == nil {
 			break
 		}
-		log.Printf("Read PDU: %v", pdu.DebugString())
+		// log.Printf("Read PDU: %v", pdu.DebugString())
+		if n, ok := pdu.(*A_ASSOCIATE_RQ); ok {
+			ch <- StateEvent{event: Evt6, pdu: n, err: nil}
+			continue
+		}
 		if n, ok := pdu.(*A_ASSOCIATE_AC); ok {
 			ch <- StateEvent{event: Evt3, pdu: n, err: nil}
+			continue
 		}
 		if n, ok := pdu.(*A_ASSOCIATE_RJ); ok {
 			ch <- StateEvent{event: Evt4, pdu: n, err: nil}
+			continue
 		}
 		if n, ok := pdu.(*P_DATA_TF); ok {
 			ch <- StateEvent{event: Evt10, pdu: n, err: nil}
+			continue
 		}
 		if n, ok := pdu.(*A_RELEASE_RQ); ok {
 			ch <- StateEvent{event: Evt12, pdu: n, err: nil}
+			continue
 		}
 		if n, ok := pdu.(*A_RELEASE_RP); ok {
 			ch <- StateEvent{event: Evt13, pdu: n, err: nil}
+			continue
 		}
+		panic(fmt.Sprintf("Unknown PDU type: %v", pdu.DebugString()))
 	}
 	log.Print("The peer closed the connection")
 	ch <- StateEvent{event: Evt17, pdu: nil, err: nil}
@@ -553,9 +596,15 @@ func NewStateMachineForServiceUser(provider string) *StateMachine {
 	return sm
 }
 
-func RunStateMachineForServiceProvider(conn net.Conn) {
+type StateCallbacks struct {
+	// A_ASSOCIATE_RQ arrived from a client. STA3
+	OnAssociateRequest func(A_ASSOCIATE_RQ) ([]SubItem, bool)
+}
+
+func RunStateMachineForServiceProvider(conn net.Conn, callbacks StateCallbacks) {
 	sm := &StateMachine{}
 	sm.Params.Verbose = true
+	sm.Callbacks = callbacks
 	sm.netCh = make(chan StateEvent, 128)
 	sm.upperLayerCh = make(chan StateEvent, 128)
 	event := StateEvent{event: Evt5, conn: conn}

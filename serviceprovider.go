@@ -9,6 +9,7 @@ import (
 type ServiceProvider struct {
 	listenAddr string
 	listener net.Listener
+	callbacks StateCallbacks
 }
 
 type ServiceProviderSession struct {
@@ -36,6 +37,6 @@ func (sp *ServiceProvider) Run() error {
 			continue
 		}
 		log.Printf("Accept connection")
-		go RunStateMachineForServiceProvider(conn)
+		go RunStateMachineForServiceProvider(conn, sp.callbacks)
 	}
 }
