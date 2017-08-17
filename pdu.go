@@ -62,27 +62,56 @@ func (d *Decoder) Finish() error {
 }
 
 func (d *Decoder) TryDecodeUint32() (uint32, bool) {
-	return 0, false
+	var v uint32
+	err := binary.Read(d.in, d.byteOrder, &v)
+	if err == io.EOF { return 0, false }
+	if err != nil {
+		d.err = err
+		return 0, false
+	}
+	return v, true
 }
 
-func (d *Decoder) DecodeByte() byte {
-	return 0
+func (d *Decoder) DecodeByte() (v byte) {
+	err := binary.Read(d.in, d.byteOrder, &v)
+	if err != nil {
+		d.err = err
+		return 0
+	}
+	return v
 }
 
-func (d *Decoder) DecodeUint32() uint32 {
-	return 0
+func (d *Decoder) DecodeUint32() (v uint32) {
+	err := binary.Read(d.in, d.byteOrder, &v)
+	if err != nil {
+		d.err = err
+	}
+	return v
 }
 
-func (d *Decoder) DecodeUint16() uint16 {
-	return 0
+func (d *Decoder) DecodeUint16() (v uint16) {
+	err := binary.Read(d.in, d.byteOrder, &v)
+	if err != nil {
+		d.err = err
+	}
+	return v
 }
 
-func (d *Decoder) DecodeString(length int32) string {
-	return ""
+func (d *Decoder) DecodeString(length int) string {
+	return string(d.DecodeBytes(length))
 }
 
-func (d *Decoder) DecodeBytes(length int32) []byte {
-	return nil
+func (d *Decoder) DecodeBytes(length int) []byte {
+	v := make([]byte, length)
+	n, err := d.in.Read(v)
+	if err != nil {
+		d.err = err
+	}
+	if n != length {
+		panic("XXXXXXXXZZZ")
+		d.err = fmt.Errorf("DecodeBytes: %d <-> %d", n, length)
+	}
+	return v
 }
 
 func (d *Decoder) Skip(bytes int) {
@@ -178,7 +207,7 @@ func DecodePresentationDataValueItem(d *Decoder) *PresentationDataValueItem {
 		return nil
 	}
 	item.ContextID = d.DecodeByte()
-	item.Value = d.DecodeBytes(int32(item.Length))
+	item.Value = d.DecodeBytes(int(item.Length))
 	return item
 }
 
