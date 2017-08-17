@@ -3,18 +3,24 @@ package main
 import (
 	"log"
 	"flag"
-	"io/ioutil"
+	"strings"
 	"github.com/yasushi-saito/go-netdicom"
 )
 
 var (
-	portFlag = flag.Int("port", 10000, "TCP port to listen to")
+	portFlag = flag.String("port", "10000", "TCP port to listen to")
 )
 
 func main() {
 	flag.Parse()
-	if *portFlag <= 0 {
-		log.Fatal("--port not set")
+	port := *portFlag
+	if !strings.Contains(port, ":") {
+		port = ":" + port
 	}
-	su := netdicom.NewServiceProvider(*portFlag)
+	log.Printf("Listening on %s", port)
+	su := netdicom.NewServiceProvider(port)
+	err := su.Run()
+	if err != nil {
+		panic(err)
+	}
 }

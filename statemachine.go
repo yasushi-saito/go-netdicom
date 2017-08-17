@@ -34,7 +34,17 @@ type StateAction struct {
 var Ae1 = &StateAction{"AE-1",
 	"Issue TRANSPORT CONNECT request primitive to local transport service",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		go networkReaderThread(sm.netCh, event.provider)
+		go func(ch chan StateEvent, serverHostPort string) {
+			conn, err := net.Dial("tcp", serverHostPort)
+			if err != nil {
+				log.Printf("Failed to connect to %s: %v", serverHostPort, err)
+				ch <- StateEvent{event: Evt17, pdu: nil, err: err}
+				close(ch)
+				return
+			}
+			ch <- StateEvent{event: Evt2, pdu: nil, err: nil, conn: conn}
+			networkReaderThread(ch, conn)
+		}(sm.netCh, event.provider)
 		return Sta4
 	}}
 
@@ -438,7 +448,7 @@ func sendPdu(sm *StateMachine, pdu PDU) {
 		return
 	}
 	n, err := sm.conn.Write(data)
-	if n != len(data) || err != nil{
+	if n != len(data) || err != nil {
 		log.Printf("Failed to write %d bytes. Actual %d bytes : %v", len(data), n, err)
 		sm.conn.Close()
 		sm.netCh <- StateEvent{event: Evt17, err: err}
@@ -465,15 +475,7 @@ func stopTimer(sm *StateMachine) {
 	sm.timerCh = make(chan StateEvent)
 }
 
-func networkReaderThread(ch chan StateEvent, peer string) {
-	conn, err := net.Dial("tcp", peer)
-	if err != nil {
-		log.Printf("Failed to connect to %s: %v", peer, err)
-		ch <- StateEvent{event: Evt17, pdu: nil, err: err}
-		close(ch)
-		return
-	}
-	ch <- StateEvent{event: Evt2, pdu: nil, err: nil, conn: conn}
+func networkReaderThread(ch chan StateEvent, conn net.Conn) {
 	for {
 		pdu, err := DecodePDU(conn)
 		if err != nil {
@@ -546,16 +548,18 @@ func NewStateMachineForServiceUser(provider string) *StateMachine {
 	return sm
 }
 
-func NewStateMachineForServiceProvider(int port) *StateMachine {
+func RunStateMachineForServiceProvider(conn net.Conn) {
 	sm := &StateMachine{}
 	sm.Params.Verbose = true
 	sm.netCh = make(chan StateEvent, 128)
 	sm.upperLayerCh = make(chan StateEvent, 128)
-	event := StateEvent{event: Evt1, provider: provider}
+	event := StateEvent{event: Evt5, conn: conn}
 	action := findAction(Sta1, event.event)
 	sm.currentState = action.Callback(sm, event)
-	RunStateMachineUntilQuiescent(sm)
-	return sm
+	for sm.currentState != Sta1 {
+		RunStateMachineUntilQuiescent(sm)
+	}
+	log.Print("Connection shutdown")
 }
 
 func SendData(sm *StateMachine, data []PresentationDataValueItem) {

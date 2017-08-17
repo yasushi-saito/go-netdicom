@@ -97,7 +97,7 @@ type Encoder struct {
 
 func NewEncoder() *Encoder {
 	e := &Encoder{}
-	e.byteOrder = binary.LittleEndian
+	e.byteOrder = binary.BigEndian
 	e.buf = &bytes.Buffer{}
 	return e
 }
@@ -193,7 +193,7 @@ type PDUHeader struct {
 }
 
 func DecodePDU(in io.Reader) (PDU, error) {
-	d := NewDecoder(binary.LittleEndian, true, in)
+	d := NewDecoder(binary.BigEndian, true, in)
 	if d.err != nil {
 		return nil, d.err
 	}
