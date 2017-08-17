@@ -1,8 +1,6 @@
 package netdicom
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"log"
@@ -18,172 +16,55 @@ type VariableItem interface {
 	Encode(*Encoder)
 }
 
-type Decoder struct {
-	byteOrder binary.ByteOrder
-	implicit  bool
-	in        io.Reader
-	err       error
-
-	Type byte
+type SubItem struct {
+	Type byte // 30H
 	// 1 byte reserved
-	Length uint32
+	Length uint16
+	Name   string
 }
 
-func NewDecoder(
-	byteOrder binary.ByteOrder,
-	implicit bool,
-	in io.Reader) *Decoder {
-	d := &Decoder{}
-	d.byteOrder = byteOrder
-	d.implicit = implicit
-	d.err = binary.Read(in, d.byteOrder, &d.Type)
-	if d.err != nil {
-		return d
-	}
-	var skip byte
-	d.err = binary.Read(in, d.byteOrder, &skip)
-	if d.err != nil {
-		return d
-	}
-	d.err = binary.Read(in, d.byteOrder, &d.Length)
-	d.in = io.LimitReader(in, int64(d.Length))
-	log.Printf("NewDecoder: type=%d, length=%d", d.Type, d.Length)
-	return d
-}
-
-func (d *Decoder) Finish() error {
-	buf := make([]byte, 1)
-	n, err := d.in.Read(buf)
-	if err != nil {return err}
-	if n > 0 {
-		return fmt.Errorf("PDU not consume all the bytes")
-	}
-	return nil
-}
-
-func (d *Decoder) TryDecodeUint32() (uint32, bool) {
-	var v uint32
-	err := binary.Read(d.in, d.byteOrder, &v)
-	if err == io.EOF { return 0, false }
-	if err != nil {
-		d.err = err
-		return 0, false
-	}
-	return v, true
-}
-
-func (d *Decoder) DecodeByte() (v byte) {
-	err := binary.Read(d.in, d.byteOrder, &v)
-	if err != nil {
-		d.err = err
-		return 0
-	}
+func decodeSubItem(d *Decoder) SubItem {
+	v := SubItem{}
+	v.Type = d.DecodeByte()
+	d.Skip(1)
+	v.Length = d.DecodeUint16()
+	v.Name = d.DecodeString(int(v.Length))
 	return v
 }
 
-func (d *Decoder) DecodeUint32() (v uint32) {
-	err := binary.Read(d.in, d.byteOrder, &v)
-	if err != nil {
-		d.err = err
-	}
+func (item *SubItem) Encode(e *Encoder) {
+	e.EncodeByte(item.Type)
+	e.EncodeZeros(1)
+	// TODO: handle unicode properly
+	e.EncodeUint16(uint16(len(item.Name)))
+	e.EncodeBytes([]byte(item.Name))
+}
+
+// P3.8 9.3.2.1
+type ApplicationContextItem SubItem // Type==10H
+
+// P3.8 9.3.2.2
+type PresentationContextItem struct {
+	Type byte // 20H
+	// 2 bytes reserved
+	Length    uint16
+	ContextID byte
+	// 3 bytes reserved
+	Items []SubItem // List of {Abstract,Transfer}SyntaxSubItem
+}
+
+func decodePresentationContextItem(d *Decoder) PresentationContextItem {
+	v := PresentationContextItem{}
+	v.Type = d.DecodeByte()
+	d.Skip(2)
+	v.Length = d.DecodeUint16()
+	v.ContextID = d.DecodeByte()
 	return v
 }
 
-func (d *Decoder) DecodeUint16() (v uint16) {
-	err := binary.Read(d.in, d.byteOrder, &v)
-	if err != nil {
-		d.err = err
-	}
-	return v
-}
-
-func (d *Decoder) DecodeString(length int) string {
-	return string(d.DecodeBytes(length))
-}
-
-func (d *Decoder) DecodeBytes(length int) []byte {
-	v := make([]byte, length)
-	n, err := d.in.Read(v)
-	if err != nil {
-		d.err = err
-	}
-	if n != length {
-		panic("XXXXXXXXZZZ")
-		d.err = fmt.Errorf("DecodeBytes: %d <-> %d", n, length)
-	}
-	return v
-}
-
-func (d *Decoder) Skip(bytes int) {
-	junk := make([]byte, bytes)
-	n, err := d.in.Read(junk)
-	if err != nil {
-		d.err = err
-		return
-	}
-	if n != bytes {
-		d.err = fmt.Errorf("Failed to skip %d bytes (read %d bytes instead)", bytes, n)
-		return
-	}
-}
-
-type Encoder struct {
-	byteOrder binary.ByteOrder
-	implicit  bool
-
-	pduType byte
-	err     error
-	buf     *bytes.Buffer
-}
-
-func NewEncoder() *Encoder {
-	e := &Encoder{}
-	e.byteOrder = binary.BigEndian
-	e.buf = &bytes.Buffer{}
-	return e
-}
-
-func (e *Encoder) Finish() ([]byte, error) {
-	if e.pduType == 0 {
-		panic("pduType not set")
-	}
-	// Reserve the header bytes. It will be filled in Finish.
-	header := make([]byte, 6) // First 6 bytes of buf.
-	header[0] = e.pduType
-	header[1] = 0 // Reserved.
-	e.byteOrder.PutUint32(header[2:6], uint32(e.buf.Len()-6))
-
-	data := append(header, e.buf.Bytes()...)
-	return data, e.err
-}
-
-func (e *Encoder) SetType(t byte) {
-	e.pduType = t
-}
-
-func (e *Encoder) EncodeByte(v byte) {
-	binary.Write(e.buf, e.byteOrder, &v)
-}
-
-func (e *Encoder) EncodeUint16(v uint16) {
-	binary.Write(e.buf, e.byteOrder, &v)
-}
-
-func (e *Encoder) EncodeUint32(v uint32) {
-	binary.Write(e.buf, e.byteOrder, &v)
-}
-
-func (e *Encoder) EncodeString(v string) {
-	e.buf.Write([]byte(v))
-}
-
-func (e *Encoder) EncodeZeros(bytes int) {
-	e.buf.Next(bytes)
-}
-
-func (e *Encoder) EncodeBytes(v []byte) {
-	e.buf.Write(v)
-}
+// P3.8 9.3.2.2.1 & 9.3.2.2.2
+type AbstractSyntaxSubItem SubItem // Type=30H
+type TransferSyntaxSubItem SubItem // Type=40H
 
 type PresentationDataValueItem struct {
 	Length    uint32
@@ -233,7 +114,7 @@ type PDUHeader struct {
 }
 
 func DecodePDU(in io.Reader) (PDU, error) {
-	d := NewDecoder(binary.BigEndian, true, in)
+	d := NewDecoder(in)
 	if d.err != nil {
 		return nil, d.err
 	}
@@ -371,22 +252,6 @@ func (pdu *A_ASSOCIATE_RQ) Encode(e *Encoder) {
 
 func (pdu *A_ASSOCIATE_RQ) DebugString() string {
 	return fmt.Sprintf("A_ASSOCIATE_RQ(%v)", *pdu)
-}
-
-type ApplicationContextItem struct {
-	Type byte
-	// 1 byte reserved
-	Length uint16
-	Name   string
-}
-
-func (item *ApplicationContextItem) Encode(e *Encoder) {
-	e.EncodeByte(item.Type)
-	e.EncodeZeros(1)
-
-	// TODO: handle unicode properly
-	e.EncodeUint16(uint16(len(item.Name)))
-	e.EncodeBytes([]byte(item.Name))
 }
 
 type A_ASSOCIATE_AC struct {
