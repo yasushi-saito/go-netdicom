@@ -72,12 +72,14 @@ func buildAssociateRequestItems(params ServiceUserParams) []SubItem {
 		}
 		items = append(items,
 			&PresentationContextItem{
+				Type:      ItemTypePresentationContextRQ,
 				ContextID: contextID,
 				Result:    0, // must be zero for request
 				Items:     syntaxItems,
 			})
 		contextID += 2 // must be odd.
 	}
+	// TODO(saito) Set the PDU size more properly.
 	items = append(items,
 		&UserInformationItem{
 			Items: []SubItem{&UserInformationMaximumLengthItem{MaximumLengthReceived: 1 << 20}}})

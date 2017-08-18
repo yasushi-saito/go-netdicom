@@ -1,7 +1,6 @@
 package netdicom
 
 import (
-	// "github.com/yasushi-saito/go-dicom"
 	"log"
 	"net"
 )
@@ -46,11 +45,13 @@ func onAssociateRequest(pdu A_ASSOCIATE) ([]SubItem, bool) {
 			}
 			responses = append(responses,
 				&PresentationContextItem{
+					Type: ItemTypePresentationContextAC,
 					ContextID: n.ContextID,
 					Result:    0, // accepted
 					Items:     []SubItem{&syntaxItem}})
 		}
 	}
+	// TODO(saito) Set the PDU size more properly.
 	responses = append(responses,
 		&UserInformationItem{
 			Items: []SubItem{&UserInformationMaximumLengthItem{MaximumLengthReceived: 1 << 20}}})

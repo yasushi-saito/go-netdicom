@@ -31,7 +31,8 @@ type SubItem interface {
 // Possible Type field values for SubItem.
 const (
 	ItemTypeApplicationContext           = 0x10
-	ItemTypePresentationContext          = 0x20
+	ItemTypePresentationContextRQ        = 0x20
+	ItemTypePresentationContextAC        = 0x21
 	ItemTypeAbstractSyntax               = 0x30
 	ItemTypeTransferSyntax               = 0x40
 	ItemTypeUserInformation              = 0x50
@@ -49,8 +50,9 @@ func decodeSubItem(d *Decoder) SubItem {
 		itemType == ItemTypeTransferSyntax {
 		return decodeSubItemWithName(d, itemType, length)
 	}
-	if itemType == ItemTypePresentationContext {
-		return decodePresentationContextItem(d, length)
+	if itemType == ItemTypePresentationContextRQ ||
+		itemType == ItemTypePresentationContextAC {
+		return decodePresentationContextItem(d, itemType, length)
 	}
 	if itemType == ItemTypeUserInformation {
 		return decodeUserInformationItem(d, length)
@@ -175,17 +177,18 @@ func decodeSubItemWithName(d *Decoder, itemType byte, length uint16) *SubItemWit
 // The name that should be used for ApplicationContextItem.Name.
 const DefaultApplicationContextItemName = "1.2.840.10008.3.1.1.1"
 
-// P3.8 9.3.2.2
+// P3.8 9.3.2.2, 9.3.3.2
 type PresentationContextItem struct {
+	Type      byte // ItemTypePresentationContext*
 	ContextID byte
 	// 1 byte reserved
-	Result byte // Used only in ASSOCIATE_AC, zero in .._RQ
+	Result byte // Used iff type=0x21, zero else.
 	// 1 byte reserved
 	Items []SubItem // List of {Abstract,Transfer}SyntaxSubItem
 }
 
-func decodePresentationContextItem(d *Decoder, length uint16) *PresentationContextItem {
-	v := &PresentationContextItem{}
+func decodePresentationContextItem(d *Decoder, itemType byte, length uint16) *PresentationContextItem {
+	v := &PresentationContextItem{Type: itemType}
 	d.PushLimit(int(length))
 	defer d.PopLimit()
 	v.ContextID = d.DecodeByte()
@@ -202,6 +205,8 @@ func decodePresentationContextItem(d *Decoder, length uint16) *PresentationConte
 }
 
 func (v *PresentationContextItem) Encode(e *Encoder) {
+	doassert(v.Type == ItemTypePresentationContextRQ || v.Type == ItemTypePresentationContextAC)
+
 	itemEncoder := NewEncoder()
 	for _, s := range v.Items {
 		s.Encode(itemEncoder)
@@ -211,7 +216,7 @@ func (v *PresentationContextItem) Encode(e *Encoder) {
 		e.SetError(err)
 		return
 	}
-	encodeSubItemHeader(e, ItemTypePresentationContext, uint16(8+len(itemBytes)))
+	encodeSubItemHeader(e, v.Type, uint16(8+len(itemBytes)))
 	e.EncodeByte(v.ContextID)
 	e.EncodeZeros(3)
 	e.EncodeBytes(itemBytes)
