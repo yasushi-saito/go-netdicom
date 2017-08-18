@@ -446,8 +446,6 @@ const (
 
 type SessionParams struct {
 	Verbose        bool
-	CallingAETitle string
-	CalledAETitle  string
 }
 
 type StateMachine struct {
@@ -589,7 +587,11 @@ func findAction(currentState *StateType, event EventType) *StateAction {
 	return nil
 }
 
-func NewStateMachineForServiceUser(provider string) *StateMachine {
+func NewStateMachineForServiceUser(
+	provider string,
+	calledAETitle string,
+	callingAETitle string,
+	requestedServices []SOPUID) *StateMachine {
 	sm := &StateMachine{}
 	sm.Params.Verbose = true
 	sm.netCh = make(chan StateEvent, 128)

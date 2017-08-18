@@ -1,19 +1,20 @@
 package netdicom
 
 import (
+	"github.com/yasushi-saito/go-dicom"
 	"log"
 	"net"
 )
 
 type ServiceProvider struct {
 	listenAddr string
-	listener net.Listener
-	callbacks StateCallbacks
+	listener   net.Listener
+	callbacks  StateCallbacks
 }
 
 type ServiceProviderSession struct {
 	sp *ServiceProvider
-	sm* StateMachine
+	sm *StateMachine
 }
 
 func onAssociateRequest(pdu A_ASSOCIATE) ([]SubItem, bool) {
@@ -24,25 +25,33 @@ func onAssociateRequest(pdu A_ASSOCIATE) ([]SubItem, bool) {
 		},
 	}
 
-	for _, item := range(pdu.Items) {
+	for _, item := range pdu.Items {
 		if n, ok := item.(*PresentationContextItem); ok {
-			var syntaxItem SubItem
-			for _, subitem := range(n.Items) {
-				log.Printf("Received PresentaionContext(%x): %v", n.ContextID, subitem.DebugString())
-				if n, ok := subitem.(*SubItemWithName); ok && n.Type == ItemTypeTransferSyntax {
-					syntaxItem = n
-					break
-				}
+			// TODO(saito) Need to pick the syntax preferred by us.
+			// For now, just hardcode the syntax, ignoring the list
+			// in RQ.
+			//
+			// var syntaxItem SubItem
+			// for _, subitem := range(n.Items) {
+			// 	log.Printf("Received PresentaionContext(%x): %v", n.ContextID, subitem.DebugString())
+			// 	if n, ok := subitem.(*SubItemWithName); ok && n.Type == ItemTypeTransferSyntax {
+			// 		syntaxItem = n
+			// 		break
+			// 	}
+			// }
+			// doassert(syntaxItem != nil)
+			var syntaxItem = SubItemWithName{
+				Type: ItemTypeTransferSyntax,
+				Name: dicom.ImplicitVRLittleEndian,
 			}
-			doassert(syntaxItem != nil)
 			responses = append(responses,
 				&PresentationContextItem{
 					ContextID: n.ContextID,
-					Result: 0, // accepted
-					Items: []SubItem{syntaxItem}})
+					Result:    0, // accepted
+					Items:     []SubItem{&syntaxItem}})
 		}
 	}
-	responses = append(responses, &UserInformationItem{ Data: nil })
+	responses = append(responses, &UserInformationItem{Data: nil})
 	return responses, true
 }
 

@@ -8,8 +8,12 @@ type ServiceUser struct {
 	sm *StateMachine
 }
 
-func NewServiceUser(server string) *ServiceUser {
-	return &ServiceUser{sm: NewStateMachineForServiceUser(server)}
+func NewServiceUser(
+	server string,
+	requiredServices []SOPUID) *ServiceUser {
+	return &ServiceUser{
+		sm: NewStateMachineForServiceUser(server),
+	}
 }
 
 func (su *ServiceUser) CStore(data []byte) {

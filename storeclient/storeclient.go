@@ -18,7 +18,7 @@ func main() {
 	if *serverFlag == "" || *fileFlag == "" {
 		log.Fatal("Both --server and --file must be set")
 	}
-	su := netdicom.NewServiceUser(*serverFlag)
+	su := netdicom.NewServiceUser(*serverFlag, netdicom.StorageClasses)
 
 	data, err := ioutil.ReadFile(*fileFlag)
 	if err != nil {
