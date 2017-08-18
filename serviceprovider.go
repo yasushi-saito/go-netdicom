@@ -1,7 +1,7 @@
 package netdicom
 
 import (
-	"github.com/yasushi-saito/go-dicom"
+	// "github.com/yasushi-saito/go-dicom"
 	"log"
 	"net"
 )
@@ -42,7 +42,7 @@ func onAssociateRequest(pdu A_ASSOCIATE) ([]SubItem, bool) {
 			// doassert(syntaxItem != nil)
 			var syntaxItem = SubItemWithName{
 				Type: ItemTypeTransferSyntax,
-				Name: dicom.ImplicitVRLittleEndian,
+				Name: ImplicitVRLittleEndian,
 			}
 			responses = append(responses,
 				&PresentationContextItem{

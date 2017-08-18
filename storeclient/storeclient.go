@@ -1,10 +1,10 @@
 package main
 
 import (
-	"log"
 	"flag"
-	"io/ioutil"
 	"github.com/yasushi-saito/go-netdicom"
+	"io/ioutil"
+	"log"
 )
 
 var (
@@ -18,7 +18,14 @@ func main() {
 	if *serverFlag == "" || *fileFlag == "" {
 		log.Fatal("Both --server and --file must be set")
 	}
-	su := netdicom.NewServiceUser(*serverFlag, netdicom.StorageClasses)
+
+	su := netdicom.NewServiceUser(netdicom.ServiceUserParams{
+		Provider:                  *serverFlag,
+		CalledAETitle:             "", // don't care
+		CallingAETitle:            "testclient",
+		RequiredServices:          netdicom.StorageClasses,
+		SupportedTransferSyntaxes: netdicom.StandardTransferSyntaxes,
+	})
 
 	data, err := ioutil.ReadFile(*fileFlag)
 	if err != nil {

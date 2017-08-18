@@ -45,17 +45,50 @@ var Ae1 = &StateAction{"AE-1",
 			}
 			ch <- StateEvent{event: Evt2, pdu: nil, err: nil, conn: conn}
 			networkReaderThread(ch, conn)
-		}(sm.netCh, event.provider)
+		}(sm.netCh, sm.serviceUserParams.Provider)
 		return Sta4
 	}}
+
+func buildAssociateRequestItems(params ServiceUserParams) []SubItem {
+	items := []SubItem{
+		&SubItemWithName{
+			Type: ItemTypeApplicationContext,
+			Name:DefaultApplicationContextItemName,
+		}}
+	var contextID byte = 1
+	for _, sop := range(params.RequiredServices) {
+		syntaxItems := []SubItem{
+			&SubItemWithName{
+				Type: ItemTypeAbstractSyntax,
+				Name: sop.UID,
+			},
+		}
+		for _, syntaxUID := range(params.SupportedTransferSyntaxes) {
+			syntaxItems = append(syntaxItems,
+				&SubItemWithName{
+					Type: ItemTypeTransferSyntax,
+					Name: syntaxUID,
+				})
+		}
+		items = append(items,
+			&PresentationContextItem{
+				ContextID: contextID,
+				Result: 0, // must be zero for request
+				Items: syntaxItems,
+			})
+		contextID += 2 // must be odd.
+	}
+	return items
+}
 
 var Ae2 = &StateAction{"AE-2", "Send A-ASSOCIATE-RQ-PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
 		sendPDU(sm, &A_ASSOCIATE{
-			Type: PDUTypeA_ASSOCIATE_RQ,
+			Type:            PDUTypeA_ASSOCIATE_RQ,
 			ProtocolVersion: CurrentProtocolVersion,
-			CalledAETitle: sm.Params.CalledAETitle,
-			CallingAETitle: sm.Params.CallingAETitle,
+			CalledAETitle:   sm.serviceUserParams.CalledAETitle,
+			CallingAETitle:  sm.serviceUserParams.CallingAETitle,
+			Items: buildAssociateRequestItems(sm.serviceUserParams),
 		})
 		startTimer(sm)
 		return Sta5
@@ -90,22 +123,22 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 		pdu := event.pdu.(*A_ASSOCIATE)
 		if pdu.ProtocolVersion != 0x0001 {
 			log.Printf("Wrong remote protocol version 0x%x", pdu.ProtocolVersion)
-			rj := A_ASSOCIATE_RJ{Result:1, Source:2, Reason:2}
+			rj := A_ASSOCIATE_RJ{Result: 1, Source: 2, Reason: 2}
 			sendPDU(sm, &rj)
 			startTimer(sm)
 			return Sta13
 		}
-		items, ok := sm.Callbacks.OnAssociateRequest(*pdu)
+		items, ok := sm.callbacks.OnAssociateRequest(*pdu)
 		if ok {
-			doassert(len(items) >0)
+			doassert(len(items) > 0)
 			sm.upperLayerCh <- StateEvent{
 				event: Evt7,
 				pdu: &A_ASSOCIATE{
-					Type: PDUTypeA_ASSOCIATE_AC,
+					Type:            PDUTypeA_ASSOCIATE_AC,
 					ProtocolVersion: CurrentProtocolVersion,
-					CalledAETitle: pdu.CalledAETitle,
-					CallingAETitle: pdu.CallingAETitle,
-					Items: items,
+					CalledAETitle:   pdu.CalledAETitle,
+					CallingAETitle:  pdu.CallingAETitle,
+					Items:           items,
 				},
 			}
 		} else {
@@ -136,7 +169,7 @@ var Ae8 = &StateAction{"AE-8", "Send A-ASSOCIATE-RJ PDU and start ARTIM timer",
 // Data transfer related actions
 var Dt1 = &StateAction{"DT-1", "Send P-DATA-TF PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		pdu := New_P_DATA_TF(sm.PData)
+		pdu := New_P_DATA_TF(sm.pData)
 		sendPDU(sm, pdu)
 		return Sta6
 	}}
@@ -183,14 +216,14 @@ var Ar6 = &StateAction{"AR-6", "Issue P-DATA indication",
 
 var Ar7 = &StateAction{"AR-7", "Issue P-DATA-TF PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		sendPDU(sm, New_P_DATA_TF(sm.PData))
+		sendPDU(sm, New_P_DATA_TF(sm.pData))
 		return Sta8
 	}}
 
 var Ar8 = &StateAction{"AR-8", "Issue A-RELEASE indication (release collision): if association-requestor, next state is Sta9, if not next state is Sta10",
 	func(sm *StateMachine, event StateEvent) *StateType {
 		panic("AR8")
-		if sm.Requestor == 1 {
+		if sm.requestor == 1 {
 			return Sta9
 		} else {
 			return Sta10
@@ -246,7 +279,7 @@ var Aa5 = &StateAction{"AA-5", "Stop ARTIM timer",
 
 var Aa6 = &StateAction{"AA-6", "Ignore PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		sm.PData = nil
+		sm.pData = nil
 		return Sta13
 	}}
 
@@ -293,12 +326,11 @@ const (
 )
 
 type StateEvent struct {
-	event    EventType
-	pdu      PDU
-	err      error
-	conn     net.Conn
-	provider string                      // Only for Evt1.
-	data     []PresentationDataValueItem // Data to send. only for Evt9.
+	event EventType
+	pdu   PDU
+	err   error
+	conn  net.Conn
+	data  []PresentationDataValueItem // Data to send. only for Evt9.
 }
 
 //func PDUReceivedEvent(event EventType, pdu PDU) StateEvent{
@@ -444,15 +476,12 @@ const (
 	ReadingPDU
 )
 
-type SessionParams struct {
-	Verbose        bool
-}
-
 type StateMachine struct {
-	Params    SessionParams
-	Callbacks StateCallbacks
-	PData     []PresentationDataValueItem
-	Requestor int32
+	verbose           bool
+	serviceUserParams ServiceUserParams
+	callbacks         StateCallbacks
+	pData             []PresentationDataValueItem
+	requestor         int32
 
 	// For receiving PDU and network status events.
 	netCh chan StateEvent
@@ -587,17 +616,29 @@ func findAction(currentState *StateType, event EventType) *StateAction {
 	return nil
 }
 
-func NewStateMachineForServiceUser(
-	provider string,
-	calledAETitle string,
-	callingAETitle string,
-	requestedServices []SOPUID) *StateMachine {
+type ServiceUserParams struct {
+	Provider         string // server "host:port"
+	CalledAETitle    string
+	CallingAETitle   string // may be ""
+	RequiredServices []SOPUID
+
+	// List of Transfer syntaxes supported by the user.
+	// The value is most often StandardTransferSyntaxes.
+	SupportedTransferSyntaxes []string
+}
+
+func NewStateMachineForServiceUser(params ServiceUserParams) *StateMachine {
+	doassert(params.Provider != "")
+	doassert(params.CallingAETitle != "")
+	doassert(len(params.RequiredServices) > 0)
+	doassert(len(params.SupportedTransferSyntaxes) > 0)
 	sm := &StateMachine{}
-	sm.Params.Verbose = true
+	sm.verbose = true
+	sm.serviceUserParams = params
 	sm.netCh = make(chan StateEvent, 128)
 	sm.upperLayerCh = make(chan StateEvent, 128)
 
-	event := StateEvent{event: Evt1, provider: provider}
+	event := StateEvent{event: Evt1}
 	action := findAction(Sta1, event.event)
 	sm.currentState = action.Callback(sm, event)
 	RunStateMachineUntilQuiescent(sm)
@@ -611,8 +652,8 @@ type StateCallbacks struct {
 
 func RunStateMachineForServiceProvider(conn net.Conn, callbacks StateCallbacks) {
 	sm := &StateMachine{}
-	sm.Params.Verbose = true
-	sm.Callbacks = callbacks
+	sm.verbose = true
+	sm.callbacks = callbacks
 	sm.conn = conn
 	sm.netCh = make(chan StateEvent, 128)
 	sm.upperLayerCh = make(chan StateEvent, 128)
@@ -632,7 +673,7 @@ func RunStateMachineForServiceProvider(conn net.Conn, callbacks StateCallbacks) 
 
 func SendData(sm *StateMachine, data []PresentationDataValueItem) {
 	log.Printf("Send data")
-	doassert(sm.PData == nil)
+	doassert(sm.pData == nil)
 	sm.upperLayerCh <- StateEvent{event: Evt9, pdu: nil, conn: nil, data: data}
 	RunStateMachineUntilQuiescent(sm)
 }

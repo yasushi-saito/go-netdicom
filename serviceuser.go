@@ -8,11 +8,9 @@ type ServiceUser struct {
 	sm *StateMachine
 }
 
-func NewServiceUser(
-	server string,
-	requiredServices []SOPUID) *ServiceUser {
+func NewServiceUser(params ServiceUserParams) *ServiceUser {
 	return &ServiceUser{
-		sm: NewStateMachineForServiceUser(server),
+		sm: NewStateMachineForServiceUser(params),
 	}
 }
 
