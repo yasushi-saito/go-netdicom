@@ -30,11 +30,13 @@ type SubItem interface {
 
 // Possible Type field values for SubItem.
 const (
-	ItemTypeApplicationContext  = 0x10
-	ItemTypePresentationContext = 0x20
-	ItemTypeAbstractSyntax      = 0x30
-	ItemTypeTransferSyntax      = 0x40
-	ItemTypeUserInformation     = 0x50
+	ItemTypeApplicationContext           = 0x10
+	ItemTypePresentationContext          = 0x20
+	ItemTypeAbstractSyntax               = 0x30
+	ItemTypeTransferSyntax               = 0x40
+	ItemTypeUserInformation              = 0x50
+	ItemTypeUserInformationMaximumLength = 0x51
+	ItemTypeUnsupported52                = 0x52
 )
 
 func decodeSubItem(d *Decoder) SubItem {
@@ -53,33 +55,99 @@ func decodeSubItem(d *Decoder) SubItem {
 	if itemType == ItemTypeUserInformation {
 		return decodeUserInformationItem(d, length)
 	}
-	panic("aoeu")
+	if itemType == ItemTypeUserInformationMaximumLength {
+		return decodeUserInformationMaximumLengthItem(d, length)
+	}
+	if itemType == 0x52 || itemType == 0x55 {
+		return decodeSubItemUnsupported(d, itemType, length)
+	}
+	panic(fmt.Sprintf("Unknown item type: 0x%x", itemType))
 }
 
-// P3.8 9.3.2.3
-type UserInformationItem struct {
-	Data []byte // P3.8, Annex D.
-}
-
-func encodeSubItemHeader(e* Encoder, itemType byte, length uint16) {
+func encodeSubItemHeader(e *Encoder, itemType byte, length uint16) {
 	e.EncodeByte(itemType)
 	e.EncodeZeros(1)
 	e.EncodeUint16(length)
 }
 
+// P3.8 9.3.2.3
+type UserInformationItem struct {
+	Items []SubItem // P3.8, Annex D.
+	// Data []byte
+}
+
 func (v *UserInformationItem) Encode(e *Encoder) {
-	encodeSubItemHeader(e, ItemTypeUserInformation, uint16(len(v.Data)))
-	e.EncodeBytes(v.Data)
+	itemEncoder := NewEncoder()
+	for _, s := range v.Items {
+		s.Encode(itemEncoder)
+	}
+	itemBytes, err := itemEncoder.Finish()
+	if err != nil {
+		e.SetError(err)
+		return
+	}
+	encodeSubItemHeader(e, ItemTypeUserInformation, uint16(len(itemBytes)))
+	e.EncodeBytes(itemBytes)
 }
 
 func decodeUserInformationItem(d *Decoder, length uint16) *UserInformationItem {
 	v := &UserInformationItem{}
-	v.Data = d.DecodeBytes(int(length))
+	d.PushLimit(int(length))
+	defer d.PopLimit()
+	for d.Available() > 0 && d.Error() == nil {
+		v.Items = append(v.Items, decodeSubItem(d))
+	}
 	return v
 }
 
-func (item *UserInformationItem) DebugString() string {
-	return fmt.Sprintf("userinformationitem{data: %dbytes}", len(item.Data))
+func (v *UserInformationItem) DebugString() string {
+	return fmt.Sprintf("userinformationitem{items: %s}",
+		subItemListDebugString(v.Items))
+}
+
+// P3.8 D.1
+type UserInformationMaximumLengthItem struct {
+	MaximumLengthReceived uint32
+}
+
+func (v *UserInformationMaximumLengthItem) Encode(e *Encoder) {
+	encodeSubItemHeader(e, ItemTypeUserInformationMaximumLength, 4)
+	e.EncodeUint32(v.MaximumLengthReceived)
+}
+
+func decodeUserInformationMaximumLengthItem(d *Decoder, length uint16) *UserInformationMaximumLengthItem {
+	doassert(length == 4) //TODO
+	return &UserInformationMaximumLengthItem{MaximumLengthReceived: d.DecodeUint32()}
+}
+
+func (item *UserInformationMaximumLengthItem) DebugString() string {
+	return fmt.Sprintf("userinformationmaximumlengthitem{%d}",
+		item.MaximumLengthReceived)
+}
+
+// Container for subitems that this package doesnt' support
+type SubItemUnsupported struct {
+	Type byte
+	Data []byte
+}
+
+func (item *SubItemUnsupported) Encode(e *Encoder) {
+	encodeSubItemHeader(e, item.Type, uint16(len(item.Data)))
+	// TODO: handle unicode properly
+	e.EncodeBytes(item.Data)
+}
+
+func (item *SubItemUnsupported) DebugString() string {
+	return fmt.Sprintf("subitemunsupported{type: 0x%0x data: %dbytes}",
+		item.Type, len(item.Data))
+}
+
+func decodeSubItemUnsupported(
+	d *Decoder, itemType byte, length uint16) *SubItemUnsupported {
+	v := &SubItemUnsupported{}
+	v.Type = itemType
+	v.Data = d.DecodeBytes(int(length))
+	return v
 }
 
 type SubItemWithName struct {
@@ -127,7 +195,7 @@ func decodePresentationContextItem(d *Decoder, length uint16) *PresentationConte
 	for d.Available() > 0 && d.Error() == nil {
 		v.Items = append(v.Items, decodeSubItem(d))
 	}
-	if v.ContextID % 2 != 1 {
+	if v.ContextID%2 != 1 {
 		d.SetError(fmt.Errorf("PresentationContextItem ID must be odd, but found %x", v.ContextID))
 	}
 	return v
@@ -139,11 +207,11 @@ func (v *PresentationContextItem) Encode(e *Encoder) {
 		s.Encode(itemEncoder)
 	}
 	itemBytes, err := itemEncoder.Finish()
-	if (err != nil) {
+	if err != nil {
 		e.SetError(err)
 		return
 	}
-	encodeSubItemHeader(e, ItemTypePresentationContext, uint16(8 + len(itemBytes)))
+	encodeSubItemHeader(e, ItemTypePresentationContext, uint16(8+len(itemBytes)))
 	e.EncodeByte(v.ContextID)
 	e.EncodeZeros(3)
 	e.EncodeBytes(itemBytes)
@@ -347,14 +415,14 @@ func (pdu *A_RELEASE_RP) DebugString() string {
 
 func subItemListDebugString(items []SubItem) string {
 	buf := bytes.Buffer{}
-	buf.WriteString("{")
+	buf.WriteString("[")
 	for i, subitem := range items {
 		if i > 0 {
 			buf.WriteString("\n")
 		}
 		buf.WriteString(subitem.DebugString())
 	}
-	buf.WriteString("}")
+	buf.WriteString("]")
 	return buf.String()
 }
 
@@ -462,13 +530,13 @@ func (pdu *A_ASSOCIATE_RJ) DebugString() string {
 }
 
 type A_ABORT struct {
-	Source           byte
+	Source byte
 	Reason byte
 }
 
 func New_A_ABORT(source, reason byte) *A_ABORT {
 	pdu := A_ABORT{
-		Source:           source,
+		Source: source,
 		Reason: reason}
 	return &pdu
 }

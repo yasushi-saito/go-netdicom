@@ -51,7 +51,9 @@ func onAssociateRequest(pdu A_ASSOCIATE) ([]SubItem, bool) {
 					Items:     []SubItem{&syntaxItem}})
 		}
 	}
-	responses = append(responses, &UserInformationItem{Data: nil})
+	responses = append(responses,
+		&UserInformationItem{
+			Items: []SubItem{&UserInformationMaximumLengthItem{MaximumLengthReceived: 1 << 20}}})
 	return responses, true
 }
 

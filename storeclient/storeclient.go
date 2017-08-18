@@ -21,7 +21,7 @@ func main() {
 
 	su := netdicom.NewServiceUser(netdicom.ServiceUserParams{
 		Provider:                  *serverFlag,
-		CalledAETitle:             "", // don't care
+		CalledAETitle:             "dontcare",
 		CallingAETitle:            "testclient",
 		RequiredServices:          netdicom.StorageClasses,
 		SupportedTransferSyntaxes: netdicom.StandardTransferSyntaxes,

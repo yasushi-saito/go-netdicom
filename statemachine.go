@@ -53,17 +53,17 @@ func buildAssociateRequestItems(params ServiceUserParams) []SubItem {
 	items := []SubItem{
 		&SubItemWithName{
 			Type: ItemTypeApplicationContext,
-			Name:DefaultApplicationContextItemName,
+			Name: DefaultApplicationContextItemName,
 		}}
 	var contextID byte = 1
-	for _, sop := range(params.RequiredServices) {
+	for _, sop := range params.RequiredServices {
 		syntaxItems := []SubItem{
 			&SubItemWithName{
 				Type: ItemTypeAbstractSyntax,
 				Name: sop.UID,
 			},
 		}
-		for _, syntaxUID := range(params.SupportedTransferSyntaxes) {
+		for _, syntaxUID := range params.SupportedTransferSyntaxes {
 			syntaxItems = append(syntaxItems,
 				&SubItemWithName{
 					Type: ItemTypeTransferSyntax,
@@ -73,11 +73,14 @@ func buildAssociateRequestItems(params ServiceUserParams) []SubItem {
 		items = append(items,
 			&PresentationContextItem{
 				ContextID: contextID,
-				Result: 0, // must be zero for request
-				Items: syntaxItems,
+				Result:    0, // must be zero for request
+				Items:     syntaxItems,
 			})
 		contextID += 2 // must be odd.
 	}
+	items = append(items,
+		&UserInformationItem{
+			Items: []SubItem{&UserInformationMaximumLengthItem{MaximumLengthReceived: 1 << 20}}})
 	return items
 }
 
@@ -88,7 +91,7 @@ var Ae2 = &StateAction{"AE-2", "Send A-ASSOCIATE-RQ-PDU",
 			ProtocolVersion: CurrentProtocolVersion,
 			CalledAETitle:   sm.serviceUserParams.CalledAETitle,
 			CallingAETitle:  sm.serviceUserParams.CallingAETitle,
-			Items: buildAssociateRequestItems(sm.serviceUserParams),
+			Items:           buildAssociateRequestItems(sm.serviceUserParams),
 		})
 		startTimer(sm)
 		return Sta5
