@@ -51,24 +51,18 @@ var Ae1 = &StateAction{"AE-1",
 
 func buildAssociateRequestItems(params ServiceUserParams) []SubItem {
 	items := []SubItem{
-		&SubItemWithName{
-			Type: ItemTypeApplicationContext,
+		&ApplicationContextItem{
 			Name: DefaultApplicationContextItemName,
 		}}
 	var contextID byte = 1
 	for _, sop := range params.RequiredServices {
 		syntaxItems := []SubItem{
-			&SubItemWithName{
-				Type: ItemTypeAbstractSyntax,
-				Name: sop.UID,
-			},
+			&AbstractSyntaxSubItem{Name: sop.UID},
 		}
 		for _, syntaxUID := range params.SupportedTransferSyntaxes {
 			syntaxItems = append(syntaxItems,
-				&SubItemWithName{
-					Type: ItemTypeTransferSyntax,
-					Name: syntaxUID,
-				})
+				&TransferSyntaxSubItem{Name: syntaxUID},
+			)
 		}
 		items = append(items,
 			&PresentationContextItem{

@@ -18,8 +18,7 @@ type ServiceProviderSession struct {
 
 func onAssociateRequest(pdu A_ASSOCIATE) ([]SubItem, bool) {
 	responses := []SubItem{
-		&SubItemWithName{
-			Type: ItemTypeApplicationContext,
+		&ApplicationContextItem{
 			Name: DefaultApplicationContextItemName,
 		},
 	}
@@ -39,8 +38,7 @@ func onAssociateRequest(pdu A_ASSOCIATE) ([]SubItem, bool) {
 			// 	}
 			// }
 			// doassert(syntaxItem != nil)
-			var syntaxItem = SubItemWithName{
-				Type: ItemTypeTransferSyntax,
+			var syntaxItem = TransferSyntaxSubItem{
 				Name: ImplicitVRLittleEndian,
 			}
 			responses = append(responses,

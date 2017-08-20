@@ -46,13 +46,19 @@ func decodeSubItem(d *Decoder) SubItem {
 	d.Skip(1)
 	length := d.DecodeUint16()
 	// log.Printf("DecodeSubItem: item=0x%x length=%v, err=%v", itemType, length, d.Error())
-	if itemType == ItemTypeApplicationContext ||
-		itemType == ItemTypeAbstractSyntax ||
-		itemType == ItemTypeTransferSyntax {
-		return decodeSubItemWithName(d, itemType, length)
+	if itemType == ItemTypeApplicationContext {
+		return decodeApplicationContextItem(d, length)
 	}
-	if itemType == ItemTypePresentationContextRQ ||
-		itemType == ItemTypePresentationContextAC {
+	if itemType == ItemTypeAbstractSyntax {
+		return decodeAbstractSyntaxSubItem(d, length)
+	}
+	if itemType == ItemTypeTransferSyntax {
+		return decodeTransferSyntaxSubItem(d, length)
+	}
+	if itemType == ItemTypePresentationContextRQ {
+		return decodePresentationContextItem(d, itemType, length)
+	}
+	if itemType == ItemTypePresentationContextAC {
 		return decodePresentationContextItem(d, itemType, length)
 	}
 	if itemType == ItemTypeUserInformation {
@@ -153,35 +159,74 @@ func decodeSubItemUnsupported(
 	return v
 }
 
-type SubItemWithName struct {
-	Type byte
+type subItemWithName struct {
+	// Type byte
 	Name string
 }
 
-func (item *SubItemWithName() encodeSubItemWithName(e *Encoder, itemType byte) {
-	encodeSubItemHeader(e, item.Type, uint16(len(item.Name)))
+func encodeSubItemWithName(e *Encoder, itemType byte, name string) {
+	encodeSubItemHeader(e, itemType, uint16(len(name)))
 	// TODO: handle unicode properly
-	e.EncodeBytes([]byte(item.Name))
+	e.EncodeBytes([]byte(name))
 }
 
-func (item *SubItemWithName) DebugString() string {
-	return fmt.Sprintf("subitem{type: 0x%0x name: \"%s\"}", item.Type, item.Name)
+//func (item *SubItemWithName) DebugString() string {
+//	return fmt.Sprintf("subitem{type: 0x%0x name: \"%s\"}", item.Type, item.Name)
+//}
+
+type ApplicationContextItem subItemWithName
+
+const DefaultApplicationContextItemName = "1.2.840.10008.3.1.1.1"
+
+func decodeSubItemWithName(d *Decoder, length uint16) string {
+	return d.DecodeString(int(length))
 }
 
-func decodeSubItemWithName(d *Decoder, itemType byte, length uint16) *SubItemWithName {
-	v := &SubItemWithName{}
-	v.Type = itemType
-	v.Name = d.DecodeString(int(length))
+func decodeApplicationContextItem(d *Decoder, length uint16) *ApplicationContextItem {
+	v := &ApplicationContextItem{}
+	v.Name = decodeSubItemWithName(d, length)
 	return v
 }
 
-type ApplicationContextItem SubItemWithName
+func (v *ApplicationContextItem) Encode(e *Encoder) {
+	encodeSubItemWithName(e, ItemTypeApplicationContext, v.Name)
+}
 
-func (item *SubItemWithName) Encode(e *Encoder) {
+func (v *ApplicationContextItem) DebugString() string {
+	return fmt.Sprintf("applicationcontext{name: \"%s\"}", v.Name)
+}
+
+type AbstractSyntaxSubItem subItemWithName
+
+func decodeAbstractSyntaxSubItem(d *Decoder, length uint16) *AbstractSyntaxSubItem {
+	v := &AbstractSyntaxSubItem{}
+	v.Name = decodeSubItemWithName(d, length)
+	return v
+}
+
+func (v *AbstractSyntaxSubItem) Encode(e *Encoder) {
+	encodeSubItemWithName(e, ItemTypeAbstractSyntax, v.Name)
+}
+
+func (v *AbstractSyntaxSubItem) DebugString() string {
+	return fmt.Sprintf("applicationcontext{name: \"%s\"}", v.Name)
+}
+type TransferSyntaxSubItem subItemWithName
+
+func decodeTransferSyntaxSubItem(d *Decoder, length uint16) *TransferSyntaxSubItem {
+	v := &TransferSyntaxSubItem{}
+	v.Name = decodeSubItemWithName(d, length)
+	return v
+}
 
 
-// The name that should be used for ApplicationContextItem.Name.
-const DefaultApplicationContextItemName = "1.2.840.10008.3.1.1.1"
+func (v *TransferSyntaxSubItem) Encode(e *Encoder) {
+	encodeSubItemWithName(e, ItemTypeTransferSyntax, v.Name)
+}
+
+func (v *TransferSyntaxSubItem) DebugString() string {
+	return fmt.Sprintf("applicationcontext{name: \"%s\"}", v.Name)
+}
 
 // P3.8 9.3.2.2, 9.3.3.2
 type PresentationContextItem struct {
@@ -234,9 +279,6 @@ func (item *PresentationContextItem) DebugString() string {
 }
 
 // P3.8 9.3.2.2.1 & 9.3.2.2.2
-type AbstractSyntaxSubItem SubItem // Type=30H
-//type TransferSyntaxSubItem SubItem // Type=40H
-
 type PresentationDataValueItem struct {
 	Length    uint32
 	ContextID byte
@@ -313,18 +355,14 @@ func DecodePDU(in io.Reader) (PDU, error) {
 		pdu = decodeA_ASSOCIATE_RJ(d)
 	case PDUTypeA_ABORT:
 		pdu = decodeA_ABORT(d)
-	case PDUTypeDATA_TF:
-		pdu = decodeDATA_TF(d)
-	case PDUTypeRELEASE_RQ:
-		pdu = decodeRELEASE_RQ(d)
-	}
-	case PDUTypeRELEASE_RP:
-		pdu = decodeRELEASE_RP(d)
+	case PDUTypeP_DATA_TF:
+		pdu = decodeP_DATA_TF(d)
+	case PDUTypeA_RELEASE_RQ:
+		pdu = decodeA_RELEASE_RQ(d)
+	case PDUTypeA_RELEASE_RP:
+		pdu = decodeA_RELEASE_RP(d)
 	}
 	if pdu == nil {
-		// PDUTypeP_DATA_TF      = 4
-		// PDUTypeA_RELEASE_RQ   = 5
-		// PDUTypeA_RELEASE_RP   = 6
 		// PDUTypeA_ABORT        = 7
 		err := fmt.Errorf("DecodePDU: unknown message type %d", d.Type)
 		log.Panicf("%v", err)
@@ -367,8 +405,10 @@ func New_A_RELEASE_RP() *A_RELEASE_RP {
 	return &A_RELEASE_RP{}
 }
 
-func (pdu *A_RELEASE_RP) Decode(d *Decoder) {
+func decodeA_RELEASE_RP(d *Decoder) *A_RELEASE_RP {
+	pdu := &A_RELEASE_RP{}
 	d.Skip(4)
+	return pdu
 }
 
 func (pdu *A_RELEASE_RP) EncodePayload(e *Encoder) {
@@ -533,10 +573,13 @@ func New_P_DATA_TF(items []PresentationDataValueItem) *P_DATA_TF {
 	return &P_DATA_TF{Items: items}
 }
 
-func (pdu *P_DATA_TF) Decode(d *Decoder) {
+func decodeP_DATA_TF(d *Decoder) *P_DATA_TF {
+	panic("P_DATA_TF!!")
+	pdu := &P_DATA_TF{}
 	for d.Available() > 0 && d.Error() == nil {
 		pdu.Items = append(pdu.Items, DecodePresentationDataValueItem(d))
 	}
+	return pdu
 }
 
 func (pdu *P_DATA_TF) EncodePayload(e *Encoder) {
