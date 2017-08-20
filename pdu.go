@@ -32,8 +32,8 @@ type SubItem interface {
 // Possible Type field values for SubItem.
 const (
 	ItemTypeApplicationContext           = 0x10
-	ItemTypePresentationContextRQ        = 0x20
-	ItemTypePresentationContextAC        = 0x21
+	ItemTypePresentationContextRequest        = 0x20
+	ItemTypePresentationContextResponse        = 0x21
 	ItemTypeAbstractSyntax               = 0x30
 	ItemTypeTransferSyntax               = 0x40
 	ItemTypeUserInformation              = 0x50
@@ -55,10 +55,10 @@ func decodeSubItem(d *Decoder) SubItem {
 	if itemType == ItemTypeTransferSyntax {
 		return decodeTransferSyntaxSubItem(d, length)
 	}
-	if itemType == ItemTypePresentationContextRQ {
+	if itemType == ItemTypePresentationContextRequest {
 		return decodePresentationContextItem(d, itemType, length)
 	}
-	if itemType == ItemTypePresentationContextAC {
+	if itemType == ItemTypePresentationContextResponse {
 		return decodePresentationContextItem(d, itemType, length)
 	}
 	if itemType == ItemTypeUserInformation {
@@ -256,7 +256,8 @@ func decodePresentationContextItem(d *Decoder, itemType byte, length uint16) *Pr
 }
 
 func (v *PresentationContextItem) Encode(e *Encoder) {
-	doassert(v.Type == ItemTypePresentationContextRQ || v.Type == ItemTypePresentationContextAC)
+	doassert(v.Type == ItemTypePresentationContextRequest ||
+		v.Type == ItemTypePresentationContextResponse)
 
 	itemEncoder := NewEncoder()
 	for _, s := range v.Items {
@@ -378,10 +379,6 @@ func DecodePDU(in io.Reader) (PDU, error) {
 type A_RELEASE_RQ struct {
 }
 
-func New_A_RELEASE_RQ() *A_RELEASE_RQ {
-	return &A_RELEASE_RQ{}
-}
-
 func decodeA_RELEASE_RQ(d *Decoder) *A_RELEASE_RQ {
 	pdu := &A_RELEASE_RQ{}
 	d.Skip(4)
@@ -399,10 +396,6 @@ func (pdu *A_RELEASE_RQ) DebugString() string {
 }
 
 type A_RELEASE_RP struct {
-}
-
-func New_A_RELEASE_RP() *A_RELEASE_RP {
-	return &A_RELEASE_RP{}
 }
 
 func decodeA_RELEASE_RP(d *Decoder) *A_RELEASE_RP {
@@ -508,13 +501,6 @@ const (
 	ReasonApplicationContextNameNotSupported = 2
 )
 
-func New_A_ASSOCIATE_RJ(result, source, reason byte) *A_ASSOCIATE_RJ {
-	pdu := A_ASSOCIATE_RJ{
-		Result: result, Source: source, Reason: reason,
-	}
-	return &pdu
-}
-
 func decodeA_ASSOCIATE_RJ(d *Decoder) *A_ASSOCIATE_RJ {
 	pdu := &A_ASSOCIATE_RJ{}
 	d.Skip(1) // reserved
@@ -540,13 +526,6 @@ type A_ABORT struct {
 	Reason byte
 }
 
-func New_A_ABORT(source, reason byte) *A_ABORT {
-	pdu := A_ABORT{
-		Source: source,
-		Reason: reason}
-	return &pdu
-}
-
 func decodeA_ABORT(d *Decoder) *A_ABORT {
 	pdu := &A_ABORT{}
 	d.Skip(2)
@@ -569,10 +548,6 @@ type P_DATA_TF struct {
 	Items []PresentationDataValueItem
 }
 
-func New_P_DATA_TF(items []PresentationDataValueItem) *P_DATA_TF {
-	return &P_DATA_TF{Items: items}
-}
-
 func decodeP_DATA_TF(d *Decoder) *P_DATA_TF {
 	panic("P_DATA_TF!!")
 	pdu := &P_DATA_TF{}
@@ -592,6 +567,7 @@ func (pdu *P_DATA_TF) DebugString() string {
 	return "P_DATA_TF"
 }
 
+// fillString pads the string with " " up to the given length.
 func fillString(v string, length int) string {
 	if len(v) > length {
 		return v[:16]

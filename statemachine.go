@@ -66,7 +66,7 @@ func buildAssociateRequestItems(params ServiceUserParams) []SubItem {
 		}
 		items = append(items,
 			&PresentationContextItem{
-				Type:      ItemTypePresentationContextRQ,
+				Type:      ItemTypePresentationContextResponse,
 				ContextID: contextID,
 				Result:    0, // must be zero for request
 				Items:     syntaxItems,
@@ -168,7 +168,7 @@ var Ae8 = &StateAction{"AE-8", "Send A-ASSOCIATE-RJ PDU and start ARTIM timer",
 // Data transfer related actions
 var Dt1 = &StateAction{"DT-1", "Send P-DATA-TF PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		pdu := New_P_DATA_TF(sm.pData)
+		pdu := &P_DATA_TF{Items: sm.pData}
 		sendPDU(sm, pdu)
 		return Sta6
 	}}
@@ -181,7 +181,7 @@ var Dt2 = &StateAction{"DT-2", "Send P-DATA indication primitive",
 // Assocation Release related actions
 var Ar1 = &StateAction{"AR-1", "Send A-RELEASE-RQ PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		sendPDU(sm, New_A_RELEASE_RQ())
+		sendPDU(sm, &A_RELEASE_RQ{})
 		return Sta7
 	}}
 var Ar2 = &StateAction{"AR-2", "Issue A-RELEASE indication primitive",
@@ -191,13 +191,13 @@ var Ar2 = &StateAction{"AR-2", "Issue A-RELEASE indication primitive",
 
 var Ar3 = &StateAction{"AR-3", "Issue A-RELEASE confirmation primitive and close transport connection",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		sendPDU(sm, New_A_RELEASE_RP())
+		sendPDU(sm, &A_RELEASE_RP{})
 		closeConnection(sm)
 		return Sta1
 	}}
 var Ar4 = &StateAction{"AR-4", "Issue A-RELEASE-RP PDU and start ARTIM timer",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		sendPDU(sm, New_A_RELEASE_RP())
+		sendPDU(sm, &A_RELEASE_RP{})
 		startTimer(sm)
 		return Sta13
 	}}
@@ -215,7 +215,7 @@ var Ar6 = &StateAction{"AR-6", "Issue P-DATA indication",
 
 var Ar7 = &StateAction{"AR-7", "Issue P-DATA-TF PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		sendPDU(sm, New_P_DATA_TF(sm.pData))
+		sendPDU(sm, &P_DATA_TF{Items: sm.pData})
 		return Sta8
 	}}
 
@@ -231,7 +231,7 @@ var Ar8 = &StateAction{"AR-8", "Issue A-RELEASE indication (release collision): 
 
 var Ar9 = &StateAction{"AR-9", "Send A-RELEASE-RP PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		sendPDU(sm, New_A_RELEASE_RP())
+		sendPDU(sm, &A_RELEASE_RP{})
 		return Sta11
 	}}
 
@@ -247,7 +247,7 @@ var Aa1 = &StateAction{"AA-1", "Send A-ABORT PDU (service-user source) and start
 		if sm.currentState == Sta2 {
 			diagnostic = 2
 		}
-		sendPDU(sm, New_A_ABORT(0, diagnostic))
+		sendPDU(sm, &A_ABORT{Source: 0, Reason: diagnostic})
 		restartTimer(sm)
 		return Sta13
 	}}
@@ -284,13 +284,13 @@ var Aa6 = &StateAction{"AA-6", "Ignore PDU",
 
 var Aa7 = &StateAction{"AA-7", "Send A-ABORT PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		sendPDU(sm, New_A_ABORT(0, 0))
+		sendPDU(sm, &A_ABORT{Source: 0, Reason: 0})
 		return Sta13
 	}}
 
 var Aa8 = &StateAction{"AA-8", "Send A-ABORT PDU (service-dul source), issue an A-P-ABORT indication and start ARTIM timer",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		sendPDU(sm, New_A_ABORT(2, 0))
+		sendPDU(sm, &A_ABORT{Source: 2, Reason: 0})
 		startTimer(sm)
 		return Sta13
 	}}

@@ -43,7 +43,7 @@ func onAssociateRequest(pdu A_ASSOCIATE) ([]SubItem, bool) {
 			}
 			responses = append(responses,
 				&PresentationContextItem{
-					Type: ItemTypePresentationContextAC,
+					Type: ItemTypePresentationContextResponse,
 					ContextID: n.ContextID,
 					Result:    0, // accepted
 					Items:     []SubItem{&syntaxItem}})
