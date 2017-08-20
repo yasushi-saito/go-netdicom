@@ -9,15 +9,12 @@ import (
 )
 
 type Encoder struct {
-	byteOrder binary.ByteOrder
-	// pduType byte
 	err     error
 	buf     *bytes.Buffer
 }
 
 func NewEncoder() *Encoder {
 	e := &Encoder{}
-	e.byteOrder = binary.BigEndian
 	e.buf = &bytes.Buffer{}
 	return e
 }
@@ -29,33 +26,19 @@ func (e *Encoder) SetError(err error) {
 }
 
 func (e *Encoder) Finish() ([]byte, error) {
-	// if e.pduType == 0 {
-	// 	panic("pduType not set")
-	// }
-	// // Reserve the header bytes. It will be filled in Finish.
-	// header := make([]byte, 6) // First 6 bytes of buf.
-	// header[0] = e.pduType
-	// header[1] = 0 // Reserved.
-	// e.byteOrder.PutUint32(header[2:6], uint32(e.buf.Len()))
-
-	// data := append(header, e.buf.Bytes()...)
 	return e.buf.Bytes(), e.err
 }
 
-// func (e *Encoder) SetType(t byte) {
-// 	e.pduType = t
-// }
-
 func (e *Encoder) EncodeByte(v byte) {
-	binary.Write(e.buf, e.byteOrder, &v)
+	binary.Write(e.buf, binary.BigEndian, &v)
 }
 
 func (e *Encoder) EncodeUint16(v uint16) {
-	binary.Write(e.buf, e.byteOrder, &v)
+	binary.Write(e.buf, binary.BigEndian, &v)
 }
 
 func (e *Encoder) EncodeUint32(v uint32) {
-	binary.Write(e.buf, e.byteOrder, &v)
+	binary.Write(e.buf, binary.BigEndian, &v)
 }
 
 func (e *Encoder) EncodeString(v string) {
@@ -73,7 +56,6 @@ func (e *Encoder) EncodeBytes(v []byte) {
 }
 
 type Decoder struct {
-	byteOrder binary.ByteOrder
 	in        io.Reader
 	err       error
 
@@ -81,7 +63,12 @@ type Decoder struct {
 	// 1 byte reserved
 	Length uint32
 
+	// Cumulative # bytes read.
 	pos    int
+	// Max bytes to read. PushLimit() will add a new limit, and PopLimit()
+	// will restore the old limit. The newest limit is at the end.
+	//
+	// INVARIANT: limits[] store values in decreasing order.
 	limits []int
 }
 
@@ -101,17 +88,16 @@ func (d *Decoder) PopLimit() {
 
 func NewDecoder(in io.Reader) *Decoder {
 	d := &Decoder{}
-	d.byteOrder = binary.BigEndian
-	d.err = binary.Read(in, d.byteOrder, &d.Type)
+	d.err = binary.Read(in, binary.BigEndian, &d.Type)
 	if d.err != nil {
 		return d
 	}
 	var skip byte
-	d.err = binary.Read(in, d.byteOrder, &skip)
+	d.err = binary.Read(in, binary.BigEndian, &skip)
 	if d.err != nil {
 		return d
 	}
-	d.err = binary.Read(in, d.byteOrder, &d.Length)
+	d.err = binary.Read(in, binary.BigEndian, &d.Length)
 	log.Printf("Header: %v %v", d.Type, d.Length)
 	d.in = in
 	d.PushLimit(int(d.Length))
@@ -138,8 +124,8 @@ func (d *Decoder) Read(p []byte) (int, error) {
 	if desired < len(p) {
 		p = p[:desired]
 		desired = len(p)
-		// We are reading less that requested, so this call should
-		// result at least in an EOF. Remember that fact.
+		// Read less than requested, so this call should result at least
+		// in EOF error. Remember that fact.
 		eof = io.EOF
 	}
 	n, err := d.in.Read(p)
@@ -155,7 +141,7 @@ func (d *Decoder) Available() int {
 }
 
 func (d *Decoder) DecodeByte() (v byte) {
-	err := binary.Read(d, d.byteOrder, &v)
+	err := binary.Read(d, binary.BigEndian, &v)
 	if err != nil {
 		d.err = err
 		return 0
@@ -164,7 +150,7 @@ func (d *Decoder) DecodeByte() (v byte) {
 }
 
 func (d *Decoder) DecodeUint32() (v uint32) {
-	err := binary.Read(d, d.byteOrder, &v)
+	err := binary.Read(d, binary.BigEndian, &v)
 	if err != nil {
 		d.err = err
 	}
@@ -172,7 +158,7 @@ func (d *Decoder) DecodeUint32() (v uint32) {
 }
 
 func (d *Decoder) DecodeUint16() (v uint16) {
-	err := binary.Read(d, d.byteOrder, &v)
+	err := binary.Read(d, binary.BigEndian, &v)
 	if err != nil {
 		d.err = err
 	}

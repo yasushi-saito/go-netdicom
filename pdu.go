@@ -1,6 +1,7 @@
 package netdicom
 
 import (
+	"encoding/binary"
 	"bytes"
 	"fmt"
 	"io"
@@ -157,7 +158,7 @@ type SubItemWithName struct {
 	Name string
 }
 
-func (item *SubItemWithName) Encode(e *Encoder) {
+func (item *SubItemWithName() encodeSubItemWithName(e *Encoder, itemType byte) {
 	encodeSubItemHeader(e, item.Type, uint16(len(item.Name)))
 	// TODO: handle unicode properly
 	e.EncodeBytes([]byte(item.Name))
@@ -173,6 +174,11 @@ func decodeSubItemWithName(d *Decoder, itemType byte, length uint16) *SubItemWit
 	v.Name = d.DecodeString(int(length))
 	return v
 }
+
+type ApplicationContextItem SubItemWithName
+
+func (item *SubItemWithName) Encode(e *Encoder) {
+
 
 // The name that should be used for ApplicationContextItem.Name.
 const DefaultApplicationContextItemName = "1.2.840.10008.3.1.1.1"
@@ -288,7 +294,7 @@ func EncodePDU(pdu PDU) ([]byte, error) {
 	header := make([]byte, 6) // First 6 bytes of buf.
 	header[0] = pduType
 	header[1] = 0 // Reserved.
-	e.byteOrder.PutUint32(header[2:6], uint32(len(payload)))
+	binary.BigEndian.PutUint32(header[2:6], uint32(len(payload)))
 	return append(header, payload...), nil
 }
 
@@ -303,19 +309,17 @@ func DecodePDU(in io.Reader) (PDU, error) {
 		fallthrough
 	case PDUTypeA_ASSOCIATE_AC:
 		pdu = decodeA_ASSOCIATE(d, d.Type)
-		if d.err != nil {
-			return nil, d.err
-		}
 	case PDUTypeA_ASSOCIATE_RJ:
 		pdu = decodeA_ASSOCIATE_RJ(d)
-		if d.err != nil {
-			return nil, d.err
-		}
 	case PDUTypeA_ABORT:
 		pdu = decodeA_ABORT(d)
-		if d.err != nil {
-			return nil, d.err
-		}
+	case PDUTypeDATA_TF:
+		pdu = decodeDATA_TF(d)
+	case PDUTypeRELEASE_RQ:
+		pdu = decodeRELEASE_RQ(d)
+	}
+	case PDUTypeRELEASE_RP:
+		pdu = decodeRELEASE_RP(d)
 	}
 	if pdu == nil {
 		// PDUTypeP_DATA_TF      = 4
@@ -340,7 +344,7 @@ func New_A_RELEASE_RQ() *A_RELEASE_RQ {
 	return &A_RELEASE_RQ{}
 }
 
-func DecodeA_RELEASE_RQ(d *Decoder) *A_RELEASE_RQ {
+func decodeA_RELEASE_RQ(d *Decoder) *A_RELEASE_RQ {
 	pdu := &A_RELEASE_RQ{}
 	d.Skip(4)
 	return pdu
@@ -374,49 +378,6 @@ func (pdu *A_RELEASE_RP) EncodePayload(e *Encoder) {
 func (pdu *A_RELEASE_RP) DebugString() string {
 	return fmt.Sprintf("A_RELEASE_RP(%v)", *pdu)
 }
-
-// type A_ASSOCIATE_RQ struct {
-// 	ProtocolVersion uint16
-// 	// Reserved uint16
-// 	CalledAETitle  string
-// 	CallingAETitle string
-// 	Items          []SubItem
-// }
-
-// func New_A_ASSOCIATE_RQ(params SessionParams) *A_ASSOCIATE_RQ {
-// 	pdu := A_ASSOCIATE_RQ{}
-// 	pdu.ProtocolVersion = 1
-// 	return &pdu
-// }
-
-// func decodeA_ASSOCIATE_RQ(d *Decoder) *A_ASSOCIATE_RQ {
-// 	pdu := &A_ASSOCIATE_RQ{}
-// 	pdu.ProtocolVersion = d.DecodeUint16()
-// 	d.Skip(2) // Reserved
-// 	pdu.CalledAETitle = d.DecodeString(16)
-// 	pdu.CallingAETitle = d.DecodeString(16)
-// 	d.Skip(8 * 4)
-// 	for d.Available() > 0 && d.Error() == nil {
-// 		pdu.Items = append(pdu.Items, decodeSubItem(d))
-// 	}
-// 	return pdu
-// }
-
-// func (pdu *A_ASSOCIATE_RQ) Encode(e *Encoder) {
-// 	e.SetType(PDUTypeA_ASSOCIATE_RQ)
-// 	e.EncodeUint16(pdu.ProtocolVersion)
-// 	e.EncodeZeros(2) // Reserved
-// 	e.EncodeString(fillString(pdu.CalledAETitle, 16))
-// 	e.EncodeString(fillString(pdu.CallingAETitle, 16))
-// 	e.EncodeZeros(8 * 4)
-// 	e.EncodeUint32(0) // TODO
-// }
-//func (pdu *A_ASSOCIATE_RQ) DebugString() string {
-//	return fmt.Sprintf(
-//		"A_ASSOCIATE_RQ{version:%v calledaet:%s callingaet:%s items: %s",
-//		pdu.ProtocolVersion, pdu.CalledAETitle, pdu.CallingAETitle,
-//		subItemListDebugString(pdu.Items))
-//}
 
 func subItemListDebugString(items []SubItem) string {
 	buf := bytes.Buffer{}
