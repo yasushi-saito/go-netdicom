@@ -76,7 +76,7 @@ func buildAssociateRequestItems(params ServiceUserParams) []SubItem {
 	// TODO(saito) Set the PDU size more properly.
 	items = append(items,
 		&UserInformationItem{
-			Items: []SubItem{&UserInformationMaximumLengthItem{MaximumLengthReceived: 1 << 20}}})
+			Items: []SubItem{&UserInformationMaximumLengthItem{params.MaximumPDUSize}}})
 	return items
 }
 
@@ -127,9 +127,54 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 			startTimer(sm)
 			return Sta13
 		}
-		items, ok := sm.callbacks.OnAssociateRequest(*pdu)
+		responses := []SubItem{
+			&ApplicationContextItem{
+				Name: DefaultApplicationContextItemName,
+			},
+		}
+		for _, item := range pdu.Items {
+			if n, ok := item.(*PresentationContextItem); ok {
+				// TODO(saito) Need to pick the syntax preferred by us.
+				// For now, just hardcode the syntax, ignoring the list
+				// in RQ.
+				//
+				// var syntaxItem SubItem
+				// for _, subitem := range(n.Items) {
+				// 	log.Printf("Received PresentaionContext(%x): %v", n.ContextID, subitem.DebugString())
+				// 	if n, ok := subitem.(*SubItemWithName); ok && n.Type == ItemTypeTransferSyntax {
+				// 		syntaxItem = n
+				// 		break
+				// 	}
+				// }
+				// doassert(syntaxItem != nil)
+				var syntaxItem = TransferSyntaxSubItem{
+					Name: ImplicitVRLittleEndian,
+				}
+				responses = append(responses,
+					&PresentationContextItem{
+						Type:      ItemTypePresentationContextResponse,
+						ContextID: n.ContextID,
+						Result:    0, // accepted
+						Items:     []SubItem{&syntaxItem}})
+				for _, aitem := range(n.Items) {
+					if aitem, ok := aitem.(*AbstractSyntaxSubItem); ok {
+						log.Printf("Map context %d -> %s", n.ContextID, aitem.Name)
+						sm.presentationContextMap[n.ContextID] = aitem.Name
+					}
+					// TODO(saito) CHeck that each item has exactly one aitem.
+				}
+			}
+		}
+		// TODO(saito) Set the PDU size more properly.
+		responses = append(responses,
+			&UserInformationItem{
+				Items: []SubItem{&UserInformationMaximumLengthItem{MaximumLengthReceived: 1 << 20}}})
+		ok := true
+		// items, ok := sm.serviceProviderParams.onAssociateRequest(*pdu)
 		if ok {
-			doassert(len(items) > 0)
+			doassert(len(responses) > 0)
+			doassert(pdu.CalledAETitle != "")
+			doassert(pdu.CallingAETitle != "")
 			sm.upperLayerCh <- StateEvent{
 				event: Evt7,
 				pdu: &A_ASSOCIATE{
@@ -137,7 +182,7 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 					ProtocolVersion: CurrentProtocolVersion,
 					CalledAETitle:   pdu.CalledAETitle,
 					CallingAETitle:  pdu.CallingAETitle,
-					Items:           items,
+					Items:           responses,
 				},
 			}
 		} else {
@@ -173,8 +218,36 @@ var Dt1 = &StateAction{"DT-1", "Send P-DATA-TF PDU",
 		return Sta6
 	}}
 
+func presentationContextNameFromID(sm *StateMachine, contextID byte) string {
+	name, ok := sm.presentationContextMap[contextID]
+	if !ok {
+		log.Printf("Unknown context %d sent from user", contextID)
+		name = fmt.Sprintf("unknown-context-%d", contextID)
+	}
+	return name
+}
+
 var Dt2 = &StateAction{"DT-2", "Send P-DATA indication primitive",
 	func(sm *StateMachine, event StateEvent) *StateType {
+		pdu := event.pdu.(*P_DATA_TF)
+		var mergedData [][]byte
+		var currentContext byte = 0
+
+		maybeUpcall := func() {
+			if mergedData != nil {
+				sm.serviceProviderParams.OnDataCallback(presentationContextNameFromID(sm, currentContext), mergedData)
+				mergedData = nil
+			}
+		}
+
+		for _, item := range pdu.Items {
+			if currentContext != item.ContextID {
+				maybeUpcall()
+				currentContext = item.ContextID
+			}
+			mergedData = append(mergedData, item.Value)
+		}
+		maybeUpcall()
 		return Sta6
 	}}
 
@@ -476,11 +549,16 @@ const (
 )
 
 type StateMachine struct {
-	verbose           bool
-	serviceUserParams ServiceUserParams
-	callbacks         StateCallbacks
-	pData             []PresentationDataValueItem
-	requestor         int32
+	verbose               bool
+	serviceUserParams     ServiceUserParams
+	serviceProviderParams ServiceProviderParams
+	pData                 []PresentationDataValueItem
+	requestor             int32
+
+	// Maps a contextID (an odd integer) to a string of form
+	// 1.2.840.100008.x.y.  Set on receiving A_ASSOCIATE_RQ message. Thus,
+	// it is set only on the provider side (not the user).
+	presentationContextMap map[byte]string
 
 	// For receiving PDU and network status events.
 	netCh chan StateEvent
@@ -615,17 +693,6 @@ func findAction(currentState *StateType, event EventType) *StateAction {
 	return nil
 }
 
-type ServiceUserParams struct {
-	Provider         string // server "host:port"
-	CalledAETitle    string
-	CallingAETitle   string // may be ""
-	RequiredServices []SOPUID
-
-	// List of Transfer syntaxes supported by the user.
-	// The value is most often StandardTransferSyntaxes.
-	SupportedTransferSyntaxes []string
-}
-
 func NewStateMachineForServiceUser(params ServiceUserParams) *StateMachine {
 	doassert(params.Provider != "")
 	doassert(params.CallingAETitle != "")
@@ -633,6 +700,7 @@ func NewStateMachineForServiceUser(params ServiceUserParams) *StateMachine {
 	doassert(len(params.SupportedTransferSyntaxes) > 0)
 	sm := &StateMachine{}
 	sm.verbose = true
+	// sm.presentationContextMap is left nil. It's not used on the user side.
 	sm.serviceUserParams = params
 	sm.netCh = make(chan StateEvent, 128)
 	sm.upperLayerCh = make(chan StateEvent, 128)
@@ -644,15 +712,11 @@ func NewStateMachineForServiceUser(params ServiceUserParams) *StateMachine {
 	return sm
 }
 
-type StateCallbacks struct {
-	// A_ASSOCIATE_RQ arrived from a client. STA3
-	OnAssociateRequest func(A_ASSOCIATE) ([]SubItem, bool)
-}
-
-func RunStateMachineForServiceProvider(conn net.Conn, callbacks StateCallbacks) {
+func RunStateMachineForServiceProvider(conn net.Conn, params ServiceProviderParams) {
 	sm := &StateMachine{}
+	sm.presentationContextMap = make(map[byte]string)
 	sm.verbose = true
-	sm.callbacks = callbacks
+	sm.serviceProviderParams = params
 	sm.conn = conn
 	sm.netCh = make(chan StateEvent, 128)
 	sm.upperLayerCh = make(chan StateEvent, 128)

@@ -120,18 +120,17 @@ func (d *Decoder) Finish() error {
 // io.Reader implementation
 func (d *Decoder) Read(p []byte) (int, error) {
 	desired := d.Available()
-	var eof error
+	if desired == 0 {
+		if len(p)==0 {return 0, nil}
+		return 0, io.EOF
+	}
 	if desired < len(p) {
 		p = p[:desired]
 		desired = len(p)
-		// Read less than requested, so this call should result at least
-		// in EOF error. Remember that fact.
-		eof = io.EOF
 	}
 	n, err := d.in.Read(p)
 	if err == nil {
 		d.pos += n
-		err = eof
 	}
 	return n, err
 }
@@ -171,13 +170,20 @@ func (d *Decoder) DecodeString(length int) string {
 
 func (d *Decoder) DecodeBytes(length int) []byte {
 	v := make([]byte, length)
-	n, err := d.Read(v)
-	if err != nil {
-		d.err = err
+	remaining := v
+	for len(remaining) > 0 {
+		n, err := d.Read(v)
+		if err != nil {
+			d.err = err
+			break
+		}
+		remaining = remaining[n:]
 	}
-	if n != length {
-		panic("XXXXXXXXZZZ")
-		d.err = fmt.Errorf("DecodeBytes: %d <-> %d", n, length)
+	doassert(d.err==nil)
+	if len(remaining) > 0 {
+		d.err = fmt.Errorf("DecodeBytes: requested %d, remaining %d",
+			length, len(remaining))
+		panic(d.err)  // TODO(saito) remove
 	}
 	return v
 }

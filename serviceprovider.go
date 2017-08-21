@@ -5,10 +5,28 @@ import (
 	"net"
 )
 
+type ServiceProviderParams struct {
+	ListenAddr string
+	MaximumPDUSize uint32
+	// Called on receiving a P_DATA_TF message. If one message contains
+	// items for multiple application contexts (very unlikely, but the spec
+	// allows for it), this callback is run for each context ID.
+	OnDataCallback func(context string, value [][]byte)
+
+	// A_ASSOCIATE_RQ arrived from a client. STA3
+	onAssociateRequest func(A_ASSOCIATE) ([]SubItem, bool)
+}
+
+func NewServiceProviderParams(listenAddr string) ServiceProviderParams {
+	return ServiceProviderParams{
+		ListenAddr: listenAddr,
+		MaximumPDUSize: 1 << 20,
+	}
+}
+
 type ServiceProvider struct {
-	listenAddr string
+	params ServiceProviderParams
 	listener   net.Listener
-	callbacks  StateCallbacks
 }
 
 type ServiceProviderSession struct {
@@ -56,11 +74,12 @@ func onAssociateRequest(pdu A_ASSOCIATE) ([]SubItem, bool) {
 	return responses, true
 }
 
-func NewServiceProvider(listenAddr string) *ServiceProvider {
+func NewServiceProvider(params ServiceProviderParams) *ServiceProvider {
+	// TODO: move OnAssociateRequest outside the params
+	params.onAssociateRequest = onAssociateRequest
 	sp := &ServiceProvider{
-		listenAddr: listenAddr,
+		params: params,
 	}
-	sp.callbacks.OnAssociateRequest = onAssociateRequest
 	return sp
 }
 
@@ -68,7 +87,7 @@ func (sp *ServiceProvider) Run() error {
 	if sp.listener != nil {
 		panic("Run called twice")
 	}
-	listener, err := net.Listen("tcp", sp.listenAddr)
+	listener, err := net.Listen("tcp", sp.params.ListenAddr)
 	if err != nil {
 		return err
 	}
@@ -80,6 +99,6 @@ func (sp *ServiceProvider) Run() error {
 			continue
 		}
 		log.Printf("Accept connection")
-		go RunStateMachineForServiceProvider(conn, sp.callbacks)
+		go RunStateMachineForServiceProvider(conn, sp.params)
 	}
 }

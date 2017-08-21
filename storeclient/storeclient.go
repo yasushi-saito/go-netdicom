@@ -19,14 +19,9 @@ func main() {
 		log.Fatal("Both --server and --file must be set")
 	}
 
-	su := netdicom.NewServiceUser(netdicom.ServiceUserParams{
-		Provider:                  *serverFlag,
-		CalledAETitle:             "dontcare",
-		CallingAETitle:            "testclient",
-		RequiredServices:          netdicom.StorageClasses,
-		SupportedTransferSyntaxes: netdicom.StandardTransferSyntaxes,
-	})
-
+	params := netdicom.NewServiceUserParams(
+		*serverFlag, "dontcare", "testclient", netdicom.StorageClasses)
+	su := netdicom.NewServiceUser(params)
 	data, err := ioutil.ReadFile(*fileFlag)
 	if err != nil {
 		log.Fatalf("%s: %v", *fileFlag, err)

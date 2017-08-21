@@ -281,14 +281,13 @@ func (item *PresentationContextItem) DebugString() string {
 
 // P3.8 9.3.2.2.1 & 9.3.2.2.2
 type PresentationDataValueItem struct {
-	Length    uint32
+	// Length: 1 + len(Value)
 	ContextID byte
 	Value     []byte
 }
 
 func NewPresentationDataValueItem(contextID byte, value []byte) PresentationDataValueItem {
 	return PresentationDataValueItem{
-		Length:    uint32(1 + len(value)),
 		ContextID: contextID,
 		Value:     value,
 	}
@@ -296,16 +295,20 @@ func NewPresentationDataValueItem(contextID byte, value []byte) PresentationData
 
 func DecodePresentationDataValueItem(d *Decoder) PresentationDataValueItem {
 	item := PresentationDataValueItem{}
-	item.Length = d.DecodeUint32()
+	length := d.DecodeUint32()
 	item.ContextID = d.DecodeByte()
-	item.Value = d.DecodeBytes(int(item.Length))
+	item.Value = d.DecodeBytes(int(length-1))
 	return item
 }
 
 func (item *PresentationDataValueItem) Encode(e *Encoder) {
-	e.EncodeUint32(item.Length)
+	e.EncodeUint32(uint32(1 + len(item.Value)))
 	e.EncodeByte(item.ContextID)
 	e.EncodeBytes(item.Value)
+}
+
+func (v *PresentationDataValueItem) DebugString() string {
+	return fmt.Sprintf("presentationdatavalue{context: %d, value: %d bytes}", v.ContextID, len(v.Value))
 }
 
 func EncodePDU(pdu PDU) ([]byte, error) {
@@ -450,11 +453,15 @@ func decodeA_ASSOCIATE(d *Decoder, pduType byte) *A_ASSOCIATE {
 	for d.Available() > 0 && d.Error() == nil {
 		pdu.Items = append(pdu.Items, decodeSubItem(d))
 	}
+	doassert(pdu.CalledAETitle != "")
+	doassert(pdu.CallingAETitle != "")
 	return pdu
 }
 
 func (pdu *A_ASSOCIATE) EncodePayload(e *Encoder) {
 	doassert(pdu.Type != 0)
+	doassert(pdu.CalledAETitle != "")
+	doassert(pdu.CallingAETitle != "")
 	e.EncodeUint16(pdu.ProtocolVersion)
 	e.EncodeZeros(2) // Reserved
 	e.EncodeString(fillString(pdu.CalledAETitle, 16))
@@ -549,7 +556,6 @@ type P_DATA_TF struct {
 }
 
 func decodeP_DATA_TF(d *Decoder) *P_DATA_TF {
-	panic("P_DATA_TF!!")
 	pdu := &P_DATA_TF{}
 	for d.Available() > 0 && d.Error() == nil {
 		pdu.Items = append(pdu.Items, DecodePresentationDataValueItem(d))
@@ -564,7 +570,17 @@ func (pdu *P_DATA_TF) EncodePayload(e *Encoder) {
 }
 
 func (pdu *P_DATA_TF) DebugString() string {
-	return "P_DATA_TF"
+	buf := bytes.Buffer{}
+	buf.WriteString(fmt.Sprintf("P_DATA_TF{items: ["))
+
+	for i, item := range pdu.Items {
+		if i > 0 {
+			buf.WriteString("\n")
+		}
+		buf.WriteString(item.DebugString())
+	}
+	buf.WriteString("]}")
+	return buf.String()
 }
 
 // fillString pads the string with " " up to the given length.

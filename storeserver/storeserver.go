@@ -18,7 +18,7 @@ func main() {
 		port = ":" + port
 	}
 	log.Printf("Listening on %s", port)
-	su := netdicom.NewServiceProvider(port)
+	su := netdicom.NewServiceProvider(netdicom.NewServiceProviderParams(port))
 	err := su.Run()
 	if err != nil {
 		panic(err)
