@@ -385,7 +385,7 @@ func DecodePresentationDataValueItem(d *Decoder) PresentationDataValueItem {
 	item.Command = (header & 1 != 0)
 	item.Last = (header & 2 != 0)
 	item.Value = d.DecodeBytes(int(length - 2)) // remove contextID and header
-	if header & 3 != 0 {
+	if header & 0xfc != 0 {
 		d.SetError(fmt.Errorf("PresentationDataValueItem: illegal header byte %x", header))
 	}
 	return item
@@ -406,7 +406,7 @@ func (v *PresentationDataValueItem) Encode(e *Encoder) {
 }
 
 func (v *PresentationDataValueItem) DebugString() string {
-	return fmt.Sprintf("presentationdatavalue{context: %d, value: %d bytes}", v.ContextID, len(v.Value))
+	return fmt.Sprintf("presentationdatavalue{context: %d, cmd:%v last:%v value: %d bytes}", v.ContextID, v.Command, v.Last, len(v.Value))
 }
 
 func EncodePDU(pdu PDU) ([]byte, error) {
