@@ -355,28 +355,51 @@ func (v *PresentationContextItem) DebugString() string {
 type PresentationDataValueItem struct {
 	// Length: 1 + len(Value)
 	ContextID byte
-	Value     []byte
+
+	// P3.8, E.2: the following two fields encode a single byte.
+	Command bool // Bit 7 (LSB): 1 means command 0 means data
+	Last    bool // Bit 6: 1 means last fragment. 0 means not last fragment.
+
+	// Payload, either command or data
+	Value []byte
 }
 
-func NewPresentationDataValueItem(contextID byte, value []byte) PresentationDataValueItem {
-	return PresentationDataValueItem{
-		ContextID: contextID,
-		Value:     value,
-	}
-}
+// func NewPresentationDataValueItem(contextID byte, command bool, last bool, value []byte) PresentationDataValueItem {
+// 	return PresentationDataValueItem{
+// 		ContextID: contextID,
+// 		Command:   command,
+// 		Last:      last,
+// 		Value:     value,
+// 	}
+// }
 
 func DecodePresentationDataValueItem(d *Decoder) PresentationDataValueItem {
 	item := PresentationDataValueItem{}
 	length := d.DecodeUint32()
 	item.ContextID = d.DecodeByte()
+
+	header := d.DecodeByte()
+	item.Command = (header & 1 != 0)
+	item.Last = (header & 2 != 0)
 	item.Value = d.DecodeBytes(int(length - 1))
+	if header & 3 != 0 {
+		d.SetError(fmt.Errorf("PresentationDataValueItem: illegal header byte %x", header))
+	}
 	return item
 }
 
-func (item *PresentationDataValueItem) Encode(e *Encoder) {
-	e.EncodeUint32(uint32(1 + len(item.Value)))
-	e.EncodeByte(item.ContextID)
-	e.EncodeBytes(item.Value)
+func (v *PresentationDataValueItem) Encode(e *Encoder) {
+	var header byte = 0
+	if v.Command {
+		header |= 1
+	}
+	if v.Last {
+		header |= 2
+	}
+	e.EncodeUint32(uint32(1 + len(v.Value)))
+	e.EncodeByte(v.ContextID)
+	e.EncodeByte(header)
+	e.EncodeBytes(v.Value)
 }
 
 func (v *PresentationDataValueItem) DebugString() string {

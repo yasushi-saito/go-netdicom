@@ -221,22 +221,29 @@ var Ae8 = &StateAction{"AE-8", "Send A-ASSOCIATE-RJ PDU and start ARTIM timer",
 	}}
 
 // Produce a list of P_DATA_TF PDUs that collective store "data".
-func splitDataIntoPDUs(sm*StateMachine, abstractSyntaxName string, data []byte) []P_DATA_TF {
-	doassert(sm.maximumPDUSize > 0)
+func splitDataIntoPDUs(sm*StateMachine, abstractSyntaxName string, command bool, data []byte) []P_DATA_TF {
+	doassert(sm.maxPDUSize > 0)
 	doassert(len(data) > 0)
 
 	contextID, err := abstractSyntaxNameToContextID(sm.contextIDMap, abstractSyntaxName)
 	doassert(err == nil)
 	var pdus []P_DATA_TF
+	// two byte header overhead.
+	//
+	// TODO(saito) move the magic number elsewhere.
+	var maxChunkSize = sm.maxPDUSize - 2
 	for len(data) > 0 {
 		chunkSize := len(data)
-		if chunkSize > sm.maximumPDUSize {
-			chunkSize = sm.maximumPDUSize
+		if chunkSize > maxChunkSize {
+			chunkSize = sm.maxPDUSize
 		}
 		chunk := data[0:chunkSize]
+		data = data[chunkSize:]
 		pdus = append(pdus, P_DATA_TF{Items: []PresentationDataValueItem{
 			PresentationDataValueItem{
 				ContextID: contextID,
+				Command: command,
+				Last: len(data) <= maxChunkSize,
 				Value: chunk,
 			}}})
 	}
@@ -248,10 +255,12 @@ func splitDataIntoPDUs(sm*StateMachine, abstractSyntaxName string, data []byte) 
 var Dt1 = &StateAction{"DT-1", "Send P-DATA-TF PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
 		doassert(event.data != nil)
-		pdus := splitDataIntoPDUs(sm, event.abstractSyntaxName, event.data)
+		pdus := splitDataIntoPDUs(sm, event.abstractSyntaxName, event.command, event.data)
+		log.Printf("Sending %d data pdus", len(pdus))
 		for _, pdu := range(pdus) {
 			sendPDU(sm, &pdu)
 		}
+		log.Printf("Finished sending %d data pdus", len(pdus))
 		return Sta6
 	}}
 
@@ -340,7 +349,7 @@ var Ar6 = &StateAction{"AR-6", "Issue P-DATA indication",
 
 var Ar7 = &StateAction{"AR-7", "Issue P-DATA-TF PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		pdus := splitDataIntoPDUs(sm, event.abstractSyntaxName, event.data)
+		pdus := splitDataIntoPDUs(sm, event.abstractSyntaxName, event.command, event.data)
 		for _, pdu := range(pdus) {
 			sendPDU(sm, &pdu)
 		}
@@ -423,10 +432,10 @@ var Aa8 = &StateAction{"AA-8", "Send A-ABORT PDU (service-dul source), issue an 
 		return Sta13
 	}}
 
-type StateTransitionEvent struct {
-	Name        string
-	Description string
-}
+//type StateTransitionEvent struct {
+//	Name        string
+//	Description string
+//}
 
 type EventType int
 
@@ -458,10 +467,14 @@ type StateEvent struct {
 	err   error
 	conn  net.Conn
 
-	// The following two fields are set iff event==Evt9.
+	// The following four fields are set iff event==Evt9.
 
 	// The syntax UID of the data to be sent.
 	abstractSyntaxName string
+
+	// Is the data command or data? E.g., true for C_STORE, false for C_FIND.
+	command bool
+
 	// Data to send. len(data) may exceed the max PDU size, in which case it
 	// will be split into multiple PresentationDataValueItems.
 	data  []byte
@@ -634,7 +647,7 @@ type StateMachine struct {
 	currentState *StateType
 
 	// The negotiated PDU size.
-	maximumPDUSize int
+	maxPDUSize int
 }
 
 func doassert(x bool) {
@@ -772,7 +785,7 @@ func NewStateMachineForServiceUser(params ServiceUserParams) *StateMachine {
 	sm.serviceUserParams = params
 	sm.netCh = make(chan StateEvent, 128)
 	sm.upperLayerCh = make(chan StateEvent, 128)
-	sm.maximumPDUSize = 1<<20 // TODO(saito)
+	sm.maxPDUSize = 1<<20 // TODO(saito)
 	event := StateEvent{event: Evt1}
 	action := findAction(Sta1, event.event)
 	sm.currentState = action.Callback(sm, event)
@@ -787,7 +800,7 @@ func RunStateMachineForServiceProvider(conn net.Conn, params ServiceProviderPara
 	sm.serviceProviderParams = params
 	sm.conn = conn
 	sm.netCh = make(chan StateEvent, 128)
-	sm.maximumPDUSize = 1<<20 // TODO(saito)
+	sm.maxPDUSize = 1<<20 // TODO(saito)
 	sm.upperLayerCh = make(chan StateEvent, 128)
 	event := StateEvent{event: Evt5, conn: conn}
 	action := findAction(Sta1, event.event)
@@ -812,8 +825,17 @@ func SendData(sm *StateMachine,
 		pdu: nil,
 		conn: nil,
 		abstractSyntaxName: abstractSyntaxUID,
+		command: false,
 		data: data}
-	RunStateMachineUntilQuiescent(sm)
+	for sm.currentState != Sta1 {
+		event := getNextEvent(sm)
+		action := findAction(sm.currentState, event.event)
+		log.Printf("Running action %v", action.Name)
+		sm.currentState = action.Callback(sm, event)
+		log.Printf("Got event:%v action:%v, next:%s",
+			event, action, sm.currentState)
+	}
+	log.Print("Connection shutdown")
 }
 
 func StartRelease(sm *StateMachine) {
