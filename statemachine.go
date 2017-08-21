@@ -70,7 +70,7 @@ func buildAssociateRequestItems(params ServiceUserParams) (*contextIDMap, []SubI
 		}
 		items = append(items,
 			&PresentationContextItem{
-				Type:      ItemTypePresentationContextResponse,
+				Type:      ItemTypePresentationContextRequest,
 				ContextID: contextID,
 				Result:    0, // must be zero for request
 				Items:     syntaxItems,

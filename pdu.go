@@ -176,6 +176,7 @@ func decodeAsynchronousOperationsWindowSubItem(d *Decoder, length uint16) *Async
 }
 
 func (v *AsynchronousOperationsWindowSubItem) Encode(e *Encoder) {
+	encodeSubItemHeader(e, ItemTypeAsynchronousOperationsWindow, 2*2)
 	e.EncodeUint16(v.MaxOpsInvoked)
 	e.EncodeUint16(v.MaxOpsPerformed)
 }
@@ -188,7 +189,8 @@ func (v *AsynchronousOperationsWindowSubItem) DebugString() string {
 // PS3.7 Annex D.3.3.2.3
 type ImplementationVersionNameSubItem subItemWithName
 
-const DefaultImplementationVersionName = "GONETDICOM_2017_8_21"
+// Must be <=16 bytes long
+const DefaultImplementationVersionName = "GONETDICOM_1_1"
 
 func decodeImplementationVersionNameSubItem(d *Decoder, length uint16) *ImplementationVersionNameSubItem {
 	return &ImplementationVersionNameSubItem{Name: decodeSubItemWithName(d, length)}
@@ -340,9 +342,13 @@ func (v *PresentationContextItem) Encode(e *Encoder) {
 	e.EncodeBytes(itemBytes)
 }
 
-func (item *PresentationContextItem) DebugString() string {
-	return fmt.Sprintf("presentationcontext{id: %d items:%s}",
-		item.ContextID, subItemListDebugString(item.Items))
+func (v *PresentationContextItem) DebugString() string {
+	itemType := "rq"
+	if v.Type == ItemTypePresentationContextResponse {
+		itemType = "ac"
+	}
+	return fmt.Sprintf("presentationcontext%s{id: %d items:%s}",
+		itemType, v.ContextID, subItemListDebugString(v.Items))
 }
 
 // P3.8 9.3.2.2.1 & 9.3.2.2.2
