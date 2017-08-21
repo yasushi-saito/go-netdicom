@@ -49,13 +49,17 @@ var Ae1 = &StateAction{"AE-1",
 		return Sta4
 	}}
 
-func buildAssociateRequestItems(params ServiceUserParams) []SubItem {
+// Generate an item list to be embedded in an A_REQUEST_RQ PDU. The PDU is sent
+// when running as a service user.
+func buildAssociateRequestItems(params ServiceUserParams) (*contextIDMap, []SubItem) {
+	contextIDMap := newContextIDMap()
 	items := []SubItem{
 		&ApplicationContextItem{
 			Name: DefaultApplicationContextItemName,
 		}}
 	var contextID byte = 1
 	for _, sop := range params.RequiredServices {
+		addContextIDToAbstractSyntaxNameMap(contextIDMap, sop.UID, contextID)
 		syntaxItems := []SubItem{
 			&AbstractSyntaxSubItem{Name: sop.UID},
 		}
@@ -73,22 +77,26 @@ func buildAssociateRequestItems(params ServiceUserParams) []SubItem {
 			})
 		contextID += 2 // must be odd.
 	}
-	// TODO(saito) Set the PDU size more properly.
 	items = append(items,
 		&UserInformationItem{
-			Items: []SubItem{&UserInformationMaximumLengthItem{params.MaximumPDUSize}}})
-	return items
+			Items: []SubItem{
+				&UserInformationMaximumLengthItem{params.MaximumPDUSize},
+				&ImplementationClassUIDSubItem{DefaultImplementationClassUID},
+				&ImplementationVersionNameSubItem{DefaultImplementationVersionName}}})
+	return contextIDMap, items
 }
 
 var Ae2 = &StateAction{"AE-2", "Send A-ASSOCIATE-RQ-PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
+		newContextIDMap, items := buildAssociateRequestItems(sm.serviceUserParams)
 		sendPDU(sm, &A_ASSOCIATE{
 			Type:            PDUTypeA_ASSOCIATE_RQ,
 			ProtocolVersion: CurrentProtocolVersion,
 			CalledAETitle:   sm.serviceUserParams.CalledAETitle,
 			CallingAETitle:  sm.serviceUserParams.CallingAETitle,
-			Items:           buildAssociateRequestItems(sm.serviceUserParams),
+			Items:           items,
 		})
+		sm.contextIDMap = newContextIDMap
 		startTimer(sm)
 		return Sta5
 	}}
@@ -119,6 +127,7 @@ service-dul: issue A-ASSOCIATE indication primitive
 otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 	func(sm *StateMachine, event StateEvent) *StateType {
 		stopTimer(sm)
+		newContextIDMap := newContextIDMap()
 		pdu := event.pdu.(*A_ASSOCIATE)
 		if pdu.ProtocolVersion != 0x0001 {
 			log.Printf("Wrong remote protocol version 0x%x", pdu.ProtocolVersion)
@@ -159,7 +168,7 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 				for _, aitem := range(n.Items) {
 					if aitem, ok := aitem.(*AbstractSyntaxSubItem); ok {
 						log.Printf("Map context %d -> %s", n.ContextID, aitem.Name)
-						sm.presentationContextMap[n.ContextID] = aitem.Name
+						addContextIDToAbstractSyntaxNameMap(newContextIDMap, aitem.Name, n.ContextID)
 					}
 					// TODO(saito) CHeck that each item has exactly one aitem.
 				}
@@ -185,6 +194,7 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 					Items:           responses,
 				},
 			}
+			sm.contextIDMap = newContextIDMap
 		} else {
 			sm.upperLayerCh <- StateEvent{
 				event: Evt8,
@@ -210,22 +220,58 @@ var Ae8 = &StateAction{"AE-8", "Send A-ASSOCIATE-RJ PDU and start ARTIM timer",
 		return Sta13
 	}}
 
+// Produce a list of P_DATA_TF PDUs that collective store "data".
+func splitDataIntoPDUs(sm*StateMachine, abstractSyntaxName string, data []byte) []P_DATA_TF {
+	doassert(sm.maximumPDUSize > 0)
+	doassert(len(data) > 0)
+
+	contextID, err := abstractSyntaxNameToContextID(sm.contextIDMap, abstractSyntaxName)
+	doassert(err == nil)
+	var pdus []P_DATA_TF
+	for len(data) > 0 {
+		chunkSize := len(data)
+		if chunkSize > sm.maximumPDUSize {
+			chunkSize = sm.maximumPDUSize
+		}
+		chunk := data[0:chunkSize]
+		pdus = append(pdus, P_DATA_TF{Items: []PresentationDataValueItem{
+			PresentationDataValueItem{
+				ContextID: contextID,
+				Value: chunk,
+			}}})
+	}
+	log.Printf("Created %d data pdus", len(pdus))
+	return pdus
+}
+
 // Data transfer related actions
 var Dt1 = &StateAction{"DT-1", "Send P-DATA-TF PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		pdu := &P_DATA_TF{Items: sm.pData}
-		sendPDU(sm, pdu)
+		doassert(event.data != nil)
+		pdus := splitDataIntoPDUs(sm, event.abstractSyntaxName, event.data)
+		for _, pdu := range(pdus) {
+			sendPDU(sm, &pdu)
+		}
 		return Sta6
 	}}
 
-func presentationContextNameFromID(sm *StateMachine, contextID byte) string {
-	name, ok := sm.presentationContextMap[contextID]
-	if !ok {
-		log.Printf("Unknown context %d sent from user", contextID)
-		name = fmt.Sprintf("unknown-context-%d", contextID)
-	}
-	return name
-}
+// func abstractSyntaxNameToContextID(sm *StateMachine, name string) byte {
+// 	id, ok := sm.abstractSyntaxNameToContextIDMap[name]
+// 	if !ok {
+// 		log.Printf("Unknown syntax %s", name)
+// 		return 255
+// 	}
+// 	return id
+// }
+
+// func contextIDToAbstractSyntaxName(sm *StateMachine, contextID byte) string {
+// 	name, ok := sm.contextIDToAbstractSyntaxNameMap[contextID]
+// 	if !ok {
+// 		log.Printf("Unknown context %d sent from user", contextID)
+// 		name = fmt.Sprintf("unknown-syntax-%d", contextID)
+// 	}
+// 	return name
+// }
 
 var Dt2 = &StateAction{"DT-2", "Send P-DATA indication primitive",
 	func(sm *StateMachine, event StateEvent) *StateType {
@@ -235,7 +281,13 @@ var Dt2 = &StateAction{"DT-2", "Send P-DATA indication primitive",
 
 		maybeUpcall := func() {
 			if mergedData != nil {
-				sm.serviceProviderParams.OnDataCallback(presentationContextNameFromID(sm, currentContext), mergedData)
+				if sm.serviceProviderParams.OnDataCallback==nil{
+					log.Print("OnDataCallback is not set")
+				} else {
+					syntaxName, err := contextIDToAbstractSyntaxName(sm.contextIDMap, currentContext)
+					doassert(err == nil)
+					sm.serviceProviderParams.OnDataCallback(syntaxName, mergedData)
+				}
 				mergedData = nil
 			}
 		}
@@ -288,7 +340,11 @@ var Ar6 = &StateAction{"AR-6", "Issue P-DATA indication",
 
 var Ar7 = &StateAction{"AR-7", "Issue P-DATA-TF PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		sendPDU(sm, &P_DATA_TF{Items: sm.pData})
+		pdus := splitDataIntoPDUs(sm, event.abstractSyntaxName, event.data)
+		for _, pdu := range(pdus) {
+			sendPDU(sm, &pdu)
+		}
+		// sendPDU(sm, &P_DATA_TF{Items: event.data})
 		return Sta8
 	}}
 
@@ -351,7 +407,6 @@ var Aa5 = &StateAction{"AA-5", "Stop ARTIM timer",
 
 var Aa6 = &StateAction{"AA-6", "Ignore PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		sm.pData = nil
 		return Sta13
 	}}
 
@@ -402,7 +457,14 @@ type StateEvent struct {
 	pdu   PDU
 	err   error
 	conn  net.Conn
-	data  []PresentationDataValueItem // Data to send. only for Evt9.
+
+	// The following two fields are set iff event==Evt9.
+
+	// The syntax UID of the data to be sent.
+	abstractSyntaxName string
+	// Data to send. len(data) may exceed the max PDU size, in which case it
+	// will be split into multiple PresentationDataValueItems.
+	data  []byte
 }
 
 //func PDUReceivedEvent(event EventType, pdu PDU) StateEvent{
@@ -552,13 +614,15 @@ type StateMachine struct {
 	verbose               bool
 	serviceUserParams     ServiceUserParams
 	serviceProviderParams ServiceProviderParams
-	pData                 []PresentationDataValueItem
 	requestor             int32
 
-	// Maps a contextID (an odd integer) to a string of form
-	// 1.2.840.100008.x.y.  Set on receiving A_ASSOCIATE_RQ message. Thus,
-	// it is set only on the provider side (not the user).
-	presentationContextMap map[byte]string
+	// abstractSyntaxMap maps a contextID (an odd integer) to an abstract
+	// syntax string such as 1.2.840.10008.5.1.4.1.1.1.2.  This field is set
+	// on receiving A_ASSOCIATE_RQ message. Thus, it is set only on the
+	// provider side (not the user).
+	contextIDMap *contextIDMap
+	//contextIDToAbstractSyntaxNameMap map[byte]string
+	//abstractSyntaxNameToContextIDMap map[string]byte
 
 	// For receiving PDU and network status events.
 	netCh chan StateEvent
@@ -568,6 +632,9 @@ type StateMachine struct {
 	timerCh      chan StateEvent
 	conn         net.Conn
 	currentState *StateType
+
+	// The negotiated PDU size.
+	maximumPDUSize int
 }
 
 func doassert(x bool) {
@@ -627,6 +694,7 @@ func networkReaderThread(ch chan StateEvent, conn net.Conn) {
 			break
 		}
 		if pdu == nil {
+			log.Printf("Empty PDU")
 			break
 		}
 		log.Printf("Read PDU: %v", pdu.DebugString())
@@ -700,11 +768,11 @@ func NewStateMachineForServiceUser(params ServiceUserParams) *StateMachine {
 	doassert(len(params.SupportedTransferSyntaxes) > 0)
 	sm := &StateMachine{}
 	sm.verbose = true
-	// sm.presentationContextMap is left nil. It's not used on the user side.
+	sm.contextIDMap = newContextIDMap()
 	sm.serviceUserParams = params
 	sm.netCh = make(chan StateEvent, 128)
 	sm.upperLayerCh = make(chan StateEvent, 128)
-
+	sm.maximumPDUSize = 1<<20 // TODO(saito)
 	event := StateEvent{event: Evt1}
 	action := findAction(Sta1, event.event)
 	sm.currentState = action.Callback(sm, event)
@@ -714,11 +782,12 @@ func NewStateMachineForServiceUser(params ServiceUserParams) *StateMachine {
 
 func RunStateMachineForServiceProvider(conn net.Conn, params ServiceProviderParams) {
 	sm := &StateMachine{}
-	sm.presentationContextMap = make(map[byte]string)
+	sm.contextIDMap = newContextIDMap()
 	sm.verbose = true
 	sm.serviceProviderParams = params
 	sm.conn = conn
 	sm.netCh = make(chan StateEvent, 128)
+	sm.maximumPDUSize = 1<<20 // TODO(saito)
 	sm.upperLayerCh = make(chan StateEvent, 128)
 	event := StateEvent{event: Evt5, conn: conn}
 	action := findAction(Sta1, event.event)
@@ -734,10 +803,16 @@ func RunStateMachineForServiceProvider(conn net.Conn, params ServiceProviderPara
 	log.Print("Connection shutdown")
 }
 
-func SendData(sm *StateMachine, data []PresentationDataValueItem) {
+func SendData(sm *StateMachine,
+	abstractSyntaxUID string,
+	data []byte) {
 	log.Printf("Send data")
-	doassert(sm.pData == nil)
-	sm.upperLayerCh <- StateEvent{event: Evt9, pdu: nil, conn: nil, data: data}
+	sm.upperLayerCh <- StateEvent{
+		event: Evt9,
+		pdu: nil,
+		conn: nil,
+		abstractSyntaxName: abstractSyntaxUID,
+		data: data}
 	RunStateMachineUntilQuiescent(sm)
 }
 

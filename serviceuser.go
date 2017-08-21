@@ -41,9 +41,8 @@ func NewServiceUser(params ServiceUserParams) *ServiceUser {
 	}
 }
 
-func (su *ServiceUser) CStore(data []byte) {
-	di := NewPresentationDataValueItem(0 /*todo*/, data)
-	SendData(su.sm, []PresentationDataValueItem{di})
+func (su *ServiceUser) CStore(abstractSyntaxUID string, data []byte) {
+	SendData(su.sm, abstractSyntaxUID, data)
 }
 
 func (su *ServiceUser) Release() error {

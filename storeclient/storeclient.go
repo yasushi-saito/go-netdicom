@@ -26,7 +26,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("%s: %v", *fileFlag, err)
 	}
-	su.CStore(data)
+	// TODO(saito) Pick the syntax UID more properly.
+	su.CStore("1.2.840.10008.5.1.4.1.1.1.2", data)
 	err = su.Release()
 	if err != nil {
 		log.Fatalf("Release failed: %v", err)

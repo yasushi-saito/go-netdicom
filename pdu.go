@@ -1,8 +1,8 @@
 package netdicom
 
 import (
-	"encoding/binary"
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"log"
@@ -32,13 +32,15 @@ type SubItem interface {
 // Possible Type field values for SubItem.
 const (
 	ItemTypeApplicationContext           = 0x10
-	ItemTypePresentationContextRequest        = 0x20
-	ItemTypePresentationContextResponse        = 0x21
+	ItemTypePresentationContextRequest   = 0x20
+	ItemTypePresentationContextResponse  = 0x21
 	ItemTypeAbstractSyntax               = 0x30
 	ItemTypeTransferSyntax               = 0x40
 	ItemTypeUserInformation              = 0x50
 	ItemTypeUserInformationMaximumLength = 0x51
-	ItemTypeUnsupported52                = 0x52
+	ItemTypeImplementationClassUID       = 0x52
+	ItemTypeAsynchronousOperationsWindow = 0x53
+	ItemTypeImplementationVersionName    = 0x55
 )
 
 func decodeSubItem(d *Decoder) SubItem {
@@ -67,8 +69,14 @@ func decodeSubItem(d *Decoder) SubItem {
 	if itemType == ItemTypeUserInformationMaximumLength {
 		return decodeUserInformationMaximumLengthItem(d, length)
 	}
-	if itemType == 0x52 || itemType == 0x55 {
-		return decodeSubItemUnsupported(d, itemType, length)
+	if itemType == ItemTypeImplementationClassUID {
+		return decodeImplementationClassUIDSubItem(d, length)
+	}
+	if itemType == ItemTypeAsynchronousOperationsWindow {
+		return decodeAsynchronousOperationsWindowSubItem(d, length)
+	}
+	if itemType == ItemTypeImplementationVersionName {
+		return decodeImplementationVersionNameSubItem(d, length)
 	}
 	panic(fmt.Sprintf("Unknown item type: 0x%x", itemType))
 }
@@ -134,6 +142,66 @@ func (item *UserInformationMaximumLengthItem) DebugString() string {
 		item.MaximumLengthReceived)
 }
 
+// PS3.7 Annex D.3.3.2.1
+type ImplementationClassUIDSubItem subItemWithName
+
+// UID prefix provided by https://www.medicalconnections.co.uk/Free_UID
+const DefaultImplementationClassUIDPrefix = "1.2.826.0.1.3680043.9.7133"
+
+var DefaultImplementationClassUID = DefaultImplementationClassUIDPrefix + ".1.1"
+
+func decodeImplementationClassUIDSubItem(d *Decoder, length uint16) *ImplementationClassUIDSubItem {
+	return &ImplementationClassUIDSubItem{Name: decodeSubItemWithName(d, length)}
+}
+
+func (v *ImplementationClassUIDSubItem) Encode(e *Encoder) {
+	encodeSubItemWithName(e, ItemTypeImplementationClassUID, v.Name)
+}
+
+func (v *ImplementationClassUIDSubItem) DebugString() string {
+	return fmt.Sprintf("implementationclassuid{name: \"%s\"}", v.Name)
+}
+
+// PS3.7 Annex D.3.3.3.1
+type AsynchronousOperationsWindowSubItem struct {
+	MaxOpsInvoked   uint16
+	MaxOpsPerformed uint16
+}
+
+func decodeAsynchronousOperationsWindowSubItem(d *Decoder, length uint16) *AsynchronousOperationsWindowSubItem {
+	return &AsynchronousOperationsWindowSubItem{
+		MaxOpsInvoked:   d.DecodeUint16(),
+		MaxOpsPerformed: d.DecodeUint16(),
+	}
+}
+
+func (v *AsynchronousOperationsWindowSubItem) Encode(e *Encoder) {
+	e.EncodeUint16(v.MaxOpsInvoked)
+	e.EncodeUint16(v.MaxOpsPerformed)
+}
+
+func (v *AsynchronousOperationsWindowSubItem) DebugString() string {
+	return fmt.Sprintf("asynchronousopswindow{invoked: %d performed: %d}",
+		v.MaxOpsInvoked, v.MaxOpsPerformed)
+}
+
+// PS3.7 Annex D.3.3.2.3
+type ImplementationVersionNameSubItem subItemWithName
+
+const DefaultImplementationVersionName = "GONETDICOM_2017_8_21"
+
+func decodeImplementationVersionNameSubItem(d *Decoder, length uint16) *ImplementationVersionNameSubItem {
+	return &ImplementationVersionNameSubItem{Name: decodeSubItemWithName(d, length)}
+}
+
+func (v *ImplementationVersionNameSubItem) Encode(e *Encoder) {
+	encodeSubItemWithName(e, ItemTypeImplementationVersionName, v.Name)
+}
+
+func (v *ImplementationVersionNameSubItem) DebugString() string {
+	return fmt.Sprintf("implementationversionname{name: \"%s\"}", v.Name)
+}
+
 // Container for subitems that this package doesnt' support
 type SubItemUnsupported struct {
 	Type byte
@@ -170,6 +238,10 @@ func encodeSubItemWithName(e *Encoder, itemType byte, name string) {
 	e.EncodeBytes([]byte(name))
 }
 
+func decodeSubItemWithName(d *Decoder, length uint16) string {
+	return d.DecodeString(int(length))
+}
+
 //func (item *SubItemWithName) DebugString() string {
 //	return fmt.Sprintf("subitem{type: 0x%0x name: \"%s\"}", item.Type, item.Name)
 //}
@@ -178,14 +250,8 @@ type ApplicationContextItem subItemWithName
 
 const DefaultApplicationContextItemName = "1.2.840.10008.3.1.1.1"
 
-func decodeSubItemWithName(d *Decoder, length uint16) string {
-	return d.DecodeString(int(length))
-}
-
 func decodeApplicationContextItem(d *Decoder, length uint16) *ApplicationContextItem {
-	v := &ApplicationContextItem{}
-	v.Name = decodeSubItemWithName(d, length)
-	return v
+	return &ApplicationContextItem{Name: decodeSubItemWithName(d, length)}
 }
 
 func (v *ApplicationContextItem) Encode(e *Encoder) {
@@ -209,8 +275,9 @@ func (v *AbstractSyntaxSubItem) Encode(e *Encoder) {
 }
 
 func (v *AbstractSyntaxSubItem) DebugString() string {
-	return fmt.Sprintf("applicationcontext{name: \"%s\"}", v.Name)
+	return fmt.Sprintf("abstractsyntax{name: \"%s\"}", v.Name)
 }
+
 type TransferSyntaxSubItem subItemWithName
 
 func decodeTransferSyntaxSubItem(d *Decoder, length uint16) *TransferSyntaxSubItem {
@@ -219,13 +286,12 @@ func decodeTransferSyntaxSubItem(d *Decoder, length uint16) *TransferSyntaxSubIt
 	return v
 }
 
-
 func (v *TransferSyntaxSubItem) Encode(e *Encoder) {
 	encodeSubItemWithName(e, ItemTypeTransferSyntax, v.Name)
 }
 
 func (v *TransferSyntaxSubItem) DebugString() string {
-	return fmt.Sprintf("applicationcontext{name: \"%s\"}", v.Name)
+	return fmt.Sprintf("transfersyntax{name: \"%s\"}", v.Name)
 }
 
 // P3.8 9.3.2.2, 9.3.3.2
@@ -297,7 +363,7 @@ func DecodePresentationDataValueItem(d *Decoder) PresentationDataValueItem {
 	item := PresentationDataValueItem{}
 	length := d.DecodeUint32()
 	item.ContextID = d.DecodeByte()
-	item.Value = d.DecodeBytes(int(length-1))
+	item.Value = d.DecodeBytes(int(length - 1))
 	return item
 }
 

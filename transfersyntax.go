@@ -12,5 +12,5 @@ const (
 
 // Standard list of transfer systems, in order of preference.
 var StandardTransferSyntaxes = []string{
-	ImplicitVRLittleEndian, ExplicitVRLittleEndian, ExplicitVRBigEndian,
+	ImplicitVRLittleEndian, ExplicitVRLittleEndian, ExplicitVRBigEndian, DeflatedExplicitVRLittleEndian,
 }
