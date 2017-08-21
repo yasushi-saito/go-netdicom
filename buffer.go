@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
 )
 
 type Encoder struct {
@@ -59,9 +58,9 @@ type Decoder struct {
 	in        io.Reader
 	err       error
 
-	Type byte
+	//Type byte
 	// 1 byte reserved
-	Length uint32
+	//Length uint32
 
 	// Cumulative # bytes read.
 	pos    int
@@ -86,22 +85,24 @@ func (d *Decoder) PopLimit() {
 	d.limits = d.limits[:len(d.limits)-1]
 }
 
-func NewDecoder(in io.Reader) *Decoder {
+func NewDecoder(in io.Reader, length int) *Decoder {
+	// TODO(saito) cleanup.
 	d := &Decoder{}
-	d.err = binary.Read(in, binary.BigEndian, &d.Type)
-	if d.err != nil {
-		return d
-	}
-	var skip byte
-	d.err = binary.Read(in, binary.BigEndian, &skip)
-	if d.err != nil {
-		return d
-	}
-	d.err = binary.Read(in, binary.BigEndian, &d.Length)
-	log.Printf("Header: %v %v", d.Type, d.Length)
+	// d.err = binary.Read(in, binary.BigEndian, &d.Type)
+	// if d.err != nil {
+	// 	return d
+	// }
+	// var skip byte
+	// d.err = binary.Read(in, binary.BigEndian, &skip)
+	// if d.err != nil {
+	// 	return d
+	// }
+	// d.err = binary.Read(in, binary.BigEndian, &d.Length)
+	// log.Printf("Header: %v %v", d.Type, d.Length)
+	// d.in = in
 	d.in = in
-	d.PushLimit(int(d.Length))
-	log.Printf("NewDecoder: type=%d, length=%d", d.Type, d.Length)
+	d.PushLimit(length)
+	//log.Printf("NewDecoder: type=%d, length=%d", d.Type, d.Length)
 	return d
 }
 

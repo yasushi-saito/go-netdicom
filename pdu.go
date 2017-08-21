@@ -9,13 +9,17 @@ import (
 )
 
 type PDU interface {
+	// Encode the PDU payload. The "payload" here excludes the first 6 bytes
+	// that are common to all PDU types - they are encoded in EncodePDU separately.
 	EncodePayload(*Encoder)
+	// Print human-readable description for debugging.
 	DebugString() string
 }
 
 // Possible Type field for PDUs.
+type PDUType byte
 const (
-	PDUTypeA_ASSOCIATE_RQ = 1
+	PDUTypeA_ASSOCIATE_RQ PDUType = 1
 	PDUTypeA_ASSOCIATE_AC = 2
 	PDUTypeA_ASSOCIATE_RJ = 3
 	PDUTypeP_DATA_TF      = 4
@@ -353,7 +357,7 @@ func (v *PresentationContextItem) DebugString() string {
 
 // P3.8 9.3.2.2.1 & 9.3.2.2.2
 type PresentationDataValueItem struct {
-	// Length: 1 + len(Value)
+	// Length: 2 + len(Value)
 	ContextID byte
 
 	// P3.8, E.2: the following two fields encode a single byte.
@@ -377,11 +381,10 @@ func DecodePresentationDataValueItem(d *Decoder) PresentationDataValueItem {
 	item := PresentationDataValueItem{}
 	length := d.DecodeUint32()
 	item.ContextID = d.DecodeByte()
-
 	header := d.DecodeByte()
 	item.Command = (header & 1 != 0)
 	item.Last = (header & 2 != 0)
-	item.Value = d.DecodeBytes(int(length - 1))
+	item.Value = d.DecodeBytes(int(length - 2)) // remove contextID and header
 	if header & 3 != 0 {
 		d.SetError(fmt.Errorf("PresentationDataValueItem: illegal header byte %x", header))
 	}
@@ -396,7 +399,7 @@ func (v *PresentationDataValueItem) Encode(e *Encoder) {
 	if v.Last {
 		header |= 2
 	}
-	e.EncodeUint32(uint32(1 + len(v.Value)))
+	e.EncodeUint32(uint32(2 + len(v.Value)))
 	e.EncodeByte(v.ContextID)
 	e.EncodeByte(header)
 	e.EncodeBytes(v.Value)
@@ -407,7 +410,7 @@ func (v *PresentationDataValueItem) DebugString() string {
 }
 
 func EncodePDU(pdu PDU) ([]byte, error) {
-	var pduType byte
+	var pduType PDUType
 	if n, ok := pdu.(*A_ASSOCIATE); ok {
 		pduType = n.Type
 	} else if _, ok := pdu.(*A_ASSOCIATE_RJ); ok {
@@ -433,23 +436,44 @@ func EncodePDU(pdu PDU) ([]byte, error) {
 
 	// Reserve the header bytes. It will be filled in Finish.
 	header := make([]byte, 6) // First 6 bytes of buf.
-	header[0] = pduType
+	header[0] = byte(pduType)
 	header[1] = 0 // Reserved.
 	binary.BigEndian.PutUint32(header[2:6], uint32(len(payload)))
 	return append(header, payload...), nil
 }
 
 func DecodePDU(in io.Reader) (PDU, error) {
-	d := NewDecoder(in)
-	if d.err != nil {
-		return nil, d.err
+	// d := NewDecoder(in)
+
+	var pduType PDUType
+	var skip byte
+	var length uint32
+	err := binary.Read(in, binary.BigEndian, &pduType)
+	if err != nil {
+		return nil, err
 	}
+	err = binary.Read(in, binary.BigEndian, &skip)
+	if err != nil {
+		return nil, err
+	}
+	err = binary.Read(in, binary.BigEndian, &length)
+	if err != nil {
+		return nil, err
+	}
+	log.Printf("Header: %v %v", pduType, length)
+
+	d := NewDecoder(in, int(length))
+	//d.in = in
+	//d.PushLimit(int(d.Length))
+	//log.Printf("NewDecoder: type=%d, length=%d", d.Type, d.Length)
+	// return d
+
 	var pdu PDU = nil
-	switch d.Type {
+	switch pduType {
 	case PDUTypeA_ASSOCIATE_RQ:
 		fallthrough
 	case PDUTypeA_ASSOCIATE_AC:
-		pdu = decodeA_ASSOCIATE(d, d.Type)
+		pdu = decodeA_ASSOCIATE(d, pduType)
 	case PDUTypeA_ASSOCIATE_RJ:
 		pdu = decodeA_ASSOCIATE_RJ(d)
 	case PDUTypeA_ABORT:
@@ -462,8 +486,7 @@ func DecodePDU(in io.Reader) (PDU, error) {
 		pdu = decodeA_RELEASE_RP(d)
 	}
 	if pdu == nil {
-		// PDUTypeA_ABORT        = 7
-		err := fmt.Errorf("DecodePDU: unknown message type %d", d.Type)
+		err := fmt.Errorf("DecodePDU: unknown message type %d", pduType)
 		log.Panicf("%v", err)
 		return nil, err
 	}
@@ -529,7 +552,7 @@ const (
 
 // Defines A_ASSOCIATE_{RQ,AC}. P3.8 9.3.2 and 9.3.3
 type A_ASSOCIATE struct {
-	Type            byte // One of {PDUTypeA_Associate_RQ,PDUTypeA_Associate_AC}
+	Type            PDUType // One of {PDUTypeA_Associate_RQ,PDUTypeA_Associate_AC}
 	ProtocolVersion uint16
 	// Reserved uint16
 	CalledAETitle  string // For .._AC, the value is copied from A_ASSOCIATE_RQ
@@ -537,7 +560,7 @@ type A_ASSOCIATE struct {
 	Items          []SubItem
 }
 
-func decodeA_ASSOCIATE(d *Decoder, pduType byte) *A_ASSOCIATE {
+func decodeA_ASSOCIATE(d *Decoder, pduType PDUType) *A_ASSOCIATE {
 	pdu := &A_ASSOCIATE{}
 	pdu.Type = pduType
 	pdu.ProtocolVersion = d.DecodeUint16()
