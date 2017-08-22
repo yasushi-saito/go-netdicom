@@ -1,7 +1,9 @@
 package netdicom
 
 import (
+	"bytes"
 	"fmt"
+	"github.com/yasushi-saito/go-dicom"
 	"log"
 	"net"
 )
@@ -59,7 +61,7 @@ func onAssociateRequest(pdu A_ASSOCIATE) ([]SubItem, bool) {
 			// }
 			// doassert(syntaxItem != nil)
 			var syntaxItem = TransferSyntaxSubItem{
-				Name: ImplicitVRLittleEndian,
+				Name: dicom.ImplicitVRLittleEndian,
 			}
 			responses = append(responses,
 				&PresentationContextItem{
@@ -91,7 +93,6 @@ func onDataRequest(state *dataRequestState, pdu P_DATA_TF, contextIDMap contextI
 		} else if state.contextID != item.ContextID {
 			panic(fmt.Sprintf("Mixed context: %d %d", state.contextID, item.ContextID))
 		}
-
 		if item.Command {
 			state.command = append(state.command, item.Value...)
 			if item.Last {
@@ -109,9 +110,8 @@ func onDataRequest(state *dataRequestState, pdu P_DATA_TF, contextIDMap contextI
 			return
 		}
 		syntaxName, err := contextIDToAbstractSyntaxName(&contextIDMap, state.contextID)
-		doassert(err == nil)
-		log.Printf("Read all data! %s", syntaxName)
-
+		command, err := DecodeDIMSEMessage(bytes.NewBuffer(state.command), int64(len(state.command)))
+		log.Printf("Read all data for syntax %s, command [%v], data %d bytes, err%v", dicom.UIDDebugString(syntaxName), command, len(state.data), err)
 	}
 
 }

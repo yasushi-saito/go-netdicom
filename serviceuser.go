@@ -1,7 +1,7 @@
 package netdicom
 
 import (
-// "github.com/yasushi-saito/go-dicom"
+	"github.com/yasushi-saito/go-dicom"
 )
 
 type ServiceUser struct {
@@ -30,7 +30,7 @@ func NewServiceUserParams(
 		CalledAETitle:             calledAETitle,
 		CallingAETitle:            callingAETitle,
 		RequiredServices:          requiredServices,
-		SupportedTransferSyntaxes: StandardTransferSyntaxes,
+		SupportedTransferSyntaxes: dicom.StandardTransferSyntaxes,
 		MaximumPDUSize:            1 << 20,
 	}
 }

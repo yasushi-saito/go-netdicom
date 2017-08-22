@@ -2,6 +2,7 @@ package netdicom
 
 import (
 	"fmt"
+	"github.com/yasushi-saito/go-dicom"
 	"log"
 	"net"
 	"time"
@@ -157,7 +158,7 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 				// }
 				// doassert(syntaxItem != nil)
 				var syntaxItem = TransferSyntaxSubItem{
-					Name: ImplicitVRLittleEndian,
+					Name: dicom.ImplicitVRLittleEndian,
 				}
 				responses = append(responses,
 					&PresentationContextItem{
