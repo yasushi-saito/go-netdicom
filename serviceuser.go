@@ -17,7 +17,7 @@ type ServiceUserParams struct {
 	// List of Transfer syntaxes supported by the user.
 	// The value is most often StandardTransferSyntaxes.
 	SupportedTransferSyntaxes []string
-	MaximumPDUSize uint32
+	MaximumPDUSize            uint32
 }
 
 func NewServiceUserParams(
@@ -26,12 +26,12 @@ func NewServiceUserParams(
 	callingAETitle string,
 	requiredServices []SOPUID) ServiceUserParams {
 	return ServiceUserParams{
-		Provider: provider,
-		CalledAETitle: calledAETitle,
-		CallingAETitle: callingAETitle,
-		RequiredServices: requiredServices,
+		Provider:                  provider,
+		CalledAETitle:             calledAETitle,
+		CallingAETitle:            callingAETitle,
+		RequiredServices:          requiredServices,
 		SupportedTransferSyntaxes: StandardTransferSyntaxes,
-		MaximumPDUSize: 1 << 20,
+		MaximumPDUSize:            1 << 20,
 	}
 }
 

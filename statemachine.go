@@ -165,7 +165,7 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 						ContextID: n.ContextID,
 						Result:    0, // accepted
 						Items:     []SubItem{&syntaxItem}})
-				for _, aitem := range(n.Items) {
+				for _, aitem := range n.Items {
 					if aitem, ok := aitem.(*AbstractSyntaxSubItem); ok {
 						log.Printf("Map context %d -> %s", n.ContextID, aitem.Name)
 						addContextIDToAbstractSyntaxNameMap(newContextIDMap, aitem.Name, n.ContextID)
@@ -221,7 +221,7 @@ var Ae8 = &StateAction{"AE-8", "Send A-ASSOCIATE-RJ PDU and start ARTIM timer",
 	}}
 
 // Produce a list of P_DATA_TF PDUs that collective store "data".
-func splitDataIntoPDUs(sm*StateMachine, abstractSyntaxName string, command bool, data []byte) []P_DATA_TF {
+func splitDataIntoPDUs(sm *StateMachine, abstractSyntaxName string, command bool, data []byte) []P_DATA_TF {
 	doassert(sm.maxPDUSize > 0)
 	doassert(len(data) > 0)
 
@@ -242,9 +242,9 @@ func splitDataIntoPDUs(sm*StateMachine, abstractSyntaxName string, command bool,
 		pdus = append(pdus, P_DATA_TF{Items: []PresentationDataValueItem{
 			PresentationDataValueItem{
 				ContextID: contextID,
-				Command: command,
-				Last: len(data) <= maxChunkSize,
-				Value: chunk,
+				Command:   command,
+				Last:      len(data) <= maxChunkSize,
+				Value:     chunk,
 			}}})
 	}
 	log.Printf("Created %d data pdus", len(pdus))
@@ -257,7 +257,7 @@ var Dt1 = &StateAction{"DT-1", "Send P-DATA-TF PDU",
 		doassert(event.data != nil)
 		pdus := splitDataIntoPDUs(sm, event.abstractSyntaxName, event.command, event.data)
 		log.Printf("Sending %d data pdus", len(pdus))
-		for _, pdu := range(pdus) {
+		for _, pdu := range pdus {
 			sendPDU(sm, &pdu)
 		}
 		log.Printf("Finished sending %d data pdus", len(pdus))
@@ -350,7 +350,7 @@ var Ar6 = &StateAction{"AR-6", "Issue P-DATA indication",
 var Ar7 = &StateAction{"AR-7", "Issue P-DATA-TF PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
 		pdus := splitDataIntoPDUs(sm, event.abstractSyntaxName, event.command, event.data)
-		for _, pdu := range(pdus) {
+		for _, pdu := range pdus {
 			sendPDU(sm, &pdu)
 		}
 		// sendPDU(sm, &P_DATA_TF{Items: event.data})
@@ -477,7 +477,7 @@ type StateEvent struct {
 
 	// Data to send. len(data) may exceed the max PDU size, in which case it
 	// will be split into multiple PresentationDataValueItems.
-	data  []byte
+	data []byte
 }
 
 //func PDUReceivedEvent(event EventType, pdu PDU) StateEvent{
@@ -785,7 +785,7 @@ func NewStateMachineForServiceUser(params ServiceUserParams) *StateMachine {
 	sm.serviceUserParams = params
 	sm.netCh = make(chan StateEvent, 128)
 	sm.upperLayerCh = make(chan StateEvent, 128)
-	sm.maxPDUSize = 1<<20 // TODO(saito)
+	sm.maxPDUSize = 1 << 20 // TODO(saito)
 	event := StateEvent{event: Evt1}
 	action := findAction(Sta1, event.event)
 	sm.currentState = action.Callback(sm, event)
@@ -800,7 +800,7 @@ func RunStateMachineForServiceProvider(conn net.Conn, params ServiceProviderPara
 	sm.serviceProviderParams = params
 	sm.conn = conn
 	sm.netCh = make(chan StateEvent, 128)
-	sm.maxPDUSize = 1<<20 // TODO(saito)
+	sm.maxPDUSize = 1 << 20 // TODO(saito)
 	sm.upperLayerCh = make(chan StateEvent, 128)
 	event := StateEvent{event: Evt5, conn: conn}
 	action := findAction(Sta1, event.event)
@@ -821,12 +821,12 @@ func SendData(sm *StateMachine,
 	data []byte) {
 	log.Printf("Send data")
 	sm.upperLayerCh <- StateEvent{
-		event: Evt9,
-		pdu: nil,
-		conn: nil,
+		event:              Evt9,
+		pdu:                nil,
+		conn:               nil,
 		abstractSyntaxName: abstractSyntaxUID,
-		command: false,
-		data: data}
+		command:            false,
+		data:               data}
 	for sm.currentState != Sta1 {
 		event := getNextEvent(sm)
 		action := findAction(sm.currentState, event.event)

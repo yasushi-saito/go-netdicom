@@ -7,9 +7,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/yasushi-saito/go-dicom"
 	"io"
 	"log"
-	"github.com/yasushi-saito/go-dicom"
 )
 
 type PDU interface {
@@ -22,14 +22,15 @@ type PDU interface {
 
 // Possible Type field for PDUs.
 type PDUType byte
+
 const (
 	PDUTypeA_ASSOCIATE_RQ PDUType = 1
-	PDUTypeA_ASSOCIATE_AC = 2
-	PDUTypeA_ASSOCIATE_RJ = 3
-	PDUTypeP_DATA_TF      = 4
-	PDUTypeA_RELEASE_RQ   = 5
-	PDUTypeA_RELEASE_RP   = 6
-	PDUTypeA_ABORT        = 7
+	PDUTypeA_ASSOCIATE_AC         = 2
+	PDUTypeA_ASSOCIATE_RJ         = 3
+	PDUTypeP_DATA_TF              = 4
+	PDUTypeA_RELEASE_RQ           = 5
+	PDUTypeA_RELEASE_RP           = 6
+	PDUTypeA_ABORT                = 7
 )
 
 type SubItem interface {
@@ -386,10 +387,10 @@ func DecodePresentationDataValueItem(d *dicom.Decoder) PresentationDataValueItem
 	length := d.DecodeUInt32()
 	item.ContextID = d.DecodeByte()
 	header := d.DecodeByte()
-	item.Command = (header & 1 != 0)
-	item.Last = (header & 2 != 0)
+	item.Command = (header&1 != 0)
+	item.Last = (header&2 != 0)
 	item.Value = d.DecodeBytes(int(length - 2)) // remove contextID and header
-	if header & 0xfc != 0 {
+	if header&0xfc != 0 {
 		d.SetError(fmt.Errorf("PresentationDataValueItem: illegal header byte %x", header))
 	}
 	return item
@@ -466,7 +467,7 @@ func DecodePDU(in io.Reader) (PDU, error) {
 
 	d := dicom.NewDecoder(in, int64(length),
 		binary.BigEndian, // PDU is always big endian
-		true) // implicit is irrelevant for PDU parsing
+		true)             // implicit is irrelevant for PDU parsing
 	//d.in = in
 	//d.PushLimit(int(d.Length))
 	//log.Printf("NewDecoder: type=%d, length=%d", d.Type, d.Length)

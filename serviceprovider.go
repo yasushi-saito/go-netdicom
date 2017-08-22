@@ -7,7 +7,7 @@ import (
 )
 
 type ServiceProviderParams struct {
-	ListenAddr string
+	ListenAddr     string
 	MaximumPDUSize uint32
 	// Called on receiving a P_DATA_TF message. If one message contains
 	// items for multiple application contexts (very unlikely, but the spec
@@ -16,19 +16,19 @@ type ServiceProviderParams struct {
 
 	// A_ASSOCIATE_RQ arrived from a client. STA3
 	onAssociateRequest func(A_ASSOCIATE) ([]SubItem, bool)
-	onDataRequest func(P_DATA_TF, contextIDMap)
+	onDataRequest      func(P_DATA_TF, contextIDMap)
 }
 
 func NewServiceProviderParams(listenAddr string) ServiceProviderParams {
 	return ServiceProviderParams{
-		ListenAddr: listenAddr,
+		ListenAddr:     listenAddr,
 		MaximumPDUSize: 1 << 20,
 	}
 }
 
 type ServiceProvider struct {
-	params ServiceProviderParams
-	listener   net.Listener
+	params   ServiceProviderParams
+	listener net.Listener
 }
 
 type ServiceProviderSession struct {
@@ -63,7 +63,7 @@ func onAssociateRequest(pdu A_ASSOCIATE) ([]SubItem, bool) {
 			}
 			responses = append(responses,
 				&PresentationContextItem{
-					Type: ItemTypePresentationContextResponse,
+					Type:      ItemTypePresentationContextResponse,
 					ContextID: n.ContextID,
 					Result:    0, // accepted
 					Items:     []SubItem{&syntaxItem}})
@@ -77,32 +77,32 @@ func onAssociateRequest(pdu A_ASSOCIATE) ([]SubItem, bool) {
 }
 
 type dataRequestState struct {
-	contextID byte
-	command []byte
-	data []byte
+	contextID      byte
+	command        []byte
+	data           []byte
 	readAllCommand bool
-	readAllData bool
+	readAllData    bool
 }
 
-func onDataRequest(state* dataRequestState, pdu P_DATA_TF, contextIDMap contextIDMap) {
+func onDataRequest(state *dataRequestState, pdu P_DATA_TF, contextIDMap contextIDMap) {
 	for _, item := range pdu.Items {
 		if state.contextID == 0 {
-			state.contextID =item.ContextID
+			state.contextID = item.ContextID
 		} else if state.contextID != item.ContextID {
-			panic(fmt.Sprintf("Mixed context: %d %d",state.contextID, item.ContextID))
+			panic(fmt.Sprintf("Mixed context: %d %d", state.contextID, item.ContextID))
 		}
 
 		if item.Command {
 			state.command = append(state.command, item.Value...)
 			if item.Last {
 				doassert(!state.readAllCommand)
-				state.readAllCommand=true
+				state.readAllCommand = true
 			}
 		} else {
 			state.data = append(state.data, item.Value...)
 			if item.Last {
 				doassert(!state.readAllData)
-				state.readAllData=true
+				state.readAllData = true
 			}
 		}
 		if !state.readAllCommand || !state.readAllData {
