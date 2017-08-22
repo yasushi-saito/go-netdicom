@@ -284,31 +284,31 @@ var Dt1 = &StateAction{"DT-1", "Send P-DATA-TF PDU",
 
 var Dt2 = &StateAction{"DT-2", "Send P-DATA indication primitive",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		pdu := event.pdu.(*P_DATA_TF)
-		var mergedData [][]byte
-		var currentContext byte = 0
+		sm.serviceProviderParams.onDataRequest(*event.pdu.(*P_DATA_TF), *sm.contextIDMap)
+		// var mergedData [][]byte
+		// var currentContext byte = 0
 
-		maybeUpcall := func() {
-			if mergedData != nil {
-				if sm.serviceProviderParams.OnDataCallback==nil{
-					log.Print("OnDataCallback is not set")
-				} else {
-					syntaxName, err := contextIDToAbstractSyntaxName(sm.contextIDMap, currentContext)
-					doassert(err == nil)
-					sm.serviceProviderParams.OnDataCallback(syntaxName, mergedData)
-				}
-				mergedData = nil
-			}
-		}
+		// maybeUpcall := func() {
+		// 	if mergedData != nil {
+		// 		if sm.serviceProviderParams.OnDataCallback==nil{
+		// 			log.Print("OnDataCallback is not set")
+		// 		} else {
+		// 			syntaxName, err := contextIDToAbstractSyntaxName(sm.contextIDMap, currentContext)
+		// 			doassert(err == nil)
+		// 			sm.serviceProviderParams.OnDataCallback(syntaxName, mergedData)
+		// 		}
+		// 		mergedData = nil
+		// 	}
+		// }
 
-		for _, item := range pdu.Items {
-			if currentContext != item.ContextID {
-				maybeUpcall()
-				currentContext = item.ContextID
-			}
-			mergedData = append(mergedData, item.Value)
-		}
-		maybeUpcall()
+		// for _, item := range pdu.Items {
+		// 	if currentContext != item.ContextID {
+		// 		maybeUpcall()
+		// 		currentContext = item.ContextID
+		// 	}
+		// 	mergedData = append(mergedData, item.Value)
+		// }
+		// maybeUpcall()
 		return Sta6
 	}}
 

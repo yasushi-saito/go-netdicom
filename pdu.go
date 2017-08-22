@@ -117,9 +117,9 @@ func (v *UserInformationItem) Encode(e *dicom.Encoder) {
 
 func decodeUserInformationItem(d *dicom.Decoder, length uint16) *UserInformationItem {
 	v := &UserInformationItem{}
-	d.PushLimit(int(length))
+	d.PushLimit(int64(length))
 	defer d.PopLimit()
-	for d.Available() > 0 && d.Error() == nil {
+	for d.Len() > 0 && d.Error() == nil {
 		v.Items = append(v.Items, decodeSubItem(d))
 	}
 	return v
@@ -316,13 +316,13 @@ type PresentationContextItem struct {
 
 func decodePresentationContextItem(d *dicom.Decoder, itemType byte, length uint16) *PresentationContextItem {
 	v := &PresentationContextItem{Type: itemType}
-	d.PushLimit(int(length))
+	d.PushLimit(int64(length))
 	defer d.PopLimit()
 	v.ContextID = d.DecodeByte()
 	d.Skip(1)
 	v.Result = d.DecodeByte()
 	d.Skip(1)
-	for d.Available() > 0 && d.Error() == nil {
+	for d.Len() > 0 && d.Error() == nil {
 		v.Items = append(v.Items, decodeSubItem(d))
 	}
 	if v.ContextID%2 != 1 {
@@ -447,8 +447,6 @@ func EncodePDU(pdu PDU) ([]byte, error) {
 }
 
 func DecodePDU(in io.Reader) (PDU, error) {
-	// d := NewDecoder(in)
-
 	var pduType PDUType
 	var skip byte
 	var length uint32
@@ -466,7 +464,7 @@ func DecodePDU(in io.Reader) (PDU, error) {
 	}
 	log.Printf("Header: %v %v", pduType, length)
 
-	d := dicom.NewDecoder(in, int(length),
+	d := dicom.NewDecoder(in, int64(length),
 		binary.BigEndian, // PDU is always big endian
 		true) // implicit is irrelevant for PDU parsing
 	//d.in = in
@@ -574,7 +572,7 @@ func decodeA_ASSOCIATE(d *dicom.Decoder, pduType PDUType) *A_ASSOCIATE {
 	pdu.CalledAETitle = d.DecodeString(16)
 	pdu.CallingAETitle = d.DecodeString(16)
 	d.Skip(8 * 4)
-	for d.Available() > 0 && d.Error() == nil {
+	for d.Len() > 0 && d.Error() == nil {
 		pdu.Items = append(pdu.Items, decodeSubItem(d))
 	}
 	doassert(pdu.CalledAETitle != "")
@@ -681,7 +679,7 @@ type P_DATA_TF struct {
 
 func decodeP_DATA_TF(d *dicom.Decoder) *P_DATA_TF {
 	pdu := &P_DATA_TF{}
-	for d.Available() > 0 && d.Error() == nil {
+	for d.Len() > 0 && d.Error() == nil {
 		pdu.Items = append(pdu.Items, DecodePresentationDataValueItem(d))
 	}
 	return pdu

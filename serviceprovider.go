@@ -1,6 +1,7 @@
 package netdicom
 
 import (
+	"fmt"
 	"log"
 	"net"
 )
@@ -11,10 +12,11 @@ type ServiceProviderParams struct {
 	// Called on receiving a P_DATA_TF message. If one message contains
 	// items for multiple application contexts (very unlikely, but the spec
 	// allows for it), this callback is run for each context ID.
-	OnDataCallback func(context string, value [][]byte)
+	// OnDataCallback func(context string, value [][]byte)
 
 	// A_ASSOCIATE_RQ arrived from a client. STA3
 	onAssociateRequest func(A_ASSOCIATE) ([]SubItem, bool)
+	onDataRequest func(P_DATA_TF, contextIDMap)
 }
 
 func NewServiceProviderParams(listenAddr string) ServiceProviderParams {
@@ -74,9 +76,54 @@ func onAssociateRequest(pdu A_ASSOCIATE) ([]SubItem, bool) {
 	return responses, true
 }
 
+type dataRequestState struct {
+	contextID byte
+	command []byte
+	data []byte
+	readAllCommand bool
+	readAllData bool
+}
+
+func onDataRequest(state* dataRequestState, pdu P_DATA_TF, contextIDMap contextIDMap) {
+	for _, item := range pdu.Items {
+		if state.contextID == 0 {
+			state.contextID =item.ContextID
+		} else if state.contextID != item.ContextID {
+			panic(fmt.Sprintf("Mixed context: %d %d",state.contextID, item.ContextID))
+		}
+
+		if item.Command {
+			state.command = append(state.command, item.Value...)
+			if item.Last {
+				doassert(!state.readAllCommand)
+				state.readAllCommand=true
+			}
+		} else {
+			state.data = append(state.data, item.Value...)
+			if item.Last {
+				doassert(!state.readAllData)
+				state.readAllData=true
+			}
+		}
+		if !state.readAllCommand || !state.readAllData {
+			return
+		}
+		syntaxName, err := contextIDToAbstractSyntaxName(&contextIDMap, state.contextID)
+		doassert(err == nil)
+		log.Printf("Read all data! %s", syntaxName)
+
+	}
+
+}
+
 func NewServiceProvider(params ServiceProviderParams) *ServiceProvider {
 	// TODO: move OnAssociateRequest outside the params
 	params.onAssociateRequest = onAssociateRequest
+
+	dataState := &dataRequestState{}
+	params.onDataRequest = func(pdu P_DATA_TF, contextIDMap contextIDMap) {
+		onDataRequest(dataState, pdu, contextIDMap)
+	}
 	sp := &ServiceProvider{
 		params: params,
 	}
