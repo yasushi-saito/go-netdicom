@@ -1,32 +1,37 @@
 package netdicom
 
 import (
-	"fmt"
 	"bytes"
+	"fmt"
 	"github.com/yasushi-saito/go-dicom"
 	"log"
 	"net"
 )
 
 type ServiceProviderParams struct {
-	ListenAddr     string
+	// TCP address to listen to. E.g., ":1234" will listen to port 1234 at
+	// all the IP address that this machine can bind to.
+	ListenAddr string
+
+	// The max PDU size, in bytes, that this instance is willing to receive.
+	// If the value is <=0, DefaultMaxPDUSize is used.
 	MaxPDUSize uint32
+
 	// Called on receiving a P_DATA_TF message. If one message contains
 	// items for multiple application contexts (very unlikely, but the spec
 	// allows for it), this callback is run for each context ID.
 	// OnDataCallback func(context string, value [][]byte)
 
 	// A_ASSOCIATE_RQ arrived from a client. STA3
-	onAssociateRequest func(A_ASSOCIATE) ([]SubItem, bool)
-	onCStoreRequest func(req C_STORE_RQ, data []byte)
+	// onAssociateRequest func(A_ASSOCIATE) ([]SubItem, bool)
+
+	// Called on receiving C_STORE_RQ message. The handler should store the
+	// given data and return either 0 on success, or one of CStoreStatus*
+	// error codes.
+	OnCStoreRequest func(data []byte) uint16
 }
 
-func NewServiceProviderParams(listenAddr string) ServiceProviderParams {
-	return ServiceProviderParams{
-		ListenAddr:     listenAddr,
-		MaxPDUSize: 1 << 20,
-	}
-}
+const DefaultMaxPDUSize uint32 = 4 << 20
 
 type ServiceProvider struct {
 	params   ServiceProviderParams
@@ -86,7 +91,8 @@ type dataRequestState struct {
 	readAllData    bool
 }
 
-func onDataRequest(state *dataRequestState, pdu P_DATA_TF, contextIDMap contextIDMap) {
+func onDataRequest(sm *StateMachine, pdu P_DATA_TF, contextIDMap contextIDMap,
+	state *dataRequestState, params ServiceProviderParams) {
 	for _, item := range pdu.Items {
 		if state.contextID == 0 {
 			state.contextID = item.ContextID
@@ -111,16 +117,46 @@ func onDataRequest(state *dataRequestState, pdu P_DATA_TF, contextIDMap contextI
 		}
 		syntaxName, err := contextIDToAbstractSyntaxName(&contextIDMap, state.contextID)
 		command, err := DecodeDIMSEMessage(bytes.NewBuffer(state.command), int64(len(state.command)))
-		log.Printf("Read all data for syntax %s, command [%v], data %d bytes, err%v", dicom.UIDDebugString(syntaxName), command, len(state.data), err)
-	}
+		log.Printf("Read all data for syntax %s, command [%v], data %d bytes, err%v",
+			dicom.UIDDebugString(syntaxName), command, len(state.data), err)
 
+		switch c := command.(type) {
+		case *C_STORE_RQ:
+			status := CStoreStatusCannotUnderstand
+			if params.OnCStoreRequest != nil {
+				status = params.OnCStoreRequest(state.data)
+			}
+			resp := &C_STORE_RSP{
+				AffectedSOPClassUID:       c.AffectedSOPClassUID,
+				MessageIDBeingRespondedTo: c.MessageID,
+				CommandDataSetType:        CommandDataSetTypeNull,
+				AffectedSOPInstanceUID:    c.AffectedSOPInstanceUID,
+				Status:                    status,
+			}
+			bytes, err := EncodeDIMSEMessage(resp)
+			if err != nil {
+				panic(err) // TODO(saito)
+			}
+			sendData(sm, syntaxName, true /*command*/, bytes)
+		default:
+			panic("aoeu")
+		}
+	}
 }
 
 func NewServiceProvider(params ServiceProviderParams) *ServiceProvider {
-	// TODO: move OnAssociateRequest outside the params
-	sp := &ServiceProvider{
-		params: params,
+	doassert(params.ListenAddr != "")
+	if params.MaxPDUSize <= 0 {
+		params.MaxPDUSize = DefaultMaxPDUSize
 	}
+	// doassert(params.OnCStoreRequest != nil)
+	// TODO: move OnAssociateRequest outside the params
+	//params.onAssociateRequest = onAssociateRequest
+
+	//params.onDataRequest = func(pdu P_DATA_TF, contextIDMap contextIDMap) {
+	//onDataRequest(dataState, pdu, contextIDMap)
+	//}
+	sp := &ServiceProvider{params: params}
 	return sp
 }
 
@@ -142,11 +178,11 @@ func (sp *ServiceProvider) Run() error {
 		log.Printf("Accept connection")
 		dataState := &dataRequestState{}
 		smParams := StateMachineParams{
-			verbose: true,
+			verbose:    true,
 			maxPDUSize: sp.params.MaxPDUSize,
 			// onAssociateRequest: onAssociateRequest,
-			onDataRequest: func(pdu P_DATA_TF, contextIDMap contextIDMap) {
-				onDataRequest(dataState, pdu, contextIDMap)
+			onDataRequest: func(sm *StateMachine, pdu P_DATA_TF, contextIDMap contextIDMap) {
+				onDataRequest(sm, pdu, contextIDMap, dataState, sp.params)
 			},
 		}
 		go RunStateMachineForServiceProvider(conn, smParams)

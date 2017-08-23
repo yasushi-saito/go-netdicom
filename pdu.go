@@ -276,9 +276,7 @@ func (v *ApplicationContextItem) DebugString() string {
 type AbstractSyntaxSubItem subItemWithName
 
 func decodeAbstractSyntaxSubItem(d *dicom.Decoder, length uint16) *AbstractSyntaxSubItem {
-	v := &AbstractSyntaxSubItem{}
-	v.Name = decodeSubItemWithName(d, length)
-	return v
+	return &AbstractSyntaxSubItem{Name: decodeSubItemWithName(d, length)}
 }
 
 func (v *AbstractSyntaxSubItem) Encode(e *dicom.Encoder) {
@@ -292,9 +290,7 @@ func (v *AbstractSyntaxSubItem) DebugString() string {
 type TransferSyntaxSubItem subItemWithName
 
 func decodeTransferSyntaxSubItem(d *dicom.Decoder, length uint16) *TransferSyntaxSubItem {
-	v := &TransferSyntaxSubItem{}
-	v.Name = decodeSubItemWithName(d, length)
-	return v
+	return &TransferSyntaxSubItem{Name: decodeSubItemWithName(d, length)}
 }
 
 func (v *TransferSyntaxSubItem) Encode(e *dicom.Encoder) {
@@ -516,9 +512,7 @@ func (pdu *A_RELEASE_RQ) EncodePayload(e *dicom.Encoder) {
 }
 
 func (pdu *A_RELEASE_RQ) DebugString() string {
-	buf := &bytes.Buffer{}
-	buf.WriteString(fmt.Sprintf("A_RELEASE_RQ(%v)", *pdu))
-	return buf.String()
+	return fmt.Sprintf("A_RELEASE_RQ(%v)", *pdu)
 }
 
 type A_RELEASE_RP struct {
@@ -551,9 +545,7 @@ func subItemListDebugString(items []SubItem) string {
 	return buf.String()
 }
 
-const (
-	CurrentProtocolVersion uint16 = 1
-)
+const CurrentProtocolVersion uint16 = 1
 
 // Defines A_ASSOCIATE_{RQ,AC}. P3.8 9.3.2 and 9.3.3
 type A_ASSOCIATE struct {

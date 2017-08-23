@@ -265,27 +265,9 @@ var Dt1 = &StateAction{"DT-1", "Send P-DATA-TF PDU",
 		return Sta6
 	}}
 
-// func abstractSyntaxNameToContextID(sm *StateMachine, name string) byte {
-// 	id, ok := sm.abstractSyntaxNameToContextIDMap[name]
-// 	if !ok {
-// 		log.Printf("Unknown syntax %s", name)
-// 		return 255
-// 	}
-// 	return id
-// }
-
-// func contextIDToAbstractSyntaxName(sm *StateMachine, contextID byte) string {
-// 	name, ok := sm.contextIDToAbstractSyntaxNameMap[contextID]
-// 	if !ok {
-// 		log.Printf("Unknown context %d sent from user", contextID)
-// 		name = fmt.Sprintf("unknown-syntax-%d", contextID)
-// 	}
-// 	return name
-// }
-
 var Dt2 = &StateAction{"DT-2", "Send P-DATA indication primitive",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		sm.params.onDataRequest(*event.pdu.(*P_DATA_TF), *sm.contextIDMap)
+		sm.params.onDataRequest(sm, *event.pdu.(*P_DATA_TF), *sm.contextIDMap)
 		// var mergedData [][]byte
 		// var currentContext byte = 0
 
@@ -625,9 +607,9 @@ const (
 )
 
 type StateMachine struct {
-	serviceUserParams     ServiceUserParams
-	params StateMachineParams
-	requestor             int32
+	serviceUserParams ServiceUserParams
+	params            StateMachineParams
+	requestor         int32
 
 	// abstractSyntaxMap maps a contextID (an odd integer) to an abstract
 	// syntax string such as 1.2.840.10008.5.1.4.1.1.1.2.  This field is set
@@ -720,6 +702,7 @@ func networkReaderThread(ch chan StateEvent, conn net.Conn) {
 			}
 			continue
 		}
+		// TODO(saito) use type switches
 		if n, ok := pdu.(*A_ASSOCIATE_RJ); ok {
 			ch <- StateEvent{event: Evt4, pdu: n, err: nil}
 			continue
@@ -775,12 +758,12 @@ func findAction(currentState *StateType, event EventType) *StateAction {
 }
 
 type StateMachineParams struct {
-	verbose        bool
+	verbose bool
 	// listenAddr     string // Set only when running as provider
 	maxPDUSize uint32
 
 	// onAssociateRequest func(A_ASSOCIATE) ([]SubItem, bool)
-	onDataRequest      func(P_DATA_TF, contextIDMap)
+	onDataRequest func(*StateMachine, P_DATA_TF, contextIDMap)
 }
 
 const DefaultMaximiumPDUSize = uint32(1 << 20)
@@ -824,16 +807,17 @@ func RunStateMachineForServiceProvider(conn net.Conn, params StateMachineParams)
 	log.Print("Connection shutdown")
 }
 
-func SendData(sm *StateMachine,
+func sendData(sm *StateMachine,
 	abstractSyntaxUID string,
+	command bool,
 	data []byte) {
-	log.Printf("Send data")
+	log.Printf("Send data: syntax:%s command:%v data:%d bytes", dicom.UIDDebugString(abstractSyntaxUID), command, len(data))
 	sm.upperLayerCh <- StateEvent{
 		event:              Evt9,
 		pdu:                nil,
 		conn:               nil,
 		abstractSyntaxName: abstractSyntaxUID,
-		command:            false,
+		command:            command,
 		data:               data}
 	for sm.currentState != Sta1 {
 		event := getNextEvent(sm)

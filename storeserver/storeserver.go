@@ -1,15 +1,20 @@
 package main
 
 import (
-	"log"
 	"flag"
-	"strings"
 	"github.com/yasushi-saito/go-netdicom"
+	"log"
+	"strings"
 )
 
 var (
 	portFlag = flag.String("port", "10000", "TCP port to listen to")
 )
+
+func onCStoreRequest(data []byte) uint16 {
+	log.Printf("ONCSTORE! %d bytes", len(data))
+	return 0 // Success
+}
 
 func main() {
 	flag.Parse()
@@ -18,7 +23,11 @@ func main() {
 		port = ":" + port
 	}
 	log.Printf("Listening on %s", port)
-	su := netdicom.NewServiceProvider(netdicom.NewServiceProviderParams(port))
+	params := netdicom.ServiceProviderParams{
+		ListenAddr:      port,
+		OnCStoreRequest: onCStoreRequest,
+	}
+	su := netdicom.NewServiceProvider(params)
 	err := su.Run()
 	if err != nil {
 		panic(err)

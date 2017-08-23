@@ -17,7 +17,7 @@ type ServiceUserParams struct {
 	// List of Transfer syntaxes supported by the user.
 	// The value is most often StandardTransferSyntaxes.
 	SupportedTransferSyntaxes []string
-	MaxPDUSize            uint32
+	MaxPDUSize                uint32
 }
 
 func NewServiceUserParams(
@@ -31,7 +31,7 @@ func NewServiceUserParams(
 		CallingAETitle:            callingAETitle,
 		RequiredServices:          requiredServices,
 		SupportedTransferSyntaxes: dicom.StandardTransferSyntaxes,
-		MaxPDUSize:            1 << 20,
+		MaxPDUSize:                1 << 20,
 	}
 }
 
@@ -42,7 +42,7 @@ func NewServiceUser(params ServiceUserParams) *ServiceUser {
 }
 
 func (su *ServiceUser) CStore(abstractSyntaxUID string, data []byte) {
-	SendData(su.sm, abstractSyntaxUID, data)
+	sendData(su.sm, abstractSyntaxUID, false /*data*/, data)
 }
 
 func (su *ServiceUser) Release() error {
