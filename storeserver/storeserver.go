@@ -5,14 +5,24 @@ import (
 	"github.com/yasushi-saito/go-netdicom"
 	"log"
 	"strings"
+	"sync/atomic"
+	"io/ioutil"
+	"fmt"
 )
 
 var (
 	portFlag = flag.String("port", "10000", "TCP port to listen to")
 )
 
+var pathSeq int32
 func onCStoreRequest(data []byte) uint16 {
-	log.Printf("ONCSTORE! %d bytes", len(data))
+	path := fmt.Sprintf("image%04d.dcm", atomic.AddInt32(&pathSeq, 1))
+	log.Printf("Writing %s", path)
+	err := ioutil.WriteFile(path, data, 0644)
+	if err != nil {
+		log.Printf("%s: failed to write: %v", path, err)
+		return netdicom.CStoreStatusOutOfResources
+	}
 	return 0 // Success
 }
 

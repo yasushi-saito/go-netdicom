@@ -3,6 +3,7 @@ package netdicom
 import (
 	"fmt"
 	"github.com/yasushi-saito/go-dicom"
+	"io"
 	"log"
 	"net"
 	"time"
@@ -303,6 +304,8 @@ var Ar1 = &StateAction{"AR-1", "Send A-RELEASE-RQ PDU",
 	}}
 var Ar2 = &StateAction{"AR-2", "Issue A-RELEASE indication primitive",
 	func(sm *StateMachine, event StateEvent) *StateType {
+		// TODO(saito) Do RELEASE callback here.
+		sm.upperLayerCh <- StateEvent{event: Evt14}
 		return Sta8
 	}}
 
@@ -336,14 +339,13 @@ var Ar7 = &StateAction{"AR-7", "Issue P-DATA-TF PDU",
 		for _, pdu := range pdus {
 			sendPDU(sm, &pdu)
 		}
-		// sendPDU(sm, &P_DATA_TF{Items: event.data})
+		sm.upperLayerCh <- StateEvent{event: Evt14}
 		return Sta8
 	}}
 
 var Ar8 = &StateAction{"AR-8", "Issue A-RELEASE indication (release collision): if association-requestor, next state is Sta9, if not next state is Sta10",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		panic("AR8")
-		if sm.requestor == 1 {
+		if sm.isUser {
 			return Sta9
 		} else {
 			return Sta10
@@ -420,28 +422,31 @@ var Aa8 = &StateAction{"AA-8", "Send A-ABORT PDU (service-dul source), issue an 
 //	Description string
 //}
 
-type EventType int
+type EventType struct {
+	Event       int
+	Description string
+}
 
-const (
-	Evt1  = EventType(1)  // A-ASSOCIATE request (local user)
-	Evt2  = EventType(2)  // Connection established (for service user)
-	Evt3  = EventType(3)  // A-ASSOCIATE-AC PDU (received on transport connection)
-	Evt4  = EventType(4)  // A-ASSOCIATE-RJ PDU (received on transport connection)
-	Evt5  = EventType(5)  // Connection accepted (for service provider)
-	Evt6  = EventType(6)  // A-ASSOCIATE-RQ PDU (on tranport connection)
-	Evt7  = EventType(7)  // A-ASSOCIATE response primitive (accept)
-	Evt8  = EventType(8)  // A-ASSOCIATE response primitive (reject)
-	Evt9  = EventType(9)  // P-DATA request primitive
-	Evt10 = EventType(10) // P-DATA-TF PDU (on transport connection)
-	Evt11 = EventType(11) // A-RELEASE request primitive
-	Evt12 = EventType(12) // A-RELEASE-RQ PDU (on transport)
-	Evt13 = EventType(13) // A-RELEASE-RP PDU (on transport)
-	Evt14 = EventType(14) // A-RELEASE response primitive
-	Evt15 = EventType(15) // A-ABORT request primitive
-	Evt16 = EventType(16) // A-ABORT PDU (on transport)
-	Evt17 = EventType(17) // Transport connection closed indication (local transport service)
-	Evt18 = EventType(18) // ARTIM timer expired (Association reject/release timer)
-	Evt19 = EventType(19) // Unrecognized or invalid PDU received
+var (
+	Evt1  = EventType{1, "A-ASSOCIATE request (local user)"}
+	Evt2  = EventType{2, "Connection established (for service user)"}
+	Evt3  = EventType{3, "A-ASSOCIATE-AC PDU (received on transport connection)"}
+	Evt4  = EventType{4, "A-ASSOCIATE-RJ PDU (received on transport connection)"}
+	Evt5  = EventType{5, "Connection accepted (for service provider)"}
+	Evt6  = EventType{6, "A-ASSOCIATE-RQ PDU (on tranport connection)"}
+	Evt7  = EventType{7, "A-ASSOCIATE response primitive (accept)"}
+	Evt8  = EventType{8, "A-ASSOCIATE response primitive (reject)"}
+	Evt9  = EventType{9, "P-DATA request primitive"}
+	Evt10 = EventType{10, "P-DATA-TF PDU (on transport connection)"}
+	Evt11 = EventType{11, "A-RELEASE request primitive"}
+	Evt12 = EventType{12, "A-RELEASE-RQ PDU (on transport)"}
+	Evt13 = EventType{13, "A-RELEASE-RP PDU (on transport)"}
+	Evt14 = EventType{14, "A-RELEASE response primitive"}
+	Evt15 = EventType{15, "A-ABORT request primitive"}
+	Evt16 = EventType{16, "A-ABORT PDU (on transport)"}
+	Evt17 = EventType{17, "Transport connection closed indication (local transport service)"}
+	Evt18 = EventType{18, "ARTIM timer expired (Association reject/release timer)"}
+	Evt19 = EventType{19, "Unrecognized or invalid PDU received"}
 )
 
 type StateEvent struct {
@@ -607,9 +612,9 @@ const (
 )
 
 type StateMachine struct {
+	isUser            bool // true if service user, false if provider
 	serviceUserParams ServiceUserParams
 	params            StateMachineParams
-	requestor         int32
 
 	// abstractSyntaxMap maps a contextID (an odd integer) to an abstract
 	// syntax string such as 1.2.840.10008.5.1.4.1.1.1.2.  This field is set
@@ -685,13 +690,15 @@ func networkReaderThread(ch chan StateEvent, conn net.Conn) {
 		pdu, err := DecodePDU(conn)
 		if err != nil {
 			log.Printf("Failed to read PDU: %v", err)
-			ch <- StateEvent{event: Evt19, pdu: nil, err: err}
+			if err == io.EOF {
+				ch <- StateEvent{event: Evt17, pdu: nil, err: nil}
+			} else {
+				ch <- StateEvent{event: Evt19, pdu: nil, err: err}
+			}
+			close(ch)
 			break
 		}
-		if pdu == nil {
-			log.Printf("Empty PDU")
-			break
-		}
+		doassert(pdu != nil)
 		log.Printf("Read PDU: %v", pdu.DebugString())
 		if n, ok := pdu.(*A_ASSOCIATE); ok {
 			if n.Type == PDUTypeA_ASSOCIATE_RQ {
@@ -725,9 +732,7 @@ func networkReaderThread(ch chan StateEvent, conn net.Conn) {
 		}
 		panic(fmt.Sprintf("Unknown PDU type: %v", pdu.DebugString()))
 	}
-	log.Print("The peer closed the connection")
-	ch <- StateEvent{event: Evt17, pdu: nil, err: nil}
-	close(ch)
+	log.Printf("Exiting network reader for %v", conn)
 }
 
 func getNextEvent(sm *StateMachine) StateEvent {
@@ -773,12 +778,14 @@ func NewStateMachineForServiceUser(params ServiceUserParams) *StateMachine {
 	doassert(params.CallingAETitle != "")
 	doassert(len(params.RequiredServices) > 0)
 	doassert(len(params.SupportedTransferSyntaxes) > 0)
-	sm := &StateMachine{}
-	sm.contextIDMap = newContextIDMap()
-	sm.serviceUserParams = params
-	sm.netCh = make(chan StateEvent, 128)
-	sm.upperLayerCh = make(chan StateEvent, 128)
-	sm.maxPDUSize = 1 << 20 // TODO(saito)
+	sm := &StateMachine{
+		isUser:            true,
+		contextIDMap:      newContextIDMap(),
+		serviceUserParams: params,
+		netCh:             make(chan StateEvent, 128),
+		upperLayerCh:      make(chan StateEvent, 128),
+		maxPDUSize:        1 << 20, // TODO(saito)
+	}
 	event := StateEvent{event: Evt1}
 	action := findAction(Sta1, event.event)
 	sm.currentState = action.Callback(sm, event)
@@ -786,23 +793,30 @@ func NewStateMachineForServiceUser(params ServiceUserParams) *StateMachine {
 	return sm
 }
 
+func runOneStep(sm *StateMachine) {
+	event := getNextEvent(sm)
+	log.Printf("Current state: %v, Event %v", sm.currentState, event)
+	action := findAction(sm.currentState, event.event)
+	log.Printf("Running action %v", action)
+	sm.currentState = action.Callback(sm, event)
+	log.Printf("Next state: %v", sm.currentState)
+}
+
 func RunStateMachineForServiceProvider(conn net.Conn, params StateMachineParams) {
-	sm := &StateMachine{params: params}
-	sm.contextIDMap = newContextIDMap()
-	sm.conn = conn
-	sm.netCh = make(chan StateEvent, 128)
-	sm.maxPDUSize = 1 << 20 // TODO(saito)
-	sm.upperLayerCh = make(chan StateEvent, 128)
+	sm := &StateMachine{
+		isUser:       false,
+		params:       params,
+		contextIDMap: newContextIDMap(),
+		conn:         conn,
+		netCh:        make(chan StateEvent, 128),
+		maxPDUSize:   1 << 20, // TODO(saito)
+		upperLayerCh: make(chan StateEvent, 128),
+	}
 	event := StateEvent{event: Evt5, conn: conn}
 	action := findAction(Sta1, event.event)
 	sm.currentState = action.Callback(sm, event)
 	for sm.currentState != Sta1 {
-		event := getNextEvent(sm)
-		action := findAction(sm.currentState, event.event)
-		log.Printf("Running action %v", action.Name)
-		sm.currentState = action.Callback(sm, event)
-		log.Printf("Got event:%v action:%v, next:%s",
-			event, action, sm.currentState)
+		runOneStep(sm)
 	}
 	log.Print("Connection shutdown")
 }
@@ -819,15 +833,6 @@ func sendData(sm *StateMachine,
 		abstractSyntaxName: abstractSyntaxUID,
 		command:            command,
 		data:               data}
-	for sm.currentState != Sta1 {
-		event := getNextEvent(sm)
-		action := findAction(sm.currentState, event.event)
-		log.Printf("Running action %v", action.Name)
-		sm.currentState = action.Callback(sm, event)
-		log.Printf("Got event:%v action:%v, next:%s",
-			event, action, sm.currentState)
-	}
-	log.Print("Connection shutdown")
 }
 
 func StartRelease(sm *StateMachine) {
@@ -839,12 +844,7 @@ func StartRelease(sm *StateMachine) {
 func RunStateMachineUntilQuiescent(sm *StateMachine) {
 	log.Printf("Start SM: current:%s", sm.currentState)
 	for sm.currentState != Sta6 && sm.currentState != Sta1 {
-		event := getNextEvent(sm)
-		action := findAction(sm.currentState, event.event)
-		log.Printf("Running action %v", action.Name)
-		sm.currentState = action.Callback(sm, event)
-		log.Printf("Got event:%v action:%v, next:%s",
-			event, action, sm.currentState)
+		runOneStep(sm)
 	}
 	log.Printf("Finish SM: current:%s", sm.currentState)
 }

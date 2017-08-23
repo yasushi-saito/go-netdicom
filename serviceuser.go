@@ -43,6 +43,7 @@ func NewServiceUser(params ServiceUserParams) *ServiceUser {
 
 func (su *ServiceUser) CStore(abstractSyntaxUID string, data []byte) {
 	sendData(su.sm, abstractSyntaxUID, false /*data*/, data)
+	panic("aoue not implemented")
 }
 
 func (su *ServiceUser) Release() error {

@@ -150,7 +150,7 @@ type C_STORE_RSP struct {
 // C_STORE_RSP status codes.
 // P3.4 GG4-1
 const (
-	CStoreStatusOutOfResoures               uint16 = 0xa700
+	CStoreStatusOutOfResources               uint16 = 0xa700
 	CStoreStatusDataSetDoesNotMatchSOPClass uint16 = 0xa900
 	CStoreStatusCannotUnderstand            uint16 = 0xc000
 )
