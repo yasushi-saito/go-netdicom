@@ -17,8 +17,8 @@ type ServiceProviderParams struct {
 	// OnDataCallback func(context string, value [][]byte)
 
 	// A_ASSOCIATE_RQ arrived from a client. STA3
-	onAssociateRequest func(A_ASSOCIATE) ([]SubItem, bool)
-	onDataRequest      func(P_DATA_TF, contextIDMap)
+	//onAssociateRequest func(A_ASSOCIATE) ([]SubItem, bool)
+	OnDataRequest      func(req C_STORE_RQ, data []byte) C_STORE_RSP
 }
 
 func NewServiceProviderParams(listenAddr string) ServiceProviderParams {
@@ -117,13 +117,14 @@ func onDataRequest(state *dataRequestState, pdu P_DATA_TF, contextIDMap contextI
 }
 
 func NewServiceProvider(params ServiceProviderParams) *ServiceProvider {
+	doassert(params.OnDataRequest!=nil)
 	// TODO: move OnAssociateRequest outside the params
-	params.onAssociateRequest = onAssociateRequest
+	//params.onAssociateRequest = onAssociateRequest
 
 	dataState := &dataRequestState{}
-	params.onDataRequest = func(pdu P_DATA_TF, contextIDMap contextIDMap) {
-		onDataRequest(dataState, pdu, contextIDMap)
-	}
+	//params.onDataRequest = func(pdu P_DATA_TF, contextIDMap contextIDMap) {
+	//onDataRequest(dataState, pdu, contextIDMap)
+	//}
 	sp := &ServiceProvider{
 		params: params,
 	}

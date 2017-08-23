@@ -265,24 +265,6 @@ var Dt1 = &StateAction{"DT-1", "Send P-DATA-TF PDU",
 		return Sta6
 	}}
 
-// func abstractSyntaxNameToContextID(sm *StateMachine, name string) byte {
-// 	id, ok := sm.abstractSyntaxNameToContextIDMap[name]
-// 	if !ok {
-// 		log.Printf("Unknown syntax %s", name)
-// 		return 255
-// 	}
-// 	return id
-// }
-
-// func contextIDToAbstractSyntaxName(sm *StateMachine, contextID byte) string {
-// 	name, ok := sm.contextIDToAbstractSyntaxNameMap[contextID]
-// 	if !ok {
-// 		log.Printf("Unknown context %d sent from user", contextID)
-// 		name = fmt.Sprintf("unknown-syntax-%d", contextID)
-// 	}
-// 	return name
-// }
-
 var Dt2 = &StateAction{"DT-2", "Send P-DATA indication primitive",
 	func(sm *StateMachine, event StateEvent) *StateType {
 		sm.serviceProviderParams.onDataRequest(*event.pdu.(*P_DATA_TF), *sm.contextIDMap)
