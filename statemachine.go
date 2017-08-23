@@ -81,7 +81,7 @@ func buildAssociateRequestItems(params ServiceUserParams) (*contextIDMap, []SubI
 	items = append(items,
 		&UserInformationItem{
 			Items: []SubItem{
-				&UserInformationMaximumLengthItem{params.MaximumPDUSize},
+				&UserInformationMaximumLengthItem{params.MaxPDUSize},
 				&ImplementationClassUIDSubItem{DefaultImplementationClassUID},
 				&ImplementationVersionNameSubItem{DefaultImplementationVersionName}}})
 	return contextIDMap, items
@@ -285,7 +285,7 @@ var Dt1 = &StateAction{"DT-1", "Send P-DATA-TF PDU",
 
 var Dt2 = &StateAction{"DT-2", "Send P-DATA indication primitive",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		sm.serviceProviderParams.onDataRequest(*event.pdu.(*P_DATA_TF), *sm.contextIDMap)
+		sm.params.onDataRequest(*event.pdu.(*P_DATA_TF), *sm.contextIDMap)
 		// var mergedData [][]byte
 		// var currentContext byte = 0
 
@@ -625,9 +625,8 @@ const (
 )
 
 type StateMachine struct {
-	verbose               bool
 	serviceUserParams     ServiceUserParams
-	serviceProviderParams ServiceProviderParams
+	params StateMachineParams
 	requestor             int32
 
 	// abstractSyntaxMap maps a contextID (an odd integer) to an abstract
@@ -775,13 +774,23 @@ func findAction(currentState *StateType, event EventType) *StateAction {
 	return nil
 }
 
+type StateMachineParams struct {
+	verbose        bool
+	// listenAddr     string // Set only when running as provider
+	maxPDUSize uint32
+
+	// onAssociateRequest func(A_ASSOCIATE) ([]SubItem, bool)
+	onDataRequest      func(P_DATA_TF, contextIDMap)
+}
+
+const DefaultMaximiumPDUSize = uint32(1 << 20)
+
 func NewStateMachineForServiceUser(params ServiceUserParams) *StateMachine {
 	doassert(params.Provider != "")
 	doassert(params.CallingAETitle != "")
 	doassert(len(params.RequiredServices) > 0)
 	doassert(len(params.SupportedTransferSyntaxes) > 0)
 	sm := &StateMachine{}
-	sm.verbose = true
 	sm.contextIDMap = newContextIDMap()
 	sm.serviceUserParams = params
 	sm.netCh = make(chan StateEvent, 128)
@@ -794,11 +803,9 @@ func NewStateMachineForServiceUser(params ServiceUserParams) *StateMachine {
 	return sm
 }
 
-func RunStateMachineForServiceProvider(conn net.Conn, params ServiceProviderParams) {
-	sm := &StateMachine{}
+func RunStateMachineForServiceProvider(conn net.Conn, params StateMachineParams) {
+	sm := &StateMachine{params: params}
 	sm.contextIDMap = newContextIDMap()
-	sm.verbose = true
-	sm.serviceProviderParams = params
 	sm.conn = conn
 	sm.netCh = make(chan StateEvent, 128)
 	sm.maxPDUSize = 1 << 20 // TODO(saito)

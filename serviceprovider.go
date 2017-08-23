@@ -1,8 +1,8 @@
 package netdicom
 
 import (
-	"bytes"
 	"fmt"
+	"bytes"
 	"github.com/yasushi-saito/go-dicom"
 	"log"
 	"net"
@@ -10,7 +10,7 @@ import (
 
 type ServiceProviderParams struct {
 	ListenAddr     string
-	MaximumPDUSize uint32
+	MaxPDUSize uint32
 	// Called on receiving a P_DATA_TF message. If one message contains
 	// items for multiple application contexts (very unlikely, but the spec
 	// allows for it), this callback is run for each context ID.
@@ -18,13 +18,13 @@ type ServiceProviderParams struct {
 
 	// A_ASSOCIATE_RQ arrived from a client. STA3
 	onAssociateRequest func(A_ASSOCIATE) ([]SubItem, bool)
-	onDataRequest      func(P_DATA_TF, contextIDMap)
+	onCStoreRequest func(req C_STORE_RQ, data []byte)
 }
 
 func NewServiceProviderParams(listenAddr string) ServiceProviderParams {
 	return ServiceProviderParams{
 		ListenAddr:     listenAddr,
-		MaximumPDUSize: 1 << 20,
+		MaxPDUSize: 1 << 20,
 	}
 }
 
@@ -38,45 +38,45 @@ type ServiceProviderSession struct {
 	sm *StateMachine
 }
 
-func onAssociateRequest(pdu A_ASSOCIATE) ([]SubItem, bool) {
-	responses := []SubItem{
-		&ApplicationContextItem{
-			Name: DefaultApplicationContextItemName,
-		},
-	}
+// func onAssociateRequest(pdu A_ASSOCIATE) ([]SubItem, bool) {
+// 	responses := []SubItem{
+// 		&ApplicationContextItem{
+// 			Name: DefaultApplicationContextItemName,
+// 		},
+// 	}
 
-	for _, item := range pdu.Items {
-		if n, ok := item.(*PresentationContextItem); ok {
-			// TODO(saito) Need to pick the syntax preferred by us.
-			// For now, just hardcode the syntax, ignoring the list
-			// in RQ.
-			//
-			// var syntaxItem SubItem
-			// for _, subitem := range(n.Items) {
-			// 	log.Printf("Received PresentaionContext(%x): %v", n.ContextID, subitem.DebugString())
-			// 	if n, ok := subitem.(*SubItemWithName); ok && n.Type == ItemTypeTransferSyntax {
-			// 		syntaxItem = n
-			// 		break
-			// 	}
-			// }
-			// doassert(syntaxItem != nil)
-			var syntaxItem = TransferSyntaxSubItem{
-				Name: dicom.ImplicitVRLittleEndian,
-			}
-			responses = append(responses,
-				&PresentationContextItem{
-					Type:      ItemTypePresentationContextResponse,
-					ContextID: n.ContextID,
-					Result:    0, // accepted
-					Items:     []SubItem{&syntaxItem}})
-		}
-	}
-	// TODO(saito) Set the PDU size more properly.
-	responses = append(responses,
-		&UserInformationItem{
-			Items: []SubItem{&UserInformationMaximumLengthItem{MaximumLengthReceived: 1 << 20}}})
-	return responses, true
-}
+// 	for _, item := range pdu.Items {
+// 		if n, ok := item.(*PresentationContextItem); ok {
+// 			// TODO(saito) Need to pick the syntax preferred by us.
+// 			// For now, just hardcode the syntax, ignoring the list
+// 			// in RQ.
+// 			//
+// 			// var syntaxItem SubItem
+// 			// for _, subitem := range(n.Items) {
+// 			// 	log.Printf("Received PresentaionContext(%x): %v", n.ContextID, subitem.DebugString())
+// 			// 	if n, ok := subitem.(*SubItemWithName); ok && n.Type == ItemTypeTransferSyntax {
+// 			// 		syntaxItem = n
+// 			// 		break
+// 			// 	}
+// 			// }
+// 			// doassert(syntaxItem != nil)
+// 			var syntaxItem = TransferSyntaxSubItem{
+// 				Name: dicom.ImplicitVRLittleEndian,
+// 			}
+// 			responses = append(responses,
+// 				&PresentationContextItem{
+// 					Type:      ItemTypePresentationContextResponse,
+// 					ContextID: n.ContextID,
+// 					Result:    0, // accepted
+// 					Items:     []SubItem{&syntaxItem}})
+// 		}
+// 	}
+// 	// TODO(saito) Set the PDU size more properly.
+// 	responses = append(responses,
+// 		&UserInformationItem{
+// 			Items: []SubItem{&UserInformationMaximumLengthItem{MaximumLengthReceived: 1 << 20}}})
+// 	return responses, true
+// }
 
 type dataRequestState struct {
 	contextID      byte
@@ -118,12 +118,6 @@ func onDataRequest(state *dataRequestState, pdu P_DATA_TF, contextIDMap contextI
 
 func NewServiceProvider(params ServiceProviderParams) *ServiceProvider {
 	// TODO: move OnAssociateRequest outside the params
-	params.onAssociateRequest = onAssociateRequest
-
-	dataState := &dataRequestState{}
-	params.onDataRequest = func(pdu P_DATA_TF, contextIDMap contextIDMap) {
-		onDataRequest(dataState, pdu, contextIDMap)
-	}
 	sp := &ServiceProvider{
 		params: params,
 	}
@@ -146,6 +140,15 @@ func (sp *ServiceProvider) Run() error {
 			continue
 		}
 		log.Printf("Accept connection")
-		go RunStateMachineForServiceProvider(conn, sp.params)
+		dataState := &dataRequestState{}
+		smParams := StateMachineParams{
+			verbose: true,
+			maxPDUSize: sp.params.MaxPDUSize,
+			// onAssociateRequest: onAssociateRequest,
+			onDataRequest: func(pdu P_DATA_TF, contextIDMap contextIDMap) {
+				onDataRequest(dataState, pdu, contextIDMap)
+			},
+		}
+		go RunStateMachineForServiceProvider(conn, smParams)
 	}
 }

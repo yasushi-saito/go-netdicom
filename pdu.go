@@ -93,7 +93,7 @@ func decodeSubItem(d *dicom.Decoder) SubItem {
 func encodeSubItemHeader(e *dicom.Encoder, itemType byte, length uint16) {
 	e.EncodeByte(itemType)
 	e.EncodeZeros(1)
-	e.EncodeUint16(length)
+	e.EncodeUInt16(length)
 }
 
 // P3.8 9.3.2.3
@@ -138,7 +138,7 @@ type UserInformationMaximumLengthItem struct {
 
 func (v *UserInformationMaximumLengthItem) Encode(e *dicom.Encoder) {
 	encodeSubItemHeader(e, ItemTypeUserInformationMaximumLength, 4)
-	e.EncodeUint32(v.MaximumLengthReceived)
+	e.EncodeUInt32(v.MaximumLengthReceived)
 }
 
 func decodeUserInformationMaximumLengthItem(d *dicom.Decoder, length uint16) *UserInformationMaximumLengthItem {
@@ -186,8 +186,8 @@ func decodeAsynchronousOperationsWindowSubItem(d *dicom.Decoder, length uint16) 
 
 func (v *AsynchronousOperationsWindowSubItem) Encode(e *dicom.Encoder) {
 	encodeSubItemHeader(e, ItemTypeAsynchronousOperationsWindow, 2*2)
-	e.EncodeUint16(v.MaxOpsInvoked)
-	e.EncodeUint16(v.MaxOpsPerformed)
+	e.EncodeUInt16(v.MaxOpsInvoked)
+	e.EncodeUInt16(v.MaxOpsPerformed)
 }
 
 func (v *AsynchronousOperationsWindowSubItem) DebugString() string {
@@ -404,7 +404,7 @@ func (v *PresentationDataValueItem) Encode(e *dicom.Encoder) {
 	if v.Last {
 		header |= 2
 	}
-	e.EncodeUint32(uint32(2 + len(v.Value)))
+	e.EncodeUInt32(uint32(2 + len(v.Value)))
 	e.EncodeByte(v.ContextID)
 	e.EncodeByte(header)
 	e.EncodeBytes(v.Value)
@@ -585,7 +585,7 @@ func (pdu *A_ASSOCIATE) EncodePayload(e *dicom.Encoder) {
 	doassert(pdu.Type != 0)
 	doassert(pdu.CalledAETitle != "")
 	doassert(pdu.CallingAETitle != "")
-	e.EncodeUint16(pdu.ProtocolVersion)
+	e.EncodeUInt16(pdu.ProtocolVersion)
 	e.EncodeZeros(2) // Reserved
 	e.EncodeString(fillString(pdu.CalledAETitle, 16))
 	e.EncodeString(fillString(pdu.CallingAETitle, 16))

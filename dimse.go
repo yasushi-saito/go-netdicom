@@ -13,6 +13,7 @@ import (
 )
 
 type DIMSEMessage interface {
+	EncodePayload(*dicom.Encoder)
 }
 
 func findElementWithTag(elems []*dicom.DicomElement, group, element uint16) (*dicom.DicomElement, error) {
@@ -86,6 +87,10 @@ type C_STORE_RQ struct {
 	MoveOriginatorMessageID              uint16 // (0000,1031)
 }
 
+func (v *C_STORE_RQ) EncodePayload(e *dicom.Encoder) {
+	panic("c-store-rq")
+}
+
 func decodeC_STORE_RQ(header DIMSEMessageHeader, elems []*dicom.DicomElement) (*C_STORE_RQ, error) {
 	v := C_STORE_RQ{DIMSEMessageHeader: header}
 	var err error
@@ -119,16 +124,19 @@ type C_STORE_RSP struct {
 	AffectedSOPInstanceUID    string // (0000,1000)
 }
 
+func (v *C_STORE_RSP) EncodePayload(e *dicom.Encoder) {
+	panic("oaue")
+}
+
 func DecodeDIMSEMessage(io io.Reader, limit int64) (DIMSEMessage, error) {
 	var elems []*dicom.DicomElement
 	d := dicom.NewDecoder(io, limit, binary.LittleEndian, true /*implicit*/) // TODO(saito) pass decoding params??
 	for d.Len() > 0 && d.Error() == nil {
-		elem, err := dicom.ReadDataElement(d)
-		if err != nil {
-			return nil, err
-		} else {
-			elems = append(elems, elem)
-		}
+		elem := dicom.ReadDataElement(d)
+		elems = append(elems, elem)
+	}
+	if err := d.Finish(); err != nil {
+		return nil, err
 	}
 	header, err := decodeDIMSEMessageHeader(elems)
 	if err != nil {
