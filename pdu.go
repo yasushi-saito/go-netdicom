@@ -6,7 +6,6 @@ package netdicom
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"github.com/yasushi-saito/go-dicom"
 	"io"
 	"log"
@@ -87,7 +86,7 @@ func decodeSubItem(d *dicom.Decoder) SubItem {
 	if itemType == ItemTypeImplementationVersionName {
 		return decodeImplementationVersionNameSubItem(d, length)
 	}
-	panic(fmt.Sprintf("Unknown item type: 0x%x", itemType))
+	log.Panicf("Unknown item type: 0x%x", itemType)
 }
 
 func encodeSubItemHeader(e *dicom.Encoder, itemType byte, length uint16) {
@@ -425,7 +424,7 @@ func EncodePDU(pdu PDU) ([]byte, error) {
 	} else if _, ok := pdu.(*A_ABORT); ok {
 		pduType = PDUTypeA_ABORT
 	} else {
-		panic(fmt.Sprintf("Unknown PDU %v", pdu))
+		log.Panicf("Unknown PDU %v", pdu)
 	}
 
 	e := dicom.NewEncoder(binary.BigEndian)

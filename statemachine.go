@@ -730,7 +730,7 @@ func networkReaderThread(ch chan StateEvent, conn net.Conn) {
 			ch <- StateEvent{event: Evt16, pdu: n, err: nil}
 			continue
 		}
-		panic(fmt.Sprintf("Unknown PDU type: %v", pdu.DebugString()))
+		log.Panicf("Unknown PDU type: %v", pdu.DebugString())
 	}
 	log.Printf("Exiting network reader for %v", conn)
 }

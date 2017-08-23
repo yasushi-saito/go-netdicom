@@ -208,7 +208,8 @@ func DecodeDIMSEMessage(io io.Reader, limit int64) (DIMSEMessage, error) {
 	case 0x8001:
 		return decodeC_STORE_RSP(elems)
 	}
-	panic(fmt.Sprintf("Unknown DIMSE command 0x%x", commandField))
+	log.Panicf("Unknown DIMSE command 0x%x", commandField)
+	return nil, err
 }
 
 func EncodeDIMSEMessage(v DIMSEMessage) ([]byte, error) {

@@ -97,7 +97,7 @@ func onDataRequest(sm *StateMachine, pdu P_DATA_TF, contextIDMap contextIDMap,
 		if state.contextID == 0 {
 			state.contextID = item.ContextID
 		} else if state.contextID != item.ContextID {
-			panic(fmt.Sprintf("Mixed context: %d %d", state.contextID, item.ContextID))
+			log.Panicf("Mixed context: %d %d", state.contextID, item.ContextID)
 		}
 		if item.Command {
 			state.command = append(state.command, item.Value...)
