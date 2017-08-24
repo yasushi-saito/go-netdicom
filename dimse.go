@@ -242,9 +242,11 @@ func EncodeDIMSEMessage(v DIMSEMessage) ([]byte, error) {
 
 type dimseCommandAssembler struct {
 	contextID      byte
-	command        []byte
-	data           []byte
+	commandBytes        []byte
+	command DIMSEMessage
+	dataBytes           []byte
 	readAllCommand bool
+
 	readAllData    bool
 }
 
@@ -257,29 +259,38 @@ func addPDataTF(a *dimseCommandAssembler, pdu *P_DATA_TF, contextIDMap *contextI
 			log.Panicf("Mixed context: %d %d", a.contextID, item.ContextID)
 		}
 		if item.Command {
-			a.command = append(a.command, item.Value...)
+			a.commandBytes = append(a.commandBytes, item.Value...)
 			if item.Last {
 				doassert(!a.readAllCommand)
 				a.readAllCommand = true
 			}
 		} else {
-			a.data = append(a.data, item.Value...)
+			a.dataBytes = append(a.dataBytes, item.Value...)
 			if item.Last {
 				doassert(!a.readAllData)
 				a.readAllData = true
 			}
 		}
-		if !a.readAllCommand || !a.readAllData {
-			continue
-		}
-		syntaxName, err := contextIDToAbstractSyntaxName(contextIDMap, a.contextID)
-		command, err := DecodeDIMSEMessage(bytes.NewBuffer(a.command), int64(len(a.command)))
-		data := a.data
-		log.Printf("Read all data for syntax %s, command [%v], data %d bytes, err%v",
-			dicom.UIDDebugString(syntaxName), command, len(a.data), err)
-		*a = dimseCommandAssembler{}
-		return syntaxName, command, data, nil
-		// TODO(saito) Verify that there's no unread items after the last command&data.
 	}
-	return "", nil, nil, nil
+	if !a.readAllCommand {
+		return "", nil, nil, nil
+	}
+	if a.command == nil {
+		var err error
+		a.command, err = DecodeDIMSEMessage(bytes.NewBuffer(a.commandBytes), int64(len(a.commandBytes)))
+		if err != nil {
+			return "", nil, nil, err
+		}
+	}
+	if !a.readAllData {
+		return "", nil, nil, nil
+	}
+	syntaxName, err := contextIDToAbstractSyntaxName(contextIDMap, a.contextID)
+	command := a.command
+	dataBytes := a.dataBytes
+	log.Printf("Read all data for syntax %s, command [%v], data %d bytes, err%v",
+		dicom.UIDDebugString(syntaxName), command, len(a.dataBytes), err)
+	*a = dimseCommandAssembler{}
+	return syntaxName, command, dataBytes, nil
+		// TODO(saito) Verify that there's no unread items after the last command&data.
 }
