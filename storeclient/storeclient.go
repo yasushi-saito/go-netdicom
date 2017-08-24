@@ -37,7 +37,7 @@ func main() {
 	if decoder.Error() != nil {
 		log.Fatalf("%s: failed to parse as DICOM: %v", inPath, decoder.Error())
 	}
-	sopInstanceUID, err := dicom.LookupElement(meta, "MediaSOPInstanceUID")
+	sopInstanceUID, err := dicom.LookupElement(meta, "MediaStorageSOPInstanceUID")
 	if err != nil {
 		log.Fatalf("%s: file does not contain SOPInstanceUID: %v", inPath, err)
 	}
@@ -46,7 +46,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("%s: file does not contain TransferSyntaxUID: %v", inPath, err)
 	}
-	sopClassUID, err := dicom.LookupElement(meta, "MediaSOPClassUID")
+	sopClassUID, err := dicom.LookupElement(meta, "MediaStorageSOPClassUID")
 	if err != nil {
 		log.Fatalf("%s: file does not contain AbstractSyntaxUID: %v", inPath, err)
 	}
@@ -66,5 +66,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("%s: cstore failed: %v", inPath, err)
 	}
+	log.Printf("Store done!!")
 	su.Release()
 }
