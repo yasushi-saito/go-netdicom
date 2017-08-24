@@ -52,13 +52,15 @@ func NewServiceUserParams(
 }
 
 func NewServiceUser(params ServiceUserParams) *ServiceUser {
-	return &ServiceUser{
+	su := &ServiceUser{
 		status: serviceUserInitial,
 		// sm: NewStateMachineForServiceUser(params, nil, nil),
 		downcallCh:    make(chan StateEvent, 128),
 		upcallCh:      make(chan UpcallEvent, 128),
 		nextMessageID: 123, // any value != 0 suffices.
 	}
+	go runStateMachineForServiceUser(params, su.upcallCh, su.downcallCh)
+	return su
 }
 
 func waitAssociationEstablishment(su *ServiceUser) error {

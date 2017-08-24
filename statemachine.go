@@ -781,10 +781,10 @@ func runOneStep(sm *StateMachine) {
 	log.Printf("Next state: %v", sm.currentState)
 }
 
-func NewStateMachineForServiceUser(
+func runStateMachineForServiceUser(
 	params ServiceUserParams,
 	upcallCh chan UpcallEvent,
-	downcallCh chan StateEvent) *StateMachine {
+	downcallCh chan StateEvent) {
 	doassert(params.Provider != "")
 	doassert(params.CallingAETitle != "")
 	doassert(len(params.RequiredServices) > 0)
@@ -801,35 +801,13 @@ func NewStateMachineForServiceUser(
 	event := StateEvent{event: Evt1}
 	action := findAction(Sta1, event.event)
 	sm.currentState = action.Callback(sm, event)
-	RunStateMachineUntilQuiescent(sm)
-	return sm
-}
-
-func RunStateMachineForServiceUser(
-	params ServiceUserParams,
-	upcallCh chan UpcallEvent,
-	downcallCh chan StateEvent) *StateMachine {
-	doassert(params.Provider != "")
-	doassert(params.CallingAETitle != "")
-	doassert(len(params.RequiredServices) > 0)
-	doassert(len(params.SupportedTransferSyntaxes) > 0)
-	sm := &StateMachine{
-		isUser:            true,
-		contextIDMap:      newContextIDMap(),
-		serviceUserParams: params,
-		netCh:             make(chan StateEvent, 128),
-		downcallCh:        downcallCh,
-		upcallCh:          upcallCh,
-		maxPDUSize:        1 << 20, // TODO(saito)
+	for sm.currentState != Sta1 {
+		runOneStep(sm)
 	}
-	event := StateEvent{event: Evt1}
-	action := findAction(Sta1, event.event)
-	sm.currentState = action.Callback(sm, event)
-	RunStateMachineUntilQuiescent(sm)
-	return sm
+	log.Print("Connection shutdown")
 }
 
-func RunStateMachineForServiceProvider(
+func runStateMachineForServiceProvider(
 	conn net.Conn,
 	params StateMachineParams,
 	upcallCh chan UpcallEvent,
@@ -851,12 +829,4 @@ func RunStateMachineForServiceProvider(
 		runOneStep(sm)
 	}
 	log.Print("Connection shutdown")
-}
-
-func RunStateMachineUntilQuiescent(sm *StateMachine) {
-	log.Printf("Start SM: current:%s", sm.currentState)
-	for sm.currentState != Sta6 && sm.currentState != Sta1 {
-		runOneStep(sm)
-	}
-	log.Printf("Finish SM: current:%s", sm.currentState)
 }

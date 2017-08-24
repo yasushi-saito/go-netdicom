@@ -14,17 +14,9 @@ type ServiceProviderParams struct {
 	// If the value is <=0, DefaultMaxPDUSize is used.
 	MaxPDUSize uint32
 
-	// Called on receiving a P_DATA_TF message. If one message contains
-	// items for multiple application contexts (very unlikely, but the spec
-	// allows for it), this callback is run for each context ID.
-	// OnDataCallback func(context string, value [][]byte)
-
-	// A_ASSOCIATE_RQ arrived from a client. STA3
-	// onAssociateRequest func(A_ASSOCIATE) ([]SubItem, bool)
-
-	// Called on receiving C_STORE_RQ message. The handler should store the
-	// given data and return either 0 on success, or one of CStoreStatus*
-	// error codes.
+	// Called on receiving a C_STORE_RQ message. "data" is the payload,
+	// usually a raw DICOM file. The handler should store the data and
+	// return either 0 on success, or one of CStoreStatus* error codes.
 	OnCStoreRequest func(data []byte) uint16
 }
 
@@ -32,12 +24,6 @@ const DefaultMaxPDUSize uint32 = 4 << 20
 
 type ServiceProvider struct {
 	params   ServiceProviderParams
-	listener net.Listener
-}
-
-type ServiceProviderSession struct {
-	sp *ServiceProvider
-	sm *StateMachine
 }
 
 func onDataRequest(downcallCh chan StateEvent, pdu *P_DATA_TF, contextIDMap *contextIDMap,
@@ -83,17 +69,11 @@ func NewServiceProvider(params ServiceProviderParams) *ServiceProvider {
 	if params.MaxPDUSize <= 0 {
 		params.MaxPDUSize = DefaultMaxPDUSize
 	}
-	// doassert(params.OnCStoreRequest != nil)
-	// TODO: move OnAssociateRequest outside the params
-	//params.onAssociateRequest = onAssociateRequest
-
-	//params.onDataRequest = func(pdu P_DATA_TF, contextIDMap contextIDMap) {
-	//onDataRequest(dataState, pdu, contextIDMap)
-	//}
 	sp := &ServiceProvider{params: params}
 	return sp
 }
 
+// Run a thread that listens to events from the DUL statemachine (DICOM spec P3.8).
 func runUpperLayerForServiceProvider(params ServiceProviderParams, upcallCh chan UpcallEvent, downcallCh chan StateEvent) {
 	assembler := &dimseCommandAssembler{}
 	handshakeCompleted := false
@@ -111,14 +91,14 @@ func runUpperLayerForServiceProvider(params ServiceProviderParams, upcallCh chan
 			onDataRequest(downcallCh, pdata, event.contextIDMap, assembler, params)
 			continue
 		}
-		log.Panicf("Unknown upcall event: %v", event.pdu)
+		log.Panicf("Unknown upcall event: %v", event.pdu) // TODO
 	}
 	log.Printf("Finished upper layer service!")
 }
 
-func runProviderForChannel(conn net.Conn, spParams ServiceProviderParams) {
-	log.Printf("Accept connection")
-
+// Start threads for handling "conn". This function returns immediately; "conn"
+// will be cleaned up in the background.
+func runProviderForConn(conn net.Conn, spParams ServiceProviderParams) {
 	downcallCh := make(chan StateEvent, 128)
 	upcallCh := make(chan UpcallEvent, 128)
 	smParams := StateMachineParams{
@@ -129,25 +109,23 @@ func runProviderForChannel(conn net.Conn, spParams ServiceProviderParams) {
 		// 	onDataRequest(sm, pdu, contextIDMap, dataState, sp.params)
 		// },
 	}
-	go RunStateMachineForServiceProvider(conn, smParams, upcallCh, downcallCh)
+	go runStateMachineForServiceProvider(conn, smParams, upcallCh, downcallCh)
 	go runUpperLayerForServiceProvider(spParams, upcallCh, downcallCh)
 }
 
+// Listen to incoming connections, accept them, and run the DICOM protocol. This
+// function never returns unless it fails to listen.
 func (sp *ServiceProvider) Run() error {
-	if sp.listener != nil {
-		panic("Run called twice")
-	}
 	listener, err := net.Listen("tcp", sp.params.ListenAddr)
 	if err != nil {
 		return err
 	}
-	sp.listener = listener
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			log.Printf("Accept error: %v", err)
 			continue
 		}
-		runProviderForChannel(conn, sp.params)
+		runProviderForConn(conn, sp.params)
 	}
 }
