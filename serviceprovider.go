@@ -23,7 +23,7 @@ type ServiceProviderParams struct {
 const DefaultMaxPDUSize uint32 = 4 << 20
 
 type ServiceProvider struct {
-	params   ServiceProviderParams
+	params ServiceProviderParams
 }
 
 func onDataRequest(downcallCh chan StateEvent, pdu *P_DATA_TF, contextIDMap *contextIDMap,

@@ -30,23 +30,44 @@ type ServiceUserParams struct {
 	CallingAETitle   string
 	RequiredServices []SOPUID
 
-	// List of Transfer syntaxes supported by the user.
-	// The value is most often StandardTransferSyntaxes.
+	// List of Transfer syntaxes supported by the user.  If you know the
+	// transer syntax of the file you are going to copy, set that here.
+	// Otherwise, you'll need to re-encode the data w/ the given transfer
+	// syntax yourself.
+	//
+	// TODO(saito) Support reencoding internally on C_STORE, etc. The DICOM
+	// spec is particularly moronic here, since we could just have specified
+	// the transfer syntax per data sent.
 	SupportedTransferSyntaxes []string
 	MaxPDUSize                uint32
 }
 
+// If transferSyntaxUIDs is empty, the standard list of syntax is used.
 func NewServiceUserParams(
 	provider string,
 	calledAETitle string,
 	callingAETitle string,
-	requiredServices []SOPUID) ServiceUserParams {
+	requiredServices []SOPUID,
+	transferSyntaxUIDs []string) ServiceUserParams {
+	if len(transferSyntaxUIDs) == 0 {
+		transferSyntaxUIDs = dicom.StandardTransferSyntaxes
+	} else {
+		canonical := make([]string, len(transferSyntaxUIDs))
+		for i, uid := range transferSyntaxUIDs {
+			var err error
+			canonical[i], err = dicom.CanonicalTransferSyntaxUID(uid)
+			if err != nil {
+				log.Panic(err) // TODO(saito)
+			}
+		}
+		transferSyntaxUIDs = canonical
+	}
 	return ServiceUserParams{
 		Provider:                  provider,
 		CalledAETitle:             calledAETitle,
 		CallingAETitle:            callingAETitle,
 		RequiredServices:          requiredServices,
-		SupportedTransferSyntaxes: dicom.StandardTransferSyntaxes,
+		SupportedTransferSyntaxes: transferSyntaxUIDs,
 		MaxPDUSize:                1 << 20,
 	}
 }
@@ -88,7 +109,7 @@ func newMessageID(su *ServiceUser) uint16 {
 }
 
 func (su *ServiceUser) CStore(
-	abstractSyntaxUID string,
+	sopClassUID string,
 	sopInstanceUID string,
 	data []byte) error {
 	err := waitAssociationEstablishment(su)
@@ -96,9 +117,9 @@ func (su *ServiceUser) CStore(
 		return err
 	}
 	req, err := EncodeDIMSEMessage(&C_STORE_RQ{
-		AffectedSOPClassUID:    abstractSyntaxUID,
+		AffectedSOPClassUID:    sopClassUID,
 		MessageID:              newMessageID(su),
-		CommandDataSetType:     1, // anything other than nul suffices.
+		CommandDataSetType:     1, // anything other than 0x101 suffices.
 		AffectedSOPInstanceUID: sopInstanceUID,
 	})
 	if err != nil {
@@ -107,12 +128,12 @@ func (su *ServiceUser) CStore(
 	// 2017/08/23 20:40:17 VRead all data for syntax 1.2.840.10008.5.1.4.1.1.12.1[X-Ray Angiographic Image Storage], command [cstorerq{sopclass:1.2.840.10008.5.1.4.1.1.12.1 messageid:1 pri: 2 cmddatasettype: 1 sopinstance: 1.2.840.113857.1626.160635.1727.151424.1.1 m0: m1:0}], data 2752272 bytes, err<nil>
 	su.downcallCh <- StateEvent{
 		event:              Evt9,
-		abstractSyntaxName: abstractSyntaxUID,
+		abstractSyntaxName: sopClassUID,
 		command:            true,
 		data:               req}
 	su.downcallCh <- StateEvent{
 		event:              Evt9,
-		abstractSyntaxName: abstractSyntaxUID,
+		abstractSyntaxName: sopClassUID,
 		command:            false,
 		data:               data}
 	for {

@@ -229,7 +229,9 @@ func splitDataIntoPDUs(sm *StateMachine, abstractSyntaxName string, command bool
 	doassert(len(data) > 0)
 
 	contextID, err := abstractSyntaxNameToContextID(sm.contextIDMap, abstractSyntaxName)
-	doassert(err == nil)
+	if err != nil {
+		log.Panicf("Illegal syntax name %s: %s", dicom.UIDDebugString(abstractSyntaxName), err)
+	}
 	var pdus []P_DATA_TF
 	// two byte header overhead.
 	//

@@ -20,7 +20,6 @@ func main() {
 	if *serverFlag == "" || *fileFlag == "" {
 		log.Fatal("Both --server and --file must be set")
 	}
-
 	data, err := ioutil.ReadFile(*fileFlag)
 	if err != nil {
 		log.Fatalf("%s: %v", *fileFlag, err)
@@ -34,19 +33,24 @@ func main() {
 		log.Fatalf("%s: file does not contain SOPInstanceUID: %v", *fileFlag, err)
 	}
 
-	syntaxUID, err := file.LookupElement("TransferSyntaxUID")
+	transferSyntaxUID, err := file.LookupElement("TransferSyntaxUID")
 	if err != nil {
 		log.Fatalf("%s: file does not contain TransferSyntaxUID: %v", *fileFlag, err)
 	}
-	log.Printf("%s: DICOM transfer format: %s", *fileFlag, syntaxUID)
+	sopClassUID, err := file.LookupElement("SOPClassUID")
+	if err != nil {
+		log.Fatalf("%s: file does not contain AbstractSyntaxUID: %v", *fileFlag, err)
+	}
+	log.Printf("%s: DICOM transfersyntax:%s, abstractsyntax: %s, sopinstance: %s",
+		*fileFlag, transferSyntaxUID, sopClassUID, sopInstanceUID)
 
 	params := netdicom.NewServiceUserParams(
-		*serverFlag, "dontcare", "testclient", netdicom.StorageClasses)
+		*serverFlag, "dontcare", "testclient", netdicom.StorageClasses,
+		[]string{dicom.MustGetString(*transferSyntaxUID)})
 	su := netdicom.NewServiceUser(params)
-	err = su.CStore(dicom.MustGetString(*syntaxUID),
-		dicom.MustGetString(*sopInstanceUID), data)
+	err = su.CStore(dicom.MustGetString(*sopClassUID), dicom.MustGetString(*sopInstanceUID), data)
 	if err != nil {
-		log.Fatalf("%s: cstore failed %v", *fileFlag, err)
+		log.Fatalf("%s: cstore failed: %v", *fileFlag, err)
 	}
 	su.Release()
 }
