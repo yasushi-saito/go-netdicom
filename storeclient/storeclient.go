@@ -2,8 +2,8 @@ package main
 
 import (
 	"flag"
-	"github.com/yasushi-saito/go-netdicom"
 	"github.com/yasushi-saito/go-dicom"
+	"github.com/yasushi-saito/go-netdicom"
 	"io/ioutil"
 	"log"
 )
@@ -19,15 +19,20 @@ func main() {
 	if *serverFlag == "" || *fileFlag == "" {
 		log.Fatal("Both --server and --file must be set")
 	}
-	parser := dicom.MustNewParser()
+
 	data, err := ioutil.ReadFile(*fileFlag)
 	if err != nil {
 		log.Fatalf("%s: %v", *fileFlag, err)
 	}
-	file, err := parser.Parse(data)
+	file, err := dicom.ParseBytes(data)
 	if err != nil {
 		log.Fatalf("%s: failed to parse as DICOM: %v", *fileFlag, err)
 	}
+	sopInstanceUID, err := file.LookupElement("SOPInstanceUID")
+	if err != nil {
+		log.Fatalf("%s: file does not contain SOPInstanceUID", *fileFlag)
+	}
+
 	syntaxUID, err := file.LookupElement("TransferSyntaxUID")
 	if err != nil {
 		log.Fatalf("%s: file does not contain TransferSyntaxUID", *fileFlag)
@@ -38,11 +43,8 @@ func main() {
 		*serverFlag, "dontcare", "testclient", netdicom.StorageClasses)
 	su := netdicom.NewServiceUser(params)
 
-
 	// TODO(saito) Pick the syntax UID more properly.
-	su.CStore("1.2.840.10008.5.1.4.1.1.1.2", data)
-	err = su.Release()
-	if err != nil {
-		log.Fatalf("Release failed: %v", err)
-	}
+	su.CStore(dicom.MustGetString(*syntaxUID),
+		dicom.MustGetString(*sopInstanceUID), data)
+	su.Release()
 }

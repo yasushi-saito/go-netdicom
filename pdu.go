@@ -4,9 +4,9 @@ package netdicom
 //
 // http://dicom.nema.org/medical/dicom/current/output/pdf/part08.pdf
 import (
-	"fmt"
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"github.com/yasushi-saito/go-dicom"
 	"io"
 	"log"

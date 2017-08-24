@@ -1,8 +1,6 @@
 package netdicom
 
 import (
-	"bytes"
-	"github.com/yasushi-saito/go-dicom"
 	"log"
 	"net"
 )
@@ -42,104 +40,41 @@ type ServiceProviderSession struct {
 	sm *StateMachine
 }
 
-// func onAssociateRequest(pdu A_ASSOCIATE) ([]SubItem, bool) {
-// 	responses := []SubItem{
-// 		&ApplicationContextItem{
-// 			Name: DefaultApplicationContextItemName,
-// 		},
-// 	}
-
-// 	for _, item := range pdu.Items {
-// 		if n, ok := item.(*PresentationContextItem); ok {
-// 			// TODO(saito) Need to pick the syntax preferred by us.
-// 			// For now, just hardcode the syntax, ignoring the list
-// 			// in RQ.
-// 			//
-// 			// var syntaxItem SubItem
-// 			// for _, subitem := range(n.Items) {
-// 			// 	log.Printf("Received PresentaionContext(%x): %v", n.ContextID, subitem.DebugString())
-// 			// 	if n, ok := subitem.(*SubItemWithName); ok && n.Type == ItemTypeTransferSyntax {
-// 			// 		syntaxItem = n
-// 			// 		break
-// 			// 	}
-// 			// }
-// 			// doassert(syntaxItem != nil)
-// 			var syntaxItem = TransferSyntaxSubItem{
-// 				Name: dicom.ImplicitVRLittleEndian,
-// 			}
-// 			responses = append(responses,
-// 				&PresentationContextItem{
-// 					Type:      ItemTypePresentationContextResponse,
-// 					ContextID: n.ContextID,
-// 					Result:    0, // accepted
-// 					Items:     []SubItem{&syntaxItem}})
-// 		}
-// 	}
-// 	// TODO(saito) Set the PDU size more properly.
-// 	responses = append(responses,
-// 		&UserInformationItem{
-// 			Items: []SubItem{&UserInformationMaximumLengthItem{MaximumLengthReceived: 1 << 20}}})
-// 	return responses, true
-// }
-
-type dataRequestState struct {
-	contextID      byte
-	command        []byte
-	data           []byte
-	readAllCommand bool
-	readAllData    bool
-}
-
-func onDataRequest(sm *StateMachine, pdu P_DATA_TF, contextIDMap contextIDMap,
-	state *dataRequestState, params ServiceProviderParams) {
-	for _, item := range pdu.Items {
-		if state.contextID == 0 {
-			state.contextID = item.ContextID
-		} else if state.contextID != item.ContextID {
-			log.Panicf("Mixed context: %d %d", state.contextID, item.ContextID)
+func onDataRequest(downcallCh chan StateEvent, pdu *P_DATA_TF, contextIDMap *contextIDMap,
+	assembler *dimseCommandAssembler, params ServiceProviderParams) {
+	abstractSyntaxUID, msg, data, err := addPDataTF(assembler, pdu, contextIDMap)
+	if err != nil {
+		log.Panic(err) // TODO(saito)
+	}
+	if msg == nil {
+		return
+	}
+	switch c := msg.(type) {
+	case *C_STORE_RQ:
+		status := CStoreStatusCannotUnderstand
+		if params.OnCStoreRequest != nil {
+			status = params.OnCStoreRequest(data)
 		}
-		if item.Command {
-			state.command = append(state.command, item.Value...)
-			if item.Last {
-				doassert(!state.readAllCommand)
-				state.readAllCommand = true
-			}
-		} else {
-			state.data = append(state.data, item.Value...)
-			if item.Last {
-				doassert(!state.readAllData)
-				state.readAllData = true
-			}
+		resp := &C_STORE_RSP{
+			AffectedSOPClassUID:       c.AffectedSOPClassUID,
+			MessageIDBeingRespondedTo: c.MessageID,
+			CommandDataSetType:        CommandDataSetTypeNull,
+			AffectedSOPInstanceUID:    c.AffectedSOPInstanceUID,
+			Status:                    status,
 		}
-		if !state.readAllCommand || !state.readAllData {
-			return
+		bytes, err := EncodeDIMSEMessage(resp)
+		if err != nil {
+			panic(err) // TODO(saito)
 		}
-		syntaxName, err := contextIDToAbstractSyntaxName(&contextIDMap, state.contextID)
-		command, err := DecodeDIMSEMessage(bytes.NewBuffer(state.command), int64(len(state.command)))
-		log.Printf("Read all data for syntax %s, command [%v], data %d bytes, err%v",
-			dicom.UIDDebugString(syntaxName), command, len(state.data), err)
-
-		switch c := command.(type) {
-		case *C_STORE_RQ:
-			status := CStoreStatusCannotUnderstand
-			if params.OnCStoreRequest != nil {
-				status = params.OnCStoreRequest(state.data)
-			}
-			resp := &C_STORE_RSP{
-				AffectedSOPClassUID:       c.AffectedSOPClassUID,
-				MessageIDBeingRespondedTo: c.MessageID,
-				CommandDataSetType:        CommandDataSetTypeNull,
-				AffectedSOPInstanceUID:    c.AffectedSOPInstanceUID,
-				Status:                    status,
-			}
-			bytes, err := EncodeDIMSEMessage(resp)
-			if err != nil {
-				panic(err) // TODO(saito)
-			}
-			sendData(sm, syntaxName, true /*command*/, bytes)
-		default:
-			panic("aoeu")
-		}
+		downcallCh <- StateEvent{
+			event:              Evt9,
+			pdu:                nil,
+			conn:               nil,
+			abstractSyntaxName: abstractSyntaxUID,
+			command:            true,
+			data:               bytes}
+	default:
+		panic("aoeu")
 	}
 }
 
@@ -159,6 +94,45 @@ func NewServiceProvider(params ServiceProviderParams) *ServiceProvider {
 	return sp
 }
 
+func runUpperLayerForServiceProvider(params ServiceProviderParams, upcallCh chan UpcallEvent, downcallCh chan StateEvent) {
+	assembler := &dimseCommandAssembler{}
+	handshakeCompleted := false
+	for event := range upcallCh {
+		if event.eventType == upcallEventHandshakeCompleted {
+			doassert(!handshakeCompleted)
+			handshakeCompleted = true
+			log.Printf("handshake completed")
+			continue
+		}
+		doassert(event.eventType == upcallEventData)
+		doassert(event.pdu != nil)
+		doassert(handshakeCompleted == true)
+		if pdata, ok := event.pdu.(*P_DATA_TF); ok {
+			onDataRequest(downcallCh, pdata, event.contextIDMap, assembler, params)
+			continue
+		}
+		log.Panicf("Unknown upcall event: %v", event.pdu)
+	}
+	log.Printf("Finished upper layer service!")
+}
+
+func runProviderForChannel(conn net.Conn, spParams ServiceProviderParams) {
+	log.Printf("Accept connection")
+
+	downcallCh := make(chan StateEvent, 128)
+	upcallCh := make(chan UpcallEvent, 128)
+	smParams := StateMachineParams{
+		verbose:    true,
+		maxPDUSize: spParams.MaxPDUSize,
+		// // onAssociateRequest: onAssociateRequest,
+		// onDataRequest: func(sm *StateMachine, pdu P_DATA_TF, contextIDMap contextIDMap) {
+		// 	onDataRequest(sm, pdu, contextIDMap, dataState, sp.params)
+		// },
+	}
+	go RunStateMachineForServiceProvider(conn, smParams, upcallCh, downcallCh)
+	go runUpperLayerForServiceProvider(spParams, upcallCh, downcallCh)
+}
+
 func (sp *ServiceProvider) Run() error {
 	if sp.listener != nil {
 		panic("Run called twice")
@@ -174,16 +148,6 @@ func (sp *ServiceProvider) Run() error {
 			log.Printf("Accept error: %v", err)
 			continue
 		}
-		log.Printf("Accept connection")
-		dataState := &dataRequestState{}
-		smParams := StateMachineParams{
-			verbose:    true,
-			maxPDUSize: sp.params.MaxPDUSize,
-			// onAssociateRequest: onAssociateRequest,
-			onDataRequest: func(sm *StateMachine, pdu P_DATA_TF, contextIDMap contextIDMap) {
-				onDataRequest(sm, pdu, contextIDMap, dataState, sp.params)
-			},
-		}
-		go RunStateMachineForServiceProvider(conn, smParams)
+		runProviderForChannel(conn, sp.params)
 	}
 }

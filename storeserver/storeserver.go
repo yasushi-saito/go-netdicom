@@ -2,12 +2,12 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"github.com/yasushi-saito/go-netdicom"
+	"io/ioutil"
 	"log"
 	"strings"
 	"sync/atomic"
-	"io/ioutil"
-	"fmt"
 )
 
 var (
@@ -15,6 +15,7 @@ var (
 )
 
 var pathSeq int32
+
 func onCStoreRequest(data []byte) uint16 {
 	path := fmt.Sprintf("image%04d.dcm", atomic.AddInt32(&pathSeq, 1))
 	log.Printf("Writing %s", path)

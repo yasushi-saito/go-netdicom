@@ -104,6 +104,7 @@ var Ae2 = &StateAction{"AE-2", "Send A-ASSOCIATE-RQ-PDU",
 
 var Ae3 = &StateAction{"AE-3", "Issue A-ASSOCIATE confirmation (accept) primitive",
 	func(sm *StateMachine, event StateEvent) *StateType {
+		sm.upcallCh <- UpcallEvent{eventType: upcallEventHandshakeCompleted}
 		return Sta6
 	}}
 
@@ -185,7 +186,7 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 			doassert(len(responses) > 0)
 			doassert(pdu.CalledAETitle != "")
 			doassert(pdu.CallingAETitle != "")
-			sm.upperLayerCh <- StateEvent{
+			sm.downcallCh <- StateEvent{
 				event: Evt7,
 				pdu: &A_ASSOCIATE{
 					Type:            PDUTypeA_ASSOCIATE_AC,
@@ -197,7 +198,7 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 			}
 			sm.contextIDMap = newContextIDMap
 		} else {
-			sm.upperLayerCh <- StateEvent{
+			sm.downcallCh <- StateEvent{
 				event: Evt8,
 				pdu: &A_ASSOCIATE_RJ{
 					Result: ResultRejectedPermanent,
@@ -211,6 +212,7 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 var Ae7 = &StateAction{"AE-7", "Send A-ASSOCIATE-AC PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
 		sendPDU(sm, event.pdu.(*A_ASSOCIATE))
+		sm.upcallCh <- UpcallEvent{eventType: upcallEventHandshakeCompleted}
 		return Sta6
 	}}
 
@@ -267,31 +269,10 @@ var Dt1 = &StateAction{"DT-1", "Send P-DATA-TF PDU",
 
 var Dt2 = &StateAction{"DT-2", "Send P-DATA indication primitive",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		sm.params.onDataRequest(sm, *event.pdu.(*P_DATA_TF), *sm.contextIDMap)
-		// var mergedData [][]byte
-		// var currentContext byte = 0
-
-		// maybeUpcall := func() {
-		// 	if mergedData != nil {
-		// 		if sm.serviceProviderParams.OnDataCallback==nil{
-		// 			log.Print("OnDataCallback is not set")
-		// 		} else {
-		// 			syntaxName, err := contextIDToAbstractSyntaxName(sm.contextIDMap, currentContext)
-		// 			doassert(err == nil)
-		// 			sm.serviceProviderParams.OnDataCallback(syntaxName, mergedData)
-		// 		}
-		// 		mergedData = nil
-		// 	}
-		// }
-
-		// for _, item := range pdu.Items {
-		// 	if currentContext != item.ContextID {
-		// 		maybeUpcall()
-		// 		currentContext = item.ContextID
-		// 	}
-		// 	mergedData = append(mergedData, item.Value)
-		// }
-		// maybeUpcall()
+		sm.upcallCh <- UpcallEvent{
+			eventType:    upcallEventData,
+			pdu:          event.pdu,
+			contextIDMap: sm.contextIDMap}
 		return Sta6
 	}}
 
@@ -304,7 +285,7 @@ var Ar1 = &StateAction{"AR-1", "Send A-RELEASE-RQ PDU",
 var Ar2 = &StateAction{"AR-2", "Issue A-RELEASE indication primitive",
 	func(sm *StateMachine, event StateEvent) *StateType {
 		// TODO(saito) Do RELEASE callback here.
-		sm.upperLayerCh <- StateEvent{event: Evt14}
+		sm.downcallCh <- StateEvent{event: Evt14}
 		return Sta8
 	}}
 
@@ -338,7 +319,7 @@ var Ar7 = &StateAction{"AR-7", "Issue P-DATA-TF PDU",
 		for _, pdu := range pdus {
 			sendPDU(sm, &pdu)
 		}
-		sm.upperLayerCh <- StateEvent{event: Evt14}
+		sm.downcallCh <- StateEvent{event: Evt14}
 		return Sta8
 	}}
 
@@ -447,6 +428,19 @@ var (
 	Evt18 = EventType{18, "ARTIM timer expired (Association reject/release timer)"}
 	Evt19 = EventType{19, "Unrecognized or invalid PDU received"}
 )
+
+var (
+	upcallEventHandshakeCompleted = EventType{100, "Handshake completed"}
+	upcallEventData               = EventType{101, "P_DATA_TF PDU received"}
+	// Note: connection shutdown and any error will result in channel
+	// closure, so they don't have event types.
+)
+
+type UpcallEvent struct {
+	eventType    EventType // upcallEvent*
+	pdu          PDU
+	contextIDMap *contextIDMap
+}
 
 type StateEvent struct {
 	event EventType
@@ -625,8 +619,12 @@ type StateMachine struct {
 
 	// For receiving PDU and network status events.
 	netCh chan StateEvent
-	// For receiving commands from the upper layer (C_STORE, etc)
-	upperLayerCh chan StateEvent
+
+	// For receiving commands from the upper layer
+	downcallCh chan StateEvent
+	// For sending indications to the the upper layer
+	upcallCh chan UpcallEvent
+
 	// For Timer expiration event
 	timerCh      chan StateEvent
 	conn         net.Conn
@@ -643,6 +641,7 @@ func doassert(x bool) {
 }
 
 func closeConnection(sm *StateMachine) {
+	close(sm.upcallCh)
 	sm.conn.Close()
 }
 
@@ -739,13 +738,14 @@ func getNextEvent(sm *StateMachine) StateEvent {
 	select {
 	case event = <-sm.netCh:
 	case event = <-sm.timerCh:
-	case event = <-sm.upperLayerCh:
+	case event = <-sm.downcallCh:
 	}
 	switch event.event {
 	case Evt2:
 		doassert(event.conn != nil)
 		sm.conn = event.conn
 	case Evt17:
+		close(sm.upcallCh)
 		sm.conn = nil
 	}
 	return event
@@ -767,30 +767,10 @@ type StateMachineParams struct {
 	maxPDUSize uint32
 
 	// onAssociateRequest func(A_ASSOCIATE) ([]SubItem, bool)
-	onDataRequest func(*StateMachine, P_DATA_TF, contextIDMap)
+	// onDataRequest func(*StateMachine, P_DATA_TF, contextIDMap)
 }
 
 const DefaultMaximiumPDUSize = uint32(1 << 20)
-
-func NewStateMachineForServiceUser(params ServiceUserParams) *StateMachine {
-	doassert(params.Provider != "")
-	doassert(params.CallingAETitle != "")
-	doassert(len(params.RequiredServices) > 0)
-	doassert(len(params.SupportedTransferSyntaxes) > 0)
-	sm := &StateMachine{
-		isUser:            true,
-		contextIDMap:      newContextIDMap(),
-		serviceUserParams: params,
-		netCh:             make(chan StateEvent, 128),
-		upperLayerCh:      make(chan StateEvent, 128),
-		maxPDUSize:        1 << 20, // TODO(saito)
-	}
-	event := StateEvent{event: Evt1}
-	action := findAction(Sta1, event.event)
-	sm.currentState = action.Callback(sm, event)
-	RunStateMachineUntilQuiescent(sm)
-	return sm
-}
 
 func runOneStep(sm *StateMachine) {
 	event := getNextEvent(sm)
@@ -801,7 +781,59 @@ func runOneStep(sm *StateMachine) {
 	log.Printf("Next state: %v", sm.currentState)
 }
 
-func RunStateMachineForServiceProvider(conn net.Conn, params StateMachineParams) {
+func NewStateMachineForServiceUser(
+	params ServiceUserParams,
+	upcallCh chan UpcallEvent,
+	downcallCh chan StateEvent) *StateMachine {
+	doassert(params.Provider != "")
+	doassert(params.CallingAETitle != "")
+	doassert(len(params.RequiredServices) > 0)
+	doassert(len(params.SupportedTransferSyntaxes) > 0)
+	sm := &StateMachine{
+		isUser:            true,
+		contextIDMap:      newContextIDMap(),
+		serviceUserParams: params,
+		netCh:             make(chan StateEvent, 128),
+		downcallCh:        downcallCh,
+		upcallCh:          upcallCh,
+		maxPDUSize:        1 << 20, // TODO(saito)
+	}
+	event := StateEvent{event: Evt1}
+	action := findAction(Sta1, event.event)
+	sm.currentState = action.Callback(sm, event)
+	RunStateMachineUntilQuiescent(sm)
+	return sm
+}
+
+func RunStateMachineForServiceUser(
+	params ServiceUserParams,
+	upcallCh chan UpcallEvent,
+	downcallCh chan StateEvent) *StateMachine {
+	doassert(params.Provider != "")
+	doassert(params.CallingAETitle != "")
+	doassert(len(params.RequiredServices) > 0)
+	doassert(len(params.SupportedTransferSyntaxes) > 0)
+	sm := &StateMachine{
+		isUser:            true,
+		contextIDMap:      newContextIDMap(),
+		serviceUserParams: params,
+		netCh:             make(chan StateEvent, 128),
+		downcallCh:        downcallCh,
+		upcallCh:          upcallCh,
+		maxPDUSize:        1 << 20, // TODO(saito)
+	}
+	event := StateEvent{event: Evt1}
+	action := findAction(Sta1, event.event)
+	sm.currentState = action.Callback(sm, event)
+	RunStateMachineUntilQuiescent(sm)
+	return sm
+}
+
+func RunStateMachineForServiceProvider(
+	conn net.Conn,
+	params StateMachineParams,
+	upcallCh chan UpcallEvent,
+	downcallCh chan StateEvent) {
 	sm := &StateMachine{
 		isUser:       false,
 		params:       params,
@@ -809,7 +841,8 @@ func RunStateMachineForServiceProvider(conn net.Conn, params StateMachineParams)
 		conn:         conn,
 		netCh:        make(chan StateEvent, 128),
 		maxPDUSize:   1 << 20, // TODO(saito)
-		upperLayerCh: make(chan StateEvent, 128),
+		downcallCh:   downcallCh,
+		upcallCh:     upcallCh,
 	}
 	event := StateEvent{event: Evt5, conn: conn}
 	action := findAction(Sta1, event.event)
@@ -818,26 +851,6 @@ func RunStateMachineForServiceProvider(conn net.Conn, params StateMachineParams)
 		runOneStep(sm)
 	}
 	log.Print("Connection shutdown")
-}
-
-func sendData(sm *StateMachine,
-	abstractSyntaxUID string,
-	command bool,
-	data []byte) {
-	log.Printf("Send data: syntax:%s command:%v data:%d bytes", dicom.UIDDebugString(abstractSyntaxUID), command, len(data))
-	sm.upperLayerCh <- StateEvent{
-		event:              Evt9,
-		pdu:                nil,
-		conn:               nil,
-		abstractSyntaxName: abstractSyntaxUID,
-		command:            command,
-		data:               data}
-}
-
-func StartRelease(sm *StateMachine) {
-	log.Printf("Release")
-	sm.upperLayerCh <- StateEvent{event: Evt11}
-	RunStateMachineUntilQuiescent(sm)
 }
 
 func RunStateMachineUntilQuiescent(sm *StateMachine) {

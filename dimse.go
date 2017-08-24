@@ -5,6 +5,7 @@ package netdicom
 // http://dicom.nema.org/medical/dicom/current/output/pdf/part07.pdf
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"github.com/yasushi-saito/go-dicom"
@@ -14,6 +15,7 @@ import (
 
 type DIMSEMessage interface {
 	Encode(*dicom.Encoder)
+	DebugString() string
 }
 
 func findElementWithTag(elems []*dicom.DicomElement, tag dicom.Tag) (*dicom.DicomElement, error) {
@@ -135,6 +137,12 @@ func decodeC_STORE_RQ(elems []*dicom.DicomElement) (*C_STORE_RQ, error) {
 	return &v, nil
 }
 
+func (v *C_STORE_RQ) DebugString() string {
+	return fmt.Sprintf("cstorerq{sopclass:%v messageid:%v pri: %v cmddatasettype: %v sopinstance: %v m0:%v m1:%v}",
+		v.AffectedSOPClassUID, v.MessageID, v.Priority, v.CommandDataSetType, v.AffectedSOPInstanceUID,
+		v.MoveOriginatorApplicationEntityTitle, v.MoveOriginatorMessageID)
+}
+
 const CommandDataSetTypeNull uint16 = 0x101
 
 // P3.7 9.3.1.2
@@ -150,7 +158,7 @@ type C_STORE_RSP struct {
 // C_STORE_RSP status codes.
 // P3.4 GG4-1
 const (
-	CStoreStatusOutOfResources               uint16 = 0xa700
+	CStoreStatusOutOfResources              uint16 = 0xa700
 	CStoreStatusDataSetDoesNotMatchSOPClass uint16 = 0xa900
 	CStoreStatusCannotUnderstand            uint16 = 0xc000
 )
@@ -182,6 +190,12 @@ func (v *C_STORE_RSP) Encode(e *dicom.Encoder) {
 	encodeDataElementWithSingleValue(e, TagCommandDataSetType, v.CommandDataSetType)
 	encodeDataElementWithSingleValue(e, TagAffectedSOPInstanceUID, v.AffectedSOPInstanceUID)
 	encodeDataElementWithSingleValue(e, TagStatus, v.Status)
+}
+
+func (v *C_STORE_RSP) DebugString() string {
+	return fmt.Sprintf("cstorersp{sopclass:%v messageid:%v cmddatasettype: %v sopinstance: %v status: 0x%v}",
+		v.AffectedSOPClassUID, v.MessageIDBeingRespondedTo, v.CommandDataSetType, v.AffectedSOPInstanceUID,
+		v.Status)
 }
 
 func DecodeDIMSEMessage(io io.Reader, limit int64) (DIMSEMessage, error) {
@@ -224,4 +238,48 @@ func EncodeDIMSEMessage(v DIMSEMessage) ([]byte, error) {
 	encodeDataElementWithSingleValue(e, TagCommandGroupLength, uint32(len(bytes)))
 	e.EncodeBytes(bytes)
 	return e.Finish()
+}
+
+type dimseCommandAssembler struct {
+	contextID      byte
+	command        []byte
+	data           []byte
+	readAllCommand bool
+	readAllData    bool
+}
+
+func addPDataTF(a *dimseCommandAssembler, pdu *P_DATA_TF, contextIDMap *contextIDMap) (string, DIMSEMessage, []byte, error) {
+	for _, item := range pdu.Items {
+		if a.contextID == 0 {
+			a.contextID = item.ContextID
+		} else if a.contextID != item.ContextID {
+			// TODO(saito) don't panic here.
+			log.Panicf("Mixed context: %d %d", a.contextID, item.ContextID)
+		}
+		if item.Command {
+			a.command = append(a.command, item.Value...)
+			if item.Last {
+				doassert(!a.readAllCommand)
+				a.readAllCommand = true
+			}
+		} else {
+			a.data = append(a.data, item.Value...)
+			if item.Last {
+				doassert(!a.readAllData)
+				a.readAllData = true
+			}
+		}
+		if !a.readAllCommand || !a.readAllData {
+			continue
+		}
+		syntaxName, err := contextIDToAbstractSyntaxName(contextIDMap, a.contextID)
+		command, err := DecodeDIMSEMessage(bytes.NewBuffer(a.command), int64(len(a.command)))
+		data := a.data
+		log.Printf("Read all data for syntax %s, command [%v], data %d bytes, err%v",
+			dicom.UIDDebugString(syntaxName), command, len(a.data), err)
+		*a = dimseCommandAssembler{}
+		return syntaxName, command, data, nil
+		// TODO(saito) Verify that there's no unread items after the last command&data.
+	}
+	return "", nil, nil, nil
 }
