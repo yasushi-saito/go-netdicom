@@ -1,3 +1,4 @@
+// A sample program for sending a DICOM file to a remote provider using C-STORE protocol.
 package main
 
 import (
@@ -30,21 +31,22 @@ func main() {
 	}
 	sopInstanceUID, err := file.LookupElement("SOPInstanceUID")
 	if err != nil {
-		log.Fatalf("%s: file does not contain SOPInstanceUID", *fileFlag)
+		log.Fatalf("%s: file does not contain SOPInstanceUID: %v", *fileFlag, err)
 	}
 
 	syntaxUID, err := file.LookupElement("TransferSyntaxUID")
 	if err != nil {
-		log.Fatalf("%s: file does not contain TransferSyntaxUID", *fileFlag)
+		log.Fatalf("%s: file does not contain TransferSyntaxUID: %v", *fileFlag, err)
 	}
 	log.Printf("%s: DICOM transfer format: %s", *fileFlag, syntaxUID)
 
 	params := netdicom.NewServiceUserParams(
 		*serverFlag, "dontcare", "testclient", netdicom.StorageClasses)
 	su := netdicom.NewServiceUser(params)
-
-	// TODO(saito) Pick the syntax UID more properly.
-	su.CStore(dicom.MustGetString(*syntaxUID),
+	err = su.CStore(dicom.MustGetString(*syntaxUID),
 		dicom.MustGetString(*sopInstanceUID), data)
+	if err != nil {
+		log.Fatalf("%s: cstore failed %v", *fileFlag, err)
+	}
 	su.Release()
 }
