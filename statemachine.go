@@ -1,7 +1,6 @@
 package netdicom
 
 import (
-	"fmt"
 	"github.com/yasushi-saito/go-dicom"
 	"io"
 	"log"

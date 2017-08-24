@@ -2,7 +2,6 @@ package netdicom
 
 import (
 	"bytes"
-	"fmt"
 	"github.com/yasushi-saito/go-dicom"
 	"log"
 	"net"

@@ -4,6 +4,7 @@ package netdicom
 //
 // http://dicom.nema.org/medical/dicom/current/output/pdf/part08.pdf
 import (
+	"fmt"
 	"bytes"
 	"encoding/binary"
 	"github.com/yasushi-saito/go-dicom"
@@ -87,6 +88,7 @@ func decodeSubItem(d *dicom.Decoder) SubItem {
 		return decodeImplementationVersionNameSubItem(d, length)
 	}
 	log.Panicf("Unknown item type: 0x%x", itemType)
+	return nil
 }
 
 func encodeSubItemHeader(e *dicom.Encoder, itemType byte, length uint16) {
