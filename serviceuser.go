@@ -111,9 +111,8 @@ func newMessageID(su *ServiceUser) uint16 {
 }
 
 func (su *ServiceUser) CStore(data []byte) error {
-
-	// Extract the beginning of file and extract the syntax UIDs to fill in
-	// the C-STORE request.
+	// Parse the beginning of file, extract syntax UIDs to fill in the
+	// C-STORE request.
 	decoder := dicom.NewDecoder(
 		bytes.NewBuffer(data),
 		int64(len(data)),
@@ -123,10 +122,10 @@ func (su *ServiceUser) CStore(data []byte) error {
 	if decoder.Error() != nil {
 		return decoder.Error()
 	}
-	var getElement = func(meta []dicom.DicomElement, name string) (string, error) {
-		elem, err := dicom.LookupElement(meta, name)
+	var getElement = func(meta []dicom.DicomElement, tag dicom.Tag) (string, error) {
+		elem, err := dicom.LookupElementByTag(meta, tag)
 		if err != nil {
-			return "", fmt.Errorf("C-STORE data lacks %s: %v", name, err)
+			return "", fmt.Errorf("C-STORE data lacks %s: %v", tag.String(), err)
 		}
 		s, err := dicom.GetString(*elem)
 		if err != nil {
@@ -134,17 +133,15 @@ func (su *ServiceUser) CStore(data []byte) error {
 		}
 		return s, nil
 	}
-
-	// TODO: add LookupElementBy{Name,Tag}
-	sopInstanceUID, err := getElement(meta, "MediaStorageSOPInstanceUID")
+	sopInstanceUID, err := getElement(meta, dicom.TagMediaStorageSOPInstanceUID)
 	if err != nil {
 		return fmt.Errorf("C-STORE data lacks SOPInstanceUID: %v", err)
 	}
-	transferSyntaxUID, err := getElement(meta, "TransferSyntaxUID")
+	transferSyntaxUID, err := getElement(meta, dicom.TagTransferSyntaxUID)
 	if err != nil {
 		return fmt.Errorf("C-STORE data lacks TransferSyntaxUID: %v", err)
 	}
-	sopClassUID, err := getElement(meta, "MediaStorageSOPClassUID")
+	sopClassUID, err := getElement(meta, dicom.TagMediaStorageSOPClassUID)
 	if err != nil {
 		return fmt.Errorf("C-STORE data lacks MediaStorageSOPClassUID: %v", err)
 	}
