@@ -26,7 +26,7 @@ type ServiceProvider struct {
 	params ServiceProviderParams
 }
 
-func onDIMSECommand(downcallCh chan StateEvent, abstractSyntaxUID string, msg DIMSEMessage, data []byte, params ServiceProviderParams) {
+func onDIMSECommand(downcallCh chan stateEvent, abstractSyntaxUID string, msg DIMSEMessage, data []byte, params ServiceProviderParams) {
 	switch c := msg.(type) {
 	case *C_STORE_RQ:
 		status := CStoreStatusCannotUnderstand
@@ -40,15 +40,15 @@ func onDIMSECommand(downcallCh chan StateEvent, abstractSyntaxUID string, msg DI
 			AffectedSOPInstanceUID:    c.AffectedSOPInstanceUID,
 			Status:                    status,
 		}
-		bytes, err := EncodeDIMSEMessage(resp)
+		bytes, err := encodeDIMSEMessage(resp)
 		if err != nil {
 			panic(err) // TODO(saito)
 		}
-		downcallCh <- StateEvent{
-			event:              Evt9,
+		downcallCh <- stateEvent{
+			event:              evt9,
 			pdu:                nil,
 			conn:               nil,
-			dataPayload: &StateEventDataPayload{
+			dataPayload: &stateEventDataPayload{
 				abstractSyntaxName: abstractSyntaxUID,
 				command:            true,
 				data:               bytes},
@@ -68,7 +68,7 @@ func NewServiceProvider(params ServiceProviderParams) *ServiceProvider {
 }
 
 // Run a thread that listens to events from the DUL statemachine (DICOM spec P3.8).
-func runUpperLayerForServiceProvider(params ServiceProviderParams, upcallCh chan UpcallEvent, downcallCh chan StateEvent) {
+func runUpperLayerForServiceProvider(params ServiceProviderParams, upcallCh chan upcallEvent, downcallCh chan stateEvent) {
 	handshakeCompleted := false
 	for event := range upcallCh {
 		if event.eventType == upcallEventHandshakeCompleted {
@@ -88,9 +88,9 @@ func runUpperLayerForServiceProvider(params ServiceProviderParams, upcallCh chan
 // Start threads for handling "conn". This function returns immediately; "conn"
 // will be cleaned up in the background.
 func runProviderForConn(conn net.Conn, spParams ServiceProviderParams) {
-	downcallCh := make(chan StateEvent, 128)
-	upcallCh := make(chan UpcallEvent, 128)
-	smParams := StateMachineParams{
+	downcallCh := make(chan stateEvent, 128)
+	upcallCh := make(chan upcallEvent, 128)
+	smParams := stateMachineParams{
 		verbose:    true,
 		maxPDUSize: spParams.MaxPDUSize,
 		// // onAssociateRequest: onAssociateRequest,

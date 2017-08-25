@@ -241,7 +241,7 @@ func DecodeDIMSEMessage(io io.Reader, limit int64) (DIMSEMessage, error) {
 	return nil, err
 }
 
-func EncodeDIMSEMessage(v DIMSEMessage) ([]byte, error) {
+func encodeDIMSEMessage(v DIMSEMessage) ([]byte, error) {
 	subEncoder := dicom.NewEncoder(binary.LittleEndian)
 	v.Encode(subEncoder)
 	bytes, err := subEncoder.Finish()

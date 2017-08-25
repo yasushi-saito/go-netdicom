@@ -21,8 +21,8 @@ type ServiceUser struct {
 	status serviceUserStatus
 	// sm *StateMachine
 	// associationActive bool
-	downcallCh    chan StateEvent
-	upcallCh      chan UpcallEvent
+	downcallCh    chan stateEvent
+	upcallCh      chan upcallEvent
 	nextMessageID int32
 }
 
@@ -78,8 +78,8 @@ func NewServiceUser(params ServiceUserParams) *ServiceUser {
 	su := &ServiceUser{
 		status: serviceUserInitial,
 		// sm: NewStateMachineForServiceUser(params, nil, nil),
-		downcallCh:    make(chan StateEvent, 128),
-		upcallCh:      make(chan UpcallEvent, 128),
+		downcallCh:    make(chan stateEvent, 128),
+		upcallCh:      make(chan upcallEvent, 128),
 		nextMessageID: 123, // any value != 0 suffices.
 	}
 	go runStateMachineForServiceUser(params, su.upcallCh, su.downcallCh)
@@ -158,7 +158,7 @@ func (su *ServiceUser) CStore(data []byte) error {
 	if err != nil {
 		return err
 	}
-	req, err := EncodeDIMSEMessage(&C_STORE_RQ{
+	req, err := encodeDIMSEMessage(&C_STORE_RQ{
 		AffectedSOPClassUID:    sopClassUID,
 		MessageID:              newMessageID(su),
 		CommandDataSetType:     1, // anything other than 0x101 suffices.
@@ -167,14 +167,14 @@ func (su *ServiceUser) CStore(data []byte) error {
 	if err != nil {
 		return err
 	}
-	su.downcallCh <- StateEvent{
-		event: Evt9,
-		dataPayload: &StateEventDataPayload{abstractSyntaxName: sopClassUID,
+	su.downcallCh <- stateEvent{
+		event: evt9,
+		dataPayload: &stateEventDataPayload{abstractSyntaxName: sopClassUID,
 			command: true,
 			data:    req}}
-	su.downcallCh <- StateEvent{
-		event: Evt9,
-		dataPayload: &StateEventDataPayload{abstractSyntaxName: sopClassUID,
+	su.downcallCh <- stateEvent{
+		event: evt9,
+		dataPayload: &stateEventDataPayload{abstractSyntaxName: sopClassUID,
 			command: false,
 			data:    body}}
 	for {
@@ -200,7 +200,7 @@ func (su *ServiceUser) Release() {
 	if err != nil {
 		return
 	}
-	su.downcallCh <- StateEvent{event: Evt11}
+	su.downcallCh <- stateEvent{event: evt11}
 	for {
 		event, ok := <-su.upcallCh
 		if !ok {
