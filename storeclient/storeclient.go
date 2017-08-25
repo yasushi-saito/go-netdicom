@@ -31,9 +31,9 @@ func main() {
 	if decoder.Error() != nil {
 		log.Fatalf("%s: failed to parse as DICOM: %v", inPath, decoder.Error())
 	}
-	transferSyntaxUID, err := dicom.LookupElement(meta, "TransferSyntaxUID")
+	transferSyntaxUID, err := dicom.LookupElementByTag(meta, dicom.TagTransferSyntaxUID)
 	if err != nil {
-		log.Fatalf("%s: file does not contain TransferSyntaxUID: %v", inPath, err)
+		log.Fatal(err)
 	}
 	params := netdicom.NewServiceUserParams(
 		server, "dontcare", "testclient", netdicom.StorageClasses,
