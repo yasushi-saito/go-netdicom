@@ -15,6 +15,7 @@ import (
 
 type DIMSEMessage interface {
 	Encode(*dicom.Encoder)
+	HasData() bool
 	DebugString() string
 }
 
@@ -92,6 +93,11 @@ type C_STORE_RQ struct {
 	AffectedSOPInstanceUID               string
 	MoveOriginatorApplicationEntityTitle string
 	MoveOriginatorMessageID              uint16
+}
+
+func (v *C_STORE_RQ) HasData() bool {
+	doassert(v.CommandDataSetType != CommandDataSetTypeNull) // TODO(saito)
+	return v.CommandDataSetType != CommandDataSetTypeNull
 }
 
 func (v *C_STORE_RQ) Encode(e *dicom.Encoder) {
@@ -179,6 +185,10 @@ func decodeC_STORE_RSP(elems []*dicom.DicomElement) (*C_STORE_RSP, error) {
 	if err != nil {
 		return nil, err
 	}
+	v.CommandDataSetType, err = getUInt16FromElements(elems, TagCommandDataSetType)
+	if err != nil {
+		return nil, err
+	}
 	return v, nil
 }
 
@@ -190,6 +200,11 @@ func (v *C_STORE_RSP) Encode(e *dicom.Encoder) {
 	encodeDataElementWithSingleValue(e, TagCommandDataSetType, v.CommandDataSetType)
 	encodeDataElementWithSingleValue(e, TagAffectedSOPInstanceUID, v.AffectedSOPInstanceUID)
 	encodeDataElementWithSingleValue(e, TagStatus, v.Status)
+}
+
+func (v *C_STORE_RSP) HasData() bool {
+	doassert(v.CommandDataSetType == CommandDataSetTypeNull) // TODO(saito)
+	return v.CommandDataSetType != CommandDataSetTypeNull
 }
 
 func (v *C_STORE_RSP) DebugString() string {
@@ -282,14 +297,14 @@ func addPDataTF(a *dimseCommandAssembler, pdu *P_DATA_TF, contextIDMap *contextI
 			return "", nil, nil, err
 		}
 	}
-	if !a.readAllData {
+	if a.command.HasData() && !a.readAllData {
 		return "", nil, nil, nil
 	}
 	syntaxName, err := contextIDToAbstractSyntaxName(contextIDMap, a.contextID)
 	command := a.command
 	dataBytes := a.dataBytes
 	log.Printf("Read all data for syntax %s, command [%v], data %d bytes, err%v",
-		dicom.UIDDebugString(syntaxName), command, len(a.dataBytes), err)
+		dicom.UIDDebugString(syntaxName), command.DebugString(), len(a.dataBytes), err)
 	*a = dimseCommandAssembler{}
 	return syntaxName, command, dataBytes, nil
 		// TODO(saito) Verify that there's no unread items after the last command&data.

@@ -26,15 +26,7 @@ type ServiceProvider struct {
 	params ServiceProviderParams
 }
 
-func onDataRequest(downcallCh chan StateEvent, pdu *P_DATA_TF, contextIDMap *contextIDMap,
-	assembler *dimseCommandAssembler, params ServiceProviderParams) {
-	abstractSyntaxUID, msg, data, err := addPDataTF(assembler, pdu, contextIDMap)
-	if err != nil {
-		log.Panic(err) // TODO(saito)
-	}
-	if msg == nil {
-		return
-	}
+func onDIMSECommand(downcallCh chan StateEvent, abstractSyntaxUID string, msg DIMSEMessage, data []byte, params ServiceProviderParams) {
 	switch c := msg.(type) {
 	case *C_STORE_RQ:
 		status := CStoreStatusCannotUnderstand
@@ -56,9 +48,11 @@ func onDataRequest(downcallCh chan StateEvent, pdu *P_DATA_TF, contextIDMap *con
 			event:              Evt9,
 			pdu:                nil,
 			conn:               nil,
-			abstractSyntaxName: abstractSyntaxUID,
-			command:            true,
-			data:               bytes}
+			dataPayload: &StateEventDataPayload{
+				abstractSyntaxName: abstractSyntaxUID,
+				command:            true,
+				data:               bytes},
+		}
 	default:
 		panic("aoeu")
 	}
@@ -75,7 +69,6 @@ func NewServiceProvider(params ServiceProviderParams) *ServiceProvider {
 
 // Run a thread that listens to events from the DUL statemachine (DICOM spec P3.8).
 func runUpperLayerForServiceProvider(params ServiceProviderParams, upcallCh chan UpcallEvent, downcallCh chan StateEvent) {
-	assembler := &dimseCommandAssembler{}
 	handshakeCompleted := false
 	for event := range upcallCh {
 		if event.eventType == upcallEventHandshakeCompleted {
@@ -85,13 +78,9 @@ func runUpperLayerForServiceProvider(params ServiceProviderParams, upcallCh chan
 			continue
 		}
 		doassert(event.eventType == upcallEventData)
-		doassert(event.pdu != nil)
+		doassert(event.command != nil)
 		doassert(handshakeCompleted == true)
-		if pdata, ok := event.pdu.(*P_DATA_TF); ok {
-			onDataRequest(downcallCh, pdata, event.contextIDMap, assembler, params)
-			continue
-		}
-		log.Panicf("Unknown upcall event: %v", event.pdu) // TODO
+		onDIMSECommand(downcallCh, event.abstractSyntaxUID, event.command, event.data, params)
 	}
 	log.Printf("Finished upper layer service!")
 }

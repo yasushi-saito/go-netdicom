@@ -248,9 +248,12 @@ func splitDataIntoPDUs(sm *StateMachine, abstractSyntaxName string, command bool
 			PresentationDataValueItem{
 				ContextID: contextID,
 				Command:   command,
-				Last:      len(data) <= maxChunkSize,
+				Last:      false, // Set later.
 				Value:     chunk,
 			}}})
+	}
+	if len(pdus) > 0 {
+		pdus[len(pdus)-1].Items[0].Last = true
 	}
 	log.Printf("Created %d data pdus", len(pdus))
 	return pdus
@@ -259,8 +262,8 @@ func splitDataIntoPDUs(sm *StateMachine, abstractSyntaxName string, command bool
 // Data transfer related actions
 var Dt1 = &StateAction{"DT-1", "Send P-DATA-TF PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		doassert(event.data != nil)
-		pdus := splitDataIntoPDUs(sm, event.abstractSyntaxName, event.command, event.data)
+		doassert(event.dataPayload != nil)
+		pdus := splitDataIntoPDUs(sm, event.dataPayload.abstractSyntaxName, event.dataPayload.command, event.dataPayload.data)
 		log.Printf("Sending %d data pdus", len(pdus))
 		for _, pdu := range pdus {
 			sendPDU(sm, &pdu)
@@ -271,10 +274,19 @@ var Dt1 = &StateAction{"DT-1", "Send P-DATA-TF PDU",
 
 var Dt2 = &StateAction{"DT-2", "Send P-DATA indication primitive",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		sm.upcallCh <- UpcallEvent{
-			eventType:    upcallEventData,
-			pdu:          event.pdu,
-			contextIDMap: sm.contextIDMap}
+		abstractSyntaxUID, command, data, err := addPDataTF(&sm.commandAssembler, event.pdu.(*P_DATA_TF), sm.contextIDMap)
+		if err != nil {
+			log.Panic(err) // TODO(saito)
+		}
+		if command != nil {
+			sm.upcallCh <- UpcallEvent{
+				eventType:         upcallEventData,
+				abstractSyntaxUID: abstractSyntaxUID,
+				command:           command,
+				data:              data}
+		} else {
+			// Not all fragments received yet
+		}
 		return Sta6
 	}}
 
@@ -317,7 +329,8 @@ var Ar6 = &StateAction{"AR-6", "Issue P-DATA indication",
 
 var Ar7 = &StateAction{"AR-7", "Issue P-DATA-TF PDU",
 	func(sm *StateMachine, event StateEvent) *StateType {
-		pdus := splitDataIntoPDUs(sm, event.abstractSyntaxName, event.command, event.data)
+		doassert(event.dataPayload != nil)
+		pdus := splitDataIntoPDUs(sm, event.dataPayload.abstractSyntaxName, event.dataPayload.command, event.dataPayload.data)
 		for _, pdu := range pdus {
 			sendPDU(sm, &pdu)
 		}
@@ -439,19 +452,13 @@ var (
 )
 
 type UpcallEvent struct {
-	eventType    EventType // upcallEvent*
-	pdu          PDU
-	contextIDMap *contextIDMap
+	eventType         EventType // upcallEvent*
+	abstractSyntaxUID string
+	command           DIMSEMessage
+	data              []byte
 }
 
-type StateEvent struct {
-	event EventType
-	pdu   PDU
-	err   error
-	conn  net.Conn
-
-	// The following four fields are set iff event==Evt9.
-
+type StateEventDataPayload struct {
 	// The syntax UID of the data to be sent.
 	abstractSyntaxName string
 
@@ -461,6 +468,15 @@ type StateEvent struct {
 	// Data to send. len(data) may exceed the max PDU size, in which case it
 	// will be split into multiple PresentationDataValueItems.
 	data []byte
+}
+
+type StateEvent struct {
+	event EventType
+	pdu   PDU
+	err   error
+	conn  net.Conn
+
+	dataPayload *StateEventDataPayload // set iff event==Evt9.
 }
 
 //func PDUReceivedEvent(event EventType, pdu PDU) StateEvent{
@@ -634,6 +650,8 @@ type StateMachine struct {
 
 	// The negotiated PDU size.
 	maxPDUSize int
+
+	commandAssembler dimseCommandAssembler
 }
 
 func doassert(x bool) {

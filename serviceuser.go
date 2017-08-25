@@ -125,17 +125,16 @@ func (su *ServiceUser) CStore(
 	if err != nil {
 		return err
 	}
-	// 2017/08/23 20:40:17 VRead all data for syntax 1.2.840.10008.5.1.4.1.1.12.1[X-Ray Angiographic Image Storage], command [cstorerq{sopclass:1.2.840.10008.5.1.4.1.1.12.1 messageid:1 pri: 2 cmddatasettype: 1 sopinstance: 1.2.840.113857.1626.160635.1727.151424.1.1 m0: m1:0}], data 2752272 bytes, err<nil>
 	su.downcallCh <- StateEvent{
-		event:              Evt9,
-		abstractSyntaxName: sopClassUID,
-		command:            true,
-		data:               req}
+		event: Evt9,
+		dataPayload: &StateEventDataPayload{abstractSyntaxName: sopClassUID,
+			command: true,
+			data:    req}}
 	su.downcallCh <- StateEvent{
-		event:              Evt9,
-		abstractSyntaxName: sopClassUID,
-		command:            false,
-		data:               data}
+		event: Evt9,
+		dataPayload: &StateEventDataPayload{abstractSyntaxName: sopClassUID,
+			command: false,
+			data:    data}}
 	for {
 		event, ok := <-su.upcallCh
 		if !ok {
@@ -143,9 +142,15 @@ func (su *ServiceUser) CStore(
 			return fmt.Errorf("Connection closed while waiting for cstore response")
 		}
 		doassert(event.eventType == upcallEventData)
-		// pdu, ok := event.pdu.(*P_DATA_TF)
+		doassert(event.command != nil)
+		resp, ok := event.command.(*C_STORE_RSP)
+		doassert(ok) // TODO(saito)
+		if resp.Status != 0 {
+			return fmt.Errorf("C_STORE failed: %v", resp.DebugString())
+		}
+		return nil
 	}
-	panic("aoue not implemented")
+	panic("should not reach here")
 }
 
 func (su *ServiceUser) Release() {
