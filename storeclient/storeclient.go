@@ -2,18 +2,13 @@
 package main
 
 import (
+	"flag"
 	"bytes"
 	"encoding/binary"
-	"flag"
-	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-netdicom"
+	"github.com/yasushi-saito/go-dicom"
 	"io/ioutil"
 	"log"
-)
-
-var (
-//	fileFlag   = flag.String("file", "", "the DICOM file you want to parse")
-//	serverFlag = flag.String("server", "", "host:port of the DICOM service provider")
 )
 
 func main() {
@@ -27,7 +22,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("%s: %v", inPath, err)
 	}
-
 	decoder := dicom.NewDecoder(
 		bytes.NewBuffer(data),
 		int64(len(data)),
@@ -37,32 +31,16 @@ func main() {
 	if decoder.Error() != nil {
 		log.Fatalf("%s: failed to parse as DICOM: %v", inPath, decoder.Error())
 	}
-	sopInstanceUID, err := dicom.LookupElement(meta, "MediaStorageSOPInstanceUID")
-	if err != nil {
-		log.Fatalf("%s: file does not contain SOPInstanceUID: %v", inPath, err)
-	}
-
 	transferSyntaxUID, err := dicom.LookupElement(meta, "TransferSyntaxUID")
 	if err != nil {
 		log.Fatalf("%s: file does not contain TransferSyntaxUID: %v", inPath, err)
 	}
-	sopClassUID, err := dicom.LookupElement(meta, "MediaStorageSOPClassUID")
-	if err != nil {
-		log.Fatalf("%s: file does not contain AbstractSyntaxUID: %v", inPath, err)
-	}
-	log.Printf("%s: DICOM transfersyntax:%s, abstractsyntax: %s, sopinstance: %s",
-		inPath, transferSyntaxUID, sopClassUID, sopInstanceUID)
-
 	params := netdicom.NewServiceUserParams(
 		server, "dontcare", "testclient", netdicom.StorageClasses,
 		[]string{dicom.MustGetString(*transferSyntaxUID)})
 	su := netdicom.NewServiceUser(params)
 
-	body := decoder.DecodeBytes(int(decoder.Len()))
-	if decoder.Error() != nil {
-		log.Panic("read")
-	}
-	err = su.CStore(dicom.MustGetString(*sopClassUID), dicom.MustGetString(*sopInstanceUID), body)
+	err = su.CStore(data)
 	if err != nil {
 		log.Fatalf("%s: cstore failed: %v", inPath, err)
 	}

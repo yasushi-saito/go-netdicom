@@ -1,6 +1,8 @@
 package netdicom
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"github.com/yasushi-saito/go-dicom"
 	"log"
@@ -108,11 +110,54 @@ func newMessageID(su *ServiceUser) uint16 {
 	return uint16(id % 0x10000)
 }
 
-func (su *ServiceUser) CStore(
-	sopClassUID string,
-	sopInstanceUID string,
-	data []byte) error {
-	err := waitAssociationEstablishment(su)
+func (su *ServiceUser) CStore(data []byte) error {
+
+	// Extract the beginning of file and extract the syntax UIDs to fill in
+	// the C-STORE request.
+	decoder := dicom.NewDecoder(
+		bytes.NewBuffer(data),
+		int64(len(data)),
+		binary.LittleEndian,
+		dicom.ExplicitVR)
+	meta := dicom.ParseFileHeader(decoder)
+	if decoder.Error() != nil {
+		return decoder.Error()
+	}
+	var getElement = func(meta []dicom.DicomElement, name string) (string, error) {
+		elem, err := dicom.LookupElement(meta, name)
+		if err != nil {
+			return "", fmt.Errorf("C-STORE data lacks %s: %v", name, err)
+		}
+		s, err := dicom.GetString(*elem)
+		if err != nil {
+			return "", err
+		}
+		return s, nil
+	}
+
+	// TODO: add LookupElementBy{Name,Tag}
+	sopInstanceUID, err := getElement(meta, "MediaStorageSOPInstanceUID")
+	if err != nil {
+		return fmt.Errorf("C-STORE data lacks SOPInstanceUID: %v", err)
+	}
+	transferSyntaxUID, err := getElement(meta, "TransferSyntaxUID")
+	if err != nil {
+		return fmt.Errorf("C-STORE data lacks TransferSyntaxUID: %v", err)
+	}
+	sopClassUID, err := getElement(meta, "MediaStorageSOPClassUID")
+	if err != nil {
+		return fmt.Errorf("C-STORE data lacks MediaStorageSOPClassUID: %v", err)
+	}
+	log.Printf("DICOM transfersyntax:%s, abstractsyntax: %s, sopinstance: %s",
+		transferSyntaxUID, sopClassUID, sopInstanceUID)
+
+	// The remainder of the file becomes the actual C-STORE payload.
+	body := decoder.DecodeBytes(int(decoder.Len()))
+	if decoder.Error() != nil {
+		return decoder.Error()
+	}
+
+	err = waitAssociationEstablishment(su)
 	if err != nil {
 		return err
 	}
@@ -134,7 +179,7 @@ func (su *ServiceUser) CStore(
 		event: Evt9,
 		dataPayload: &StateEventDataPayload{abstractSyntaxName: sopClassUID,
 			command: false,
-			data:    data}}
+			data:    body}}
 	for {
 		event, ok := <-su.upcallCh
 		if !ok {
