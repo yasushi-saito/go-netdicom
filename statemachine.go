@@ -60,7 +60,8 @@ func buildAssociateRequestItems(params ServiceUserParams) (*contextIDMap, []SubI
 		}}
 	var contextID byte = 1
 	for _, sop := range params.RequiredServices {
-		addContextIDToAbstractSyntaxNameMap(contextIDMap, sop.UID, contextID)
+		// TODO(saito) Fix translation uid.
+		contextIDMap.addMapping(sop.UID, "", contextID)
 		syntaxItems := []SubItem{
 			&AbstractSyntaxSubItem{Name: sop.UID},
 		}
@@ -82,8 +83,8 @@ func buildAssociateRequestItems(params ServiceUserParams) (*contextIDMap, []SubI
 		&UserInformationItem{
 			Items: []SubItem{
 				&UserInformationMaximumLengthItem{params.MaxPDUSize},
-				&ImplementationClassUIDSubItem{DefaultImplementationClassUID},
-				&ImplementationVersionNameSubItem{DefaultImplementationVersionName}}})
+				&ImplementationClassUIDSubItem{dicom.DefaultImplementationClassUID},
+				&ImplementationVersionNameSubItem{dicom.DefaultImplementationVersionName}}})
 	return contextIDMap, items
 }
 
@@ -104,6 +105,7 @@ var actionAe2 = &stateAction{"AE-2", "Send A-ASSOCIATE-RQ-PDU",
 
 var actionAe3 = &stateAction{"AE-3", "Issue A-ASSOCIATE confirmation (accept) primitive",
 	func(sm *stateMachine, event stateEvent) *stateType {
+		// TODO(saito) Set the context ID map here!
 		sm.upcallCh <- upcallEvent{eventType: upcallEventHandshakeCompleted}
 		return sta6
 	}}
@@ -158,8 +160,9 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 				// 	}
 				// }
 				// doassert(syntaxItem != nil)
+				transferSyntaxUID := dicom.ImplicitVRLittleEndian
 				var syntaxItem = TransferSyntaxSubItem{
-					Name: dicom.ImplicitVRLittleEndian,
+					Name: transferSyntaxUID,
 				}
 				responses = append(responses,
 					&PresentationContextItem{
@@ -170,7 +173,10 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 				for _, aitem := range n.Items {
 					if aitem, ok := aitem.(*AbstractSyntaxSubItem); ok {
 						log.Printf("Map context %d -> %s", n.ContextID, aitem.Name)
-						addContextIDToAbstractSyntaxNameMap(newContextIDMap, aitem.Name, n.ContextID)
+						newContextIDMap.addMapping(
+							aitem.Name,
+							transferSyntaxUID,
+							n.ContextID)
 					}
 					// TODO(saito) CHeck that each item has exactly one aitem.
 				}
@@ -228,7 +234,7 @@ func splitDataIntoPDUs(sm *stateMachine, abstractSyntaxName string, command bool
 	doassert(sm.maxPDUSize > 0)
 	doassert(len(data) > 0)
 
-	contextID, err := abstractSyntaxNameToContextID(sm.contextIDMap, abstractSyntaxName)
+	context, err := sm.contextIDMap.lookupByAbstractSyntaxUID(abstractSyntaxName)
 	if err != nil {
 		log.Panicf("Illegal syntax name %s: %s", dicom.UIDDebugString(abstractSyntaxName), err)
 	}
@@ -246,7 +252,7 @@ func splitDataIntoPDUs(sm *stateMachine, abstractSyntaxName string, command bool
 		data = data[chunkSize:]
 		pdus = append(pdus, P_DATA_TF{Items: []PresentationDataValueItem{
 			PresentationDataValueItem{
-				ContextID: contextID,
+				ContextID: context.contextID,
 				Command:   command,
 				Last:      false, // Set later.
 				Value:     chunk,
@@ -274,7 +280,7 @@ var actionDt1 = &stateAction{"DT-1", "Send P-DATA-TF PDU",
 
 var actionDt2 = &stateAction{"DT-2", "Send P-DATA indication primitive",
 	func(sm *stateMachine, event stateEvent) *stateType {
-		abstractSyntaxUID, command, data, err := addPDataTF(&sm.commandAssembler, event.pdu.(*P_DATA_TF), sm.contextIDMap)
+		abstractSyntaxUID, transferSyntaxUID, command, data, err := addPDataTF(&sm.commandAssembler, event.pdu.(*P_DATA_TF), sm.contextIDMap)
 		if err != nil {
 			log.Panic(err) // TODO(saito)
 		}
@@ -282,6 +288,7 @@ var actionDt2 = &stateAction{"DT-2", "Send P-DATA indication primitive",
 			sm.upcallCh <- upcallEvent{
 				eventType:         upcallEventData,
 				abstractSyntaxUID: abstractSyntaxUID,
+				transferSyntaxUID: transferSyntaxUID,
 				command:           command,
 				data:              data}
 		} else {
@@ -447,10 +454,17 @@ var (
 )
 
 type upcallEvent struct {
-	eventType         eventType // upcallEvent*
+	eventType eventType // upcallEvent*
+
+	// abstractSyntaxUID is extracted from the P_DATA_TF packet.
+	// transferSyntaxUID is the value agreed on for the abstractSyntaxUID
+	// during protocol handshake. Both are nonempty iff
+	// eventType==upcallEventData.
 	abstractSyntaxUID string
-	command           DIMSEMessage
-	data              []byte
+	transferSyntaxUID string
+
+	command DIMSEMessage
+	data    []byte
 }
 
 type stateEventDataPayload struct {

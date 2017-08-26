@@ -14,10 +14,25 @@ type ServiceProviderParams struct {
 	// If the value is <=0, DefaultMaxPDUSize is used.
 	MaxPDUSize uint32
 
-	// Called on receiving a C_STORE_RQ message. "data" is the payload,
-	// usually a raw DICOM file. The handler should store the data and
-	// return either 0 on success, or one of CStoreStatus* error codes.
-	OnCStoreRequest func(data []byte) uint16
+	// Called on receiving a C_STORE_RQ message.  sopClassUID and
+	// sopInstanceUID are the IDs of the data. They are from the C-STORE
+	// request packat.
+	//
+	// "data" is the payload, i.e., a sequence of serialized
+	// dicom.DataElement objects.  Note that "data" usually does not contain
+	// metadata elements (elements whose tag.group=2 -- those include
+	// TransferSyntaxUID and MediaStorageSOPClassUID), since they are
+	// stripped by the requstor (two key metadata are passed as
+	// sop{Class,Instance)UID).
+	//
+	// The handler should store encode the sop{Class,InstanceUID} as the
+	// DICOM header, followed by data. It should return either 0 on success,
+	// or one of CStoreStatus* error codes.
+	OnCStoreRequest func(
+		transferSyntaxUID string,
+		sopClassUID string,
+		sopInstanceUID string,
+		data []byte) uint16
 }
 
 const DefaultMaxPDUSize uint32 = 4 << 20
@@ -26,12 +41,19 @@ type ServiceProvider struct {
 	params ServiceProviderParams
 }
 
-func onDIMSECommand(downcallCh chan stateEvent, abstractSyntaxUID string, msg DIMSEMessage, data []byte, params ServiceProviderParams) {
+func onDIMSECommand(downcallCh chan stateEvent, abstractSyntaxUID string,
+	transferSyntaxUID string,
+	msg DIMSEMessage, data []byte, params ServiceProviderParams) {
+	doassert(transferSyntaxUID !="")
 	switch c := msg.(type) {
 	case *C_STORE_RQ:
 		status := CStoreStatusCannotUnderstand
 		if params.OnCStoreRequest != nil {
-			status = params.OnCStoreRequest(data)
+			status = params.OnCStoreRequest(
+				transferSyntaxUID,
+				c.AffectedSOPClassUID,
+				c.AffectedSOPInstanceUID,
+				data)
 		}
 		resp := &C_STORE_RSP{
 			AffectedSOPClassUID:       c.AffectedSOPClassUID,
@@ -80,7 +102,9 @@ func runUpperLayerForServiceProvider(params ServiceProviderParams, upcallCh chan
 		doassert(event.eventType == upcallEventData)
 		doassert(event.command != nil)
 		doassert(handshakeCompleted == true)
-		onDIMSECommand(downcallCh, event.abstractSyntaxUID, event.command, event.data, params)
+		onDIMSECommand(downcallCh, event.abstractSyntaxUID,
+			event.transferSyntaxUID,
+			event.command, event.data, params)
 	}
 	log.Printf("Finished upper layer service!")
 }

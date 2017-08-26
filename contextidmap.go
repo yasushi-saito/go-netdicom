@@ -4,6 +4,12 @@ import (
 	"fmt"
 )
 
+type contextIDMapEntry struct {
+	contextID         byte
+	abstractSyntaxUID string
+	transferSyntaxUID string
+}
+
 // contextIDMap manages mappings between a contextID and the corresponding
 // abstract-syntax UID (aka SOP).  UID is of form "1.2.840.10008.5.1.4.1.1.1.2".
 // UIDs are static and global. They are defined in
@@ -14,38 +20,50 @@ import (
 // per association.
 type contextIDMap struct {
 	// The two maps are inverses of each other.
-	contextIDToAbstractSyntaxNameMap map[byte]string
-	abstractSyntaxNameToContextIDMap map[string]byte
+	contextIDToAbstractSyntaxNameMap map[byte]*contextIDMapEntry
+	abstractSyntaxNameToContextIDMap map[string]*contextIDMapEntry
 }
 
 // Create an empty contextIDMap
 func newContextIDMap() *contextIDMap {
 	return &contextIDMap{
-		contextIDToAbstractSyntaxNameMap: make(map[byte]string),
-		abstractSyntaxNameToContextIDMap: make(map[string]byte),
+		contextIDToAbstractSyntaxNameMap: make(map[byte]*contextIDMapEntry),
+		abstractSyntaxNameToContextIDMap: make(map[string]*contextIDMapEntry),
 	}
 }
 
 // Add a mapping between a (global) UID and a (per-session) context ID.
-func addContextIDToAbstractSyntaxNameMap(m *contextIDMap, name string, contextID byte) {
-	m.contextIDToAbstractSyntaxNameMap[contextID] = name
-	m.abstractSyntaxNameToContextIDMap[name] = contextID
+func (m *contextIDMap) addMapping(
+	abstractSyntaxUID string,
+	transferSyntaxUID string,
+	contextID byte) {
+	// doassert(dicom.MustLookupUID(abstractSyntaxUID).Type == dicom.UIDTypeSOPClass)
+	// TODO(saito) This assertion doesn't hold because the client side passes a bogus uid.
+	// doassert(dicom.MustLookupUID(transferSyntaxUID).Type == dicom.UIDTypeTransferSyntax)
+	doassert(contextID%2 == 1)
+	e := &contextIDMapEntry{
+		abstractSyntaxUID: abstractSyntaxUID,
+		transferSyntaxUID: transferSyntaxUID,
+		contextID:         contextID,
+	}
+	m.contextIDToAbstractSyntaxNameMap[contextID] = e
+	m.abstractSyntaxNameToContextIDMap[abstractSyntaxUID] = e
 }
 
 // Convert an UID to a context ID.
-func abstractSyntaxNameToContextID(m *contextIDMap, name string) (byte, error) {
-	id, ok := m.abstractSyntaxNameToContextIDMap[name]
+func (m *contextIDMap) lookupByAbstractSyntaxUID(name string) (contextIDMapEntry, error) {
+	e, ok := m.abstractSyntaxNameToContextIDMap[name]
 	if !ok {
-		return 0, fmt.Errorf("Unknown syntax %s", name)
+		return contextIDMapEntry{}, fmt.Errorf("Unknown syntax %s", name)
 	}
-	return id, nil
+	return *e, nil
 }
 
 // Convert a contextID to a UID.
-func contextIDToAbstractSyntaxName(m *contextIDMap, contextID byte) (string, error) {
-	name, ok := m.contextIDToAbstractSyntaxNameMap[contextID]
+func (m *contextIDMap) lookupByContextID(contextID byte) (contextIDMapEntry, error) {
+	e, ok := m.contextIDToAbstractSyntaxNameMap[contextID]
 	if !ok {
-		return "", fmt.Errorf("Unknown context ID %d", contextID)
+		return contextIDMapEntry{}, fmt.Errorf("Unknown context ID %d", contextID)
 	}
-	return name, nil
+	return *e, nil
 }

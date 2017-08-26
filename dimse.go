@@ -61,9 +61,9 @@ type DIMSEMessageHeader struct {
 
 func encodeDataElementWithSingleValue(e *dicom.Encoder, tag dicom.Tag, v interface{}) {
 	elem := dicom.DicomElement{
-		Tag: tag,
-		Vr: "", // autodetect
-		Vl: 1,
+		Tag:   tag,
+		Vr:    "", // autodetect
+		Vl:    1,
 		Value: []interface{}{v},
 	}
 	dicom.EncodeDataElement(e, &elem)
@@ -247,14 +247,14 @@ func DecodeDIMSEMessage(io io.Reader, limit int64) (DIMSEMessage, error) {
 }
 
 func encodeDIMSEMessage(v DIMSEMessage) ([]byte, error) {
-	subEncoder := dicom.NewEncoder(binary.LittleEndian)
+	subEncoder := dicom.NewEncoder(binary.LittleEndian, dicom.UnknownVR)
 	v.Encode(subEncoder)
 	bytes, err := subEncoder.Finish()
 	if err != nil {
 		return nil, err
 	}
 
-	e := dicom.NewEncoder(binary.LittleEndian)
+	e := dicom.NewEncoder(binary.LittleEndian, dicom.UnknownVR)
 	encodeDataElementWithSingleValue(e, TagCommandGroupLength, uint32(len(bytes)))
 	e.EncodeBytes(bytes)
 	return e.Finish()
@@ -262,15 +262,15 @@ func encodeDIMSEMessage(v DIMSEMessage) ([]byte, error) {
 
 type dimseCommandAssembler struct {
 	contextID      byte
-	commandBytes        []byte
-	command DIMSEMessage
-	dataBytes           []byte
+	commandBytes   []byte
+	command        DIMSEMessage
+	dataBytes      []byte
 	readAllCommand bool
 
-	readAllData    bool
+	readAllData bool
 }
 
-func addPDataTF(a *dimseCommandAssembler, pdu *P_DATA_TF, contextIDMap *contextIDMap) (string, DIMSEMessage, []byte, error) {
+func addPDataTF(a *dimseCommandAssembler, pdu *P_DATA_TF, contextIDMap *contextIDMap) (string, string, DIMSEMessage, []byte, error) {
 	for _, item := range pdu.Items {
 		if a.contextID == 0 {
 			a.contextID = item.ContextID
@@ -293,24 +293,25 @@ func addPDataTF(a *dimseCommandAssembler, pdu *P_DATA_TF, contextIDMap *contextI
 		}
 	}
 	if !a.readAllCommand {
-		return "", nil, nil, nil
+		return "", "", nil, nil, nil
 	}
 	if a.command == nil {
 		var err error
 		a.command, err = DecodeDIMSEMessage(bytes.NewBuffer(a.commandBytes), int64(len(a.commandBytes)))
 		if err != nil {
-			return "", nil, nil, err
+			return "", "", nil, nil, err
 		}
 	}
 	if a.command.HasData() && !a.readAllData {
-		return "", nil, nil, nil
+		return "", "", nil, nil, nil
 	}
-	syntaxName, err := contextIDToAbstractSyntaxName(contextIDMap, a.contextID)
+	context, err := contextIDMap.lookupByContextID(a.contextID)
 	command := a.command
 	dataBytes := a.dataBytes
 	log.Printf("Read all data for syntax %s, command [%v], data %d bytes, err%v",
-		dicom.UIDDebugString(syntaxName), command.DebugString(), len(a.dataBytes), err)
+		dicom.UIDDebugString(context.abstractSyntaxUID),
+		command.DebugString(), len(a.dataBytes), err)
 	*a = dimseCommandAssembler{}
-	return syntaxName, command, dataBytes, nil
-		// TODO(saito) Verify that there's no unread items after the last command&data.
+	return context.abstractSyntaxUID, context.transferSyntaxUID, command, dataBytes, nil
+	// TODO(saito) Verify that there's no unread items after the last command&data.
 }

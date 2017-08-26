@@ -104,7 +104,7 @@ type UserInformationItem struct {
 }
 
 func (v *UserInformationItem) Encode(e *dicom.Encoder) {
-	itemEncoder := dicom.NewEncoder(binary.BigEndian)
+	itemEncoder := dicom.NewEncoder(binary.BigEndian, dicom.UnknownVR)
 	for _, s := range v.Items {
 		s.Encode(itemEncoder)
 	}
@@ -155,11 +155,6 @@ func (item *UserInformationMaximumLengthItem) DebugString() string {
 // PS3.7 Annex D.3.3.2.1
 type ImplementationClassUIDSubItem subItemWithName
 
-// UID prefix provided by https://www.medicalconnections.co.uk/Free_UID
-const DefaultImplementationClassUIDPrefix = "1.2.826.0.1.3680043.9.7133"
-
-var DefaultImplementationClassUID = DefaultImplementationClassUIDPrefix + ".1.1"
-
 func decodeImplementationClassUIDSubItem(d *dicom.Decoder, length uint16) *ImplementationClassUIDSubItem {
 	return &ImplementationClassUIDSubItem{Name: decodeSubItemWithName(d, length)}
 }
@@ -198,9 +193,6 @@ func (v *AsynchronousOperationsWindowSubItem) DebugString() string {
 
 // PS3.7 Annex D.3.3.2.3
 type ImplementationVersionNameSubItem subItemWithName
-
-// Must be <=16 bytes long
-const DefaultImplementationVersionName = "GONETDICOM_1_1"
 
 func decodeImplementationVersionNameSubItem(d *dicom.Decoder, length uint16) *ImplementationVersionNameSubItem {
 	return &ImplementationVersionNameSubItem{Name: decodeSubItemWithName(d, length)}
@@ -333,7 +325,7 @@ func (v *PresentationContextItem) Encode(e *dicom.Encoder) {
 	doassert(v.Type == ItemTypePresentationContextRequest ||
 		v.Type == ItemTypePresentationContextResponse)
 
-	itemEncoder := dicom.NewEncoder(binary.BigEndian)
+	itemEncoder := dicom.NewEncoder(binary.BigEndian, dicom.UnknownVR)
 	for _, s := range v.Items {
 		s.Encode(itemEncoder)
 	}
@@ -429,7 +421,7 @@ func EncodePDU(pdu PDU) ([]byte, error) {
 		log.Panicf("Unknown PDU %v", pdu)
 	}
 
-	e := dicom.NewEncoder(binary.BigEndian)
+	e := dicom.NewEncoder(binary.BigEndian, dicom.UnknownVR)
 	pdu.EncodePayload(e)
 	payload, err := e.Finish()
 	if err != nil {
