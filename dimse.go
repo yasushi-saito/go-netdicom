@@ -247,14 +247,15 @@ func DecodeDIMSEMessage(io io.Reader, limit int64) (DIMSEMessage, error) {
 }
 
 func encodeDIMSEMessage(v DIMSEMessage) ([]byte, error) {
-	subEncoder := dicom.NewEncoder(binary.LittleEndian, dicom.UnknownVR)
+	// DIMSE messages are always encoded Implicit+LE. See P3.7 6.3.1.
+	subEncoder := dicom.NewEncoder(binary.LittleEndian, dicom.ImplicitVR)
 	v.Encode(subEncoder)
 	bytes, err := subEncoder.Finish()
 	if err != nil {
 		return nil, err
 	}
 
-	e := dicom.NewEncoder(binary.LittleEndian, dicom.UnknownVR)
+	e := dicom.NewEncoder(binary.LittleEndian, dicom.ImplicitVR)
 	encodeDataElementWithSingleValue(e, TagCommandGroupLength, uint32(len(bytes)))
 	e.EncodeBytes(bytes)
 	return e.Finish()
