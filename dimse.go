@@ -60,8 +60,13 @@ type DIMSEMessageHeader struct {
 }
 
 func encodeDataElementWithSingleValue(e *dicom.Encoder, tag dicom.Tag, v interface{}) {
-	values := []interface{}{v}
-	dicom.EncodeDataElement(e, tag, values)
+	elem := dicom.DicomElement{
+		Tag: tag,
+		Vr: "", // autodetect
+		Vl: 1,
+		Value: []interface{}{v},
+	}
+	dicom.EncodeDataElement(e, &elem)
 }
 
 func encodeDIMSEMessageHeader(e *dicom.Encoder, v DIMSEMessageHeader) {
@@ -218,7 +223,7 @@ func DecodeDIMSEMessage(io io.Reader, limit int64) (DIMSEMessage, error) {
 	// Note: DIMSE elements are always implicit LE.
 	//
 	// TODO(saito) make sure that's the case. Where the ref?
-	d := dicom.NewDecoder(io, limit, binary.LittleEndian, true /*implicit*/)
+	d := dicom.NewDecoder(io, limit, binary.LittleEndian, dicom.ImplicitVR)
 	for d.Len() > 0 && d.Error() == nil {
 		elem := dicom.ReadDataElement(d)
 		elems = append(elems, elem)

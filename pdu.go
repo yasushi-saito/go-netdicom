@@ -464,7 +464,7 @@ func DecodePDU(in io.Reader) (PDU, error) {
 
 	d := dicom.NewDecoder(in, int64(length),
 		binary.BigEndian, // PDU is always big endian
-		true)             // implicit is irrelevant for PDU parsing
+		dicom.UnknownVR)  // irrelevant for PDU parsing
 	//d.in = in
 	//d.PushLimit(int(d.Length))
 	//log.Printf("NewDecoder: type=%d, length=%d", d.Type, d.Length)
