@@ -6,10 +6,6 @@ import (
 )
 
 type ServiceProviderParams struct {
-	// TCP address to listen to. E.g., ":1234" will listen to port 1234 at
-	// all the IP address that this machine can bind to.
-	ListenAddr string
-
 	// The max PDU size, in bytes, that this instance is willing to receive.
 	// If the value is <=0, DefaultMaxPDUSize is used.
 	MaxPDUSize uint32
@@ -44,7 +40,7 @@ type ServiceProvider struct {
 func onDIMSECommand(downcallCh chan stateEvent, abstractSyntaxUID string,
 	transferSyntaxUID string,
 	msg DIMSEMessage, data []byte, params ServiceProviderParams) {
-	doassert(transferSyntaxUID !="")
+	doassert(transferSyntaxUID != "")
 	switch c := msg.(type) {
 	case *C_STORE_RQ:
 		status := CStoreStatusCannotUnderstand
@@ -67,9 +63,9 @@ func onDIMSECommand(downcallCh chan stateEvent, abstractSyntaxUID string,
 			panic(err) // TODO(saito)
 		}
 		downcallCh <- stateEvent{
-			event:              evt9,
-			pdu:                nil,
-			conn:               nil,
+			event: evt9,
+			pdu:   nil,
+			conn:  nil,
 			dataPayload: &stateEventDataPayload{
 				abstractSyntaxName: abstractSyntaxUID,
 				command:            true,
@@ -81,7 +77,6 @@ func onDIMSECommand(downcallCh chan stateEvent, abstractSyntaxUID string,
 }
 
 func NewServiceProvider(params ServiceProviderParams) *ServiceProvider {
-	doassert(params.ListenAddr != "")
 	if params.MaxPDUSize <= 0 {
 		params.MaxPDUSize = DefaultMaxPDUSize
 	}
@@ -111,7 +106,7 @@ func runUpperLayerForServiceProvider(params ServiceProviderParams, upcallCh chan
 
 // Start threads for handling "conn". This function returns immediately; "conn"
 // will be cleaned up in the background.
-func runProviderForConn(conn net.Conn, spParams ServiceProviderParams) {
+func RunProviderForConn(conn net.Conn, spParams ServiceProviderParams) {
 	downcallCh := make(chan stateEvent, 128)
 	upcallCh := make(chan upcallEvent, 128)
 	smParams := stateMachineParams{
@@ -123,13 +118,16 @@ func runProviderForConn(conn net.Conn, spParams ServiceProviderParams) {
 		// },
 	}
 	go runStateMachineForServiceProvider(conn, smParams, upcallCh, downcallCh)
-	go runUpperLayerForServiceProvider(spParams, upcallCh, downcallCh)
+	runUpperLayerForServiceProvider(spParams, upcallCh, downcallCh)
+	log.Print("Finished the provider")
 }
 
 // Listen to incoming connections, accept them, and run the DICOM protocol. This
-// function never returns unless it fails to listen.
-func (sp *ServiceProvider) Run() error {
-	listener, err := net.Listen("tcp", sp.params.ListenAddr)
+// function never returns unless it fails to listen.  "listenAddr" is the TCP
+// address to listen to. E.g., ":1234" will listen to port 1234 at all the IP
+// address that this machine can bind to.
+func (sp *ServiceProvider) Run(listenAddr string) error {
+	listener, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		return err
 	}
@@ -139,6 +137,6 @@ func (sp *ServiceProvider) Run() error {
 			log.Printf("Accept error: %v", err)
 			continue
 		}
-		runProviderForConn(conn, sp.params)
+		go func() {RunProviderForConn(conn, sp.params)}()
 	}
 }

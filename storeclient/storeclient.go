@@ -2,11 +2,10 @@
 package main
 
 import (
-	"flag"
-	"bytes"
 	"encoding/binary"
-	"github.com/yasushi-saito/go-netdicom"
+	"flag"
 	"github.com/yasushi-saito/go-dicom"
+	"github.com/yasushi-saito/go-netdicom"
 	"io/ioutil"
 	"log"
 )
@@ -22,11 +21,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("%s: %v", inPath, err)
 	}
-	decoder := dicom.NewDecoder(
-		bytes.NewBuffer(data),
-		int64(len(data)),
-		binary.LittleEndian,
-		dicom.ExplicitVR)
+	decoder := dicom.NewBytesDecoder(data, binary.LittleEndian, dicom.ExplicitVR)
 	meta := dicom.ParseFileHeader(decoder)
 	if decoder.Error() != nil {
 		log.Fatalf("%s: failed to parse as DICOM: %v", inPath, decoder.Error())

@@ -671,6 +671,7 @@ func doassert(x bool) {
 
 func closeConnection(sm *stateMachine) {
 	close(sm.upcallCh)
+	log.Printf("Closing connection %v", sm.conn)
 	sm.conn.Close()
 }
 
@@ -678,14 +679,14 @@ func sendPDU(sm *stateMachine, pdu PDU) {
 	doassert(sm.conn != nil)
 	data, err := EncodePDU(pdu)
 	if err != nil {
-		log.Printf("Failed to encode: %v", err)
+		log.Printf("Failed to encode: %v; closing connection %v", err, sm.conn)
 		sm.conn.Close()
 		sm.netCh <- stateEvent{event: evt17, err: err}
 		return
 	}
 	n, err := sm.conn.Write(data)
 	if n != len(data) || err != nil {
-		log.Printf("Failed to write %d bytes. Actual %d bytes : %v", len(data), n, err)
+		log.Printf("Failed to write %d bytes. Actual %d bytes : %v; closing connection %v", len(data), n, err, sm.conn)
 		sm.conn.Close()
 		sm.netCh <- stateEvent{event: evt17, err: err}
 		return

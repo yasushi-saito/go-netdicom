@@ -452,11 +452,11 @@ func DecodePDU(in io.Reader) (PDU, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("Header: %v %v", pduType, length)
-
 	d := dicom.NewDecoder(in, int64(length),
 		binary.BigEndian, // PDU is always big endian
 		dicom.UnknownVR)  // irrelevant for PDU parsing
+	log.Printf("Header: %v %v: %v", pduType, length, d.Error())
+
 	//d.in = in
 	//d.PushLimit(int(d.Length))
 	//log.Printf("NewDecoder: type=%d, length=%d", d.Type, d.Length)
@@ -485,7 +485,7 @@ func DecodePDU(in io.Reader) (PDU, error) {
 		return nil, err
 	}
 	if err := d.Finish(); err != nil {
-		log.Panicf("DecodePDU: %v", err)
+		log.Panicf("DecodePDU: conn=%v %v", in, err)
 		return nil, err
 	}
 	return pdu, nil
