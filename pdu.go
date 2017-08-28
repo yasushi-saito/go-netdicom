@@ -56,6 +56,7 @@ func decodeSubItem(d *dicom.Decoder) SubItem {
 	itemType := d.DecodeByte()
 	d.Skip(1)
 	length := d.DecodeUInt16()
+	log.Printf("DecodeSUB: type=%d %d", itemType, d.Len())
 	// log.Printf("DecodeSubItem: item=0x%x length=%v, err=%v", itemType, length, d.Error())
 	if itemType == ItemTypeApplicationContext {
 		return decodeApplicationContextItem(d, length)
@@ -306,12 +307,14 @@ type PresentationContextItem struct {
 
 func decodePresentationContextItem(d *dicom.Decoder, itemType byte, length uint16) *PresentationContextItem {
 	v := &PresentationContextItem{Type: itemType}
+	log.Printf("DecodePres: %d %d", d.Len(), length)
 	d.PushLimit(int64(length))
 	defer d.PopLimit()
 	v.ContextID = d.DecodeByte()
 	d.Skip(1)
 	v.Result = d.DecodeByte()
 	d.Skip(1)
+	log.Printf("Decode presentation context: %d %v", d.Len(), d.Error())
 	for d.Len() > 0 && d.Error() == nil {
 		v.Items = append(v.Items, decodeSubItem(d))
 	}
