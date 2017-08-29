@@ -127,7 +127,7 @@ func (su *ServiceUser) CStore(data []byte) error {
 		if err != nil {
 			return "", fmt.Errorf("C-STORE data lacks %s: %v", tag.String(), err)
 		}
-		s, err := dicom.GetString(*elem)
+		s, err := elem.GetString()
 		if err != nil {
 			return "", err
 		}
@@ -149,7 +149,7 @@ func (su *ServiceUser) CStore(data []byte) error {
 		transferSyntaxUID, sopClassUID, sopInstanceUID)
 
 	// The remainder of the file becomes the actual C-STORE payload.
-	body := decoder.DecodeBytes(int(decoder.Len()))
+	body := decoder.ReadBytes(int(decoder.Len()))
 	if decoder.Error() != nil {
 		return decoder.Error()
 	}
@@ -188,7 +188,7 @@ func (su *ServiceUser) CStore(data []byte) error {
 		resp, ok := event.command.(*C_STORE_RSP)
 		doassert(ok) // TODO(saito)
 		if resp.Status != 0 {
-			return fmt.Errorf("C_STORE failed: %v", resp.DebugString())
+			return fmt.Errorf("C_STORE failed: %v", resp.String())
 		}
 		return nil
 	}

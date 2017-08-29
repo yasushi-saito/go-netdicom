@@ -32,7 +32,7 @@ func main() {
 	}
 	params := netdicom.NewServiceUserParams(
 		server, "dontcare", "testclient", netdicom.StorageClasses,
-		[]string{dicom.MustGetString(*transferSyntaxUID)})
+		[]string{transferSyntaxUID.MustGetString()})
 	su := netdicom.NewServiceUser(params)
 
 	err = su.CStore(data)

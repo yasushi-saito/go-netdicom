@@ -81,7 +81,7 @@ func (m *contextManager) onAssociateRequest(requests []*PresentationContextItem)
 			switch c := subItem.(type) {
 			case *AbstractSyntaxSubItem:
 				if sopUID != "" {
-					log.Fatalf("Multiple AbstractSyntaxSubItem found in %v", contextItem.DebugString())
+					log.Fatalf("Multiple AbstractSyntaxSubItem found in %v", contextItem.String())
 				}
 				sopUID = c.Name
 			case *TransferSyntaxSubItem:
@@ -90,11 +90,11 @@ func (m *contextManager) onAssociateRequest(requests []*PresentationContextItem)
 					pickedTransferSyntaxUID = c.Name
 				}
 			default:
-				log.Fatalf("Unknown subitem in PresentationContext: %s", subItem.DebugString())
+				log.Fatalf("Unknown subitem in PresentationContext: %s", subItem.String())
 			}
 		}
 		if sopUID == "" || pickedTransferSyntaxUID == "" {
-			log.Fatalf("SOP or transfersyntax not found in PresentationContext: %v", contextItem.DebugString())
+			log.Fatalf("SOP or transfersyntax not found in PresentationContext: %v", contextItem.String())
 		}
 		responses = append(responses, &PresentationContextItem{
 			Type:      ItemTypePresentationContextResponse,
@@ -118,15 +118,15 @@ func (m *contextManager) onAssociateResponse(responses []*PresentationContextIte
 				if pickedTransferSyntaxUID == "" {
 					pickedTransferSyntaxUID = c.Name
 				} else {
-					log.Fatalf("Multiple syntax UIDs returned in A_ASSOCIATE_AC: %v", contextItem.DebugString())
+					log.Fatalf("Multiple syntax UIDs returned in A_ASSOCIATE_AC: %v", contextItem.String())
 				}
 			default:
-				log.Fatalf("Unknown subitem in PresentationContext: %s", subItem.DebugString())
+				log.Fatalf("Unknown subitem in PresentationContext: %s", subItem.String())
 			}
 		}
 		request, ok := m.tmpRequests[contextItem.ContextID]
 		if !ok {
-			log.Fatalf("Unknown context ID for A_ASSOCIATE_AC: %v", contextItem.DebugString())
+			log.Fatalf("Unknown context ID for A_ASSOCIATE_AC: %v", contextItem.String())
 		}
 		found := false
 		var sopUID string
@@ -142,7 +142,7 @@ func (m *contextManager) onAssociateResponse(responses []*PresentationContextIte
 			}
 		}
 		if !found || sopUID == "" {
-			log.Fatalf("No matching transfer syntax uid found in %v", contextItem.DebugString())
+			log.Fatalf("No matching transfer syntax uid found in %v", contextItem.String())
 		}
 		addContextMapping(m, sopUID, pickedTransferSyntaxUID, contextItem.ContextID)
 	}
@@ -155,8 +155,8 @@ func addContextMapping(
 	transferSyntaxUID string,
 	contextID byte) {
 	log.Printf("Map context %d -> %s, %s",
-		contextID, dicom.UIDDebugString(abstractSyntaxUID),
-		dicom.UIDDebugString(transferSyntaxUID))
+		contextID, dicom.UIDString(abstractSyntaxUID),
+		dicom.UIDString(transferSyntaxUID))
 	doassert(abstractSyntaxUID != "")
 	doassert(transferSyntaxUID != "")
 	doassert(contextID%2 == 1)

@@ -1,7 +1,6 @@
 package netdicom_test
 
 import (
-	// "fmt"
 	"errors"
 	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-netdicom"
@@ -20,9 +19,9 @@ func onCStoreRequest(
 	sopInstanceUID string,
 	data []byte) uint16 {
 	log.Printf("Start C-STORE handler, transfersyntax=%s, sopclass=%s, sopinstance=%s",
-		dicom.UIDDebugString(transferSyntaxUID),
-		dicom.UIDDebugString(sopClassUID),
-		dicom.UIDDebugString(sopInstanceUID))
+		dicom.UIDString(transferSyntaxUID),
+		dicom.UIDString(sopClassUID),
+		dicom.UIDString(sopInstanceUID))
 
 	// endian, implicit, err := dicom.ParseTransferSyntaxUID(transferSyntaxUID)
 	// if err != nil {
@@ -32,7 +31,7 @@ func onCStoreRequest(
 	//implicit = dicom.ExplicitVR
 	e := dicom.NewEncoder(nil, dicom.UnknownVR)
 	dicom.WriteFileHeader(e, transferSyntaxUID, sopClassUID, sopInstanceUID)
-	e.EncodeBytes(data)
+	e.WriteBytes(data)
 
 	if cstoreData != nil {
 		log.Panic("Received C-STORE data twice")
@@ -55,7 +54,6 @@ func checkFileBodiesEqual(t *testing.T, in, out *dicom.DicomFile) {
 			}
 		}
 		return elems
-
 	}
 
 	inElems := removeMetaElems(in)
@@ -112,24 +110,13 @@ func TestStoreSingleFile(t *testing.T) {
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	in, err := dicom.ParseBytes(data)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	decoder := dicom.NewBytesDecoder(data, nil, dicom.UnknownVR)
-	meta := dicom.ParseFileHeader(decoder)
-	if decoder.Error() != nil {
-		log.Fatal(decoder.Error())
-	}
-	transferSyntaxUID, err := dicom.LookupElementByTag(meta, dicom.TagTransferSyntaxUID)
+	transferSyntaxUID, err := netdicom.GetTransferSyntaxUIDInBytes(data)
 	if err != nil {
 		log.Fatal(err)
 	}
 	params := netdicom.NewServiceUserParams(
 		serverAddr, "dontcare", "testclient", netdicom.StorageClasses,
-		[]string{dicom.MustGetString(*transferSyntaxUID)})
+		[]string{transferSyntaxUID})
 	su := netdicom.NewServiceUser(params)
 	err = su.CStore(data)
 	if err != nil {
@@ -139,6 +126,10 @@ func TestStoreSingleFile(t *testing.T) {
 	su.Release()
 
 	out, err := getCStoreData()
+	if err != nil {
+		log.Fatal(err)
+	}
+	in, err := dicom.ParseBytes(data)
 	if err != nil {
 		log.Fatal(err)
 	}

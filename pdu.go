@@ -15,9 +15,9 @@ import (
 type PDU interface {
 	// Encode the PDU payload. The "payload" here excludes the first 6 bytes
 	// that are common to all PDU types - they are encoded in EncodePDU separately.
-	EncodePayload(*dicom.Encoder)
+	WritePayload(*dicom.Encoder)
 	// Print human-readable description for debugging.
-	DebugString() string
+	String() string
 }
 
 // Possible Type field for PDUs.
@@ -34,8 +34,8 @@ const (
 )
 
 type SubItem interface {
-	Encode(*dicom.Encoder)
-	DebugString() string
+	Write(*dicom.Encoder)
+	String() string
 }
 
 // Possible Type field values for SubItem.
@@ -53,9 +53,9 @@ const (
 )
 
 func decodeSubItem(d *dicom.Decoder) SubItem {
-	itemType := d.DecodeByte()
+	itemType := d.ReadByte()
 	d.Skip(1)
-	length := d.DecodeUInt16()
+	length := d.ReadUInt16()
 	if itemType == ItemTypeApplicationContext {
 		return decodeApplicationContextItem(d, length)
 	}
@@ -91,9 +91,9 @@ func decodeSubItem(d *dicom.Decoder) SubItem {
 }
 
 func encodeSubItemHeader(e *dicom.Encoder, itemType byte, length uint16) {
-	e.EncodeByte(itemType)
-	e.EncodeZeros(1)
-	e.EncodeUInt16(length)
+	e.WriteByte(itemType)
+	e.WriteZeros(1)
+	e.WriteUInt16(length)
 }
 
 // P3.8 9.3.2.3
@@ -102,10 +102,10 @@ type UserInformationItem struct {
 	// Data []byte
 }
 
-func (v *UserInformationItem) Encode(e *dicom.Encoder) {
+func (v *UserInformationItem) Write(e *dicom.Encoder) {
 	itemEncoder := dicom.NewEncoder(binary.BigEndian, dicom.UnknownVR)
 	for _, s := range v.Items {
-		s.Encode(itemEncoder)
+		s.Write(itemEncoder)
 	}
 	itemBytes, err := itemEncoder.Finish()
 	if err != nil {
@@ -113,7 +113,7 @@ func (v *UserInformationItem) Encode(e *dicom.Encoder) {
 		return
 	}
 	encodeSubItemHeader(e, ItemTypeUserInformation, uint16(len(itemBytes)))
-	e.EncodeBytes(itemBytes)
+	e.WriteBytes(itemBytes)
 }
 
 func decodeUserInformationItem(d *dicom.Decoder, length uint16) *UserInformationItem {
@@ -126,9 +126,9 @@ func decodeUserInformationItem(d *dicom.Decoder, length uint16) *UserInformation
 	return v
 }
 
-func (v *UserInformationItem) DebugString() string {
+func (v *UserInformationItem) String() string {
 	return fmt.Sprintf("userinformationitem{items: %s}",
-		subItemListDebugString(v.Items))
+		subItemListString(v.Items))
 }
 
 // P3.8 D.1
@@ -136,17 +136,17 @@ type UserInformationMaximumLengthItem struct {
 	MaximumLengthReceived uint32
 }
 
-func (v *UserInformationMaximumLengthItem) Encode(e *dicom.Encoder) {
+func (v *UserInformationMaximumLengthItem) Write(e *dicom.Encoder) {
 	encodeSubItemHeader(e, ItemTypeUserInformationMaximumLength, 4)
-	e.EncodeUInt32(v.MaximumLengthReceived)
+	e.WriteUInt32(v.MaximumLengthReceived)
 }
 
 func decodeUserInformationMaximumLengthItem(d *dicom.Decoder, length uint16) *UserInformationMaximumLengthItem {
 	doassert(length == 4) //TODO
-	return &UserInformationMaximumLengthItem{MaximumLengthReceived: d.DecodeUInt32()}
+	return &UserInformationMaximumLengthItem{MaximumLengthReceived: d.ReadUInt32()}
 }
 
-func (item *UserInformationMaximumLengthItem) DebugString() string {
+func (item *UserInformationMaximumLengthItem) String() string {
 	return fmt.Sprintf("userinformationmaximumlengthitem{%d}",
 		item.MaximumLengthReceived)
 }
@@ -158,11 +158,11 @@ func decodeImplementationClassUIDSubItem(d *dicom.Decoder, length uint16) *Imple
 	return &ImplementationClassUIDSubItem{Name: decodeSubItemWithName(d, length)}
 }
 
-func (v *ImplementationClassUIDSubItem) Encode(e *dicom.Encoder) {
+func (v *ImplementationClassUIDSubItem) Write(e *dicom.Encoder) {
 	encodeSubItemWithName(e, ItemTypeImplementationClassUID, v.Name)
 }
 
-func (v *ImplementationClassUIDSubItem) DebugString() string {
+func (v *ImplementationClassUIDSubItem) String() string {
 	return fmt.Sprintf("implementationclassuid{name: \"%s\"}", v.Name)
 }
 
@@ -174,18 +174,18 @@ type AsynchronousOperationsWindowSubItem struct {
 
 func decodeAsynchronousOperationsWindowSubItem(d *dicom.Decoder, length uint16) *AsynchronousOperationsWindowSubItem {
 	return &AsynchronousOperationsWindowSubItem{
-		MaxOpsInvoked:   d.DecodeUInt16(),
-		MaxOpsPerformed: d.DecodeUInt16(),
+		MaxOpsInvoked:   d.ReadUInt16(),
+		MaxOpsPerformed: d.ReadUInt16(),
 	}
 }
 
-func (v *AsynchronousOperationsWindowSubItem) Encode(e *dicom.Encoder) {
+func (v *AsynchronousOperationsWindowSubItem) Write(e *dicom.Encoder) {
 	encodeSubItemHeader(e, ItemTypeAsynchronousOperationsWindow, 2*2)
-	e.EncodeUInt16(v.MaxOpsInvoked)
-	e.EncodeUInt16(v.MaxOpsPerformed)
+	e.WriteUInt16(v.MaxOpsInvoked)
+	e.WriteUInt16(v.MaxOpsPerformed)
 }
 
-func (v *AsynchronousOperationsWindowSubItem) DebugString() string {
+func (v *AsynchronousOperationsWindowSubItem) String() string {
 	return fmt.Sprintf("asynchronousopswindow{invoked: %d performed: %d}",
 		v.MaxOpsInvoked, v.MaxOpsPerformed)
 }
@@ -197,11 +197,11 @@ func decodeImplementationVersionNameSubItem(d *dicom.Decoder, length uint16) *Im
 	return &ImplementationVersionNameSubItem{Name: decodeSubItemWithName(d, length)}
 }
 
-func (v *ImplementationVersionNameSubItem) Encode(e *dicom.Encoder) {
+func (v *ImplementationVersionNameSubItem) Write(e *dicom.Encoder) {
 	encodeSubItemWithName(e, ItemTypeImplementationVersionName, v.Name)
 }
 
-func (v *ImplementationVersionNameSubItem) DebugString() string {
+func (v *ImplementationVersionNameSubItem) String() string {
 	return fmt.Sprintf("implementationversionname{name: \"%s\"}", v.Name)
 }
 
@@ -211,13 +211,13 @@ type SubItemUnsupported struct {
 	Data []byte
 }
 
-func (item *SubItemUnsupported) Encode(e *dicom.Encoder) {
+func (item *SubItemUnsupported) Write(e *dicom.Encoder) {
 	encodeSubItemHeader(e, item.Type, uint16(len(item.Data)))
 	// TODO: handle unicode properly
-	e.EncodeBytes(item.Data)
+	e.WriteBytes(item.Data)
 }
 
-func (item *SubItemUnsupported) DebugString() string {
+func (item *SubItemUnsupported) String() string {
 	return fmt.Sprintf("subitemunsupported{type: 0x%0x data: %dbytes}",
 		item.Type, len(item.Data))
 }
@@ -226,7 +226,7 @@ func decodeSubItemUnsupported(
 	d *dicom.Decoder, itemType byte, length uint16) *SubItemUnsupported {
 	v := &SubItemUnsupported{}
 	v.Type = itemType
-	v.Data = d.DecodeBytes(int(length))
+	v.Data = d.ReadBytes(int(length))
 	return v
 }
 
@@ -238,14 +238,14 @@ type subItemWithName struct {
 func encodeSubItemWithName(e *dicom.Encoder, itemType byte, name string) {
 	encodeSubItemHeader(e, itemType, uint16(len(name)))
 	// TODO: handle unicode properly
-	e.EncodeBytes([]byte(name))
+	e.WriteBytes([]byte(name))
 }
 
 func decodeSubItemWithName(d *dicom.Decoder, length uint16) string {
-	return d.DecodeString(int(length))
+	return d.ReadString(int(length))
 }
 
-//func (item *SubItemWithName) DebugString() string {
+//func (item *SubItemWithName) String() string {
 //	return fmt.Sprintf("subitem{type: 0x%0x name: \"%s\"}", item.Type, item.Name)
 //}
 
@@ -257,11 +257,11 @@ func decodeApplicationContextItem(d *dicom.Decoder, length uint16) *ApplicationC
 	return &ApplicationContextItem{Name: decodeSubItemWithName(d, length)}
 }
 
-func (v *ApplicationContextItem) Encode(e *dicom.Encoder) {
+func (v *ApplicationContextItem) Write(e *dicom.Encoder) {
 	encodeSubItemWithName(e, ItemTypeApplicationContext, v.Name)
 }
 
-func (v *ApplicationContextItem) DebugString() string {
+func (v *ApplicationContextItem) String() string {
 	return fmt.Sprintf("applicationcontext{name: \"%s\"}", v.Name)
 }
 
@@ -271,11 +271,11 @@ func decodeAbstractSyntaxSubItem(d *dicom.Decoder, length uint16) *AbstractSynta
 	return &AbstractSyntaxSubItem{Name: decodeSubItemWithName(d, length)}
 }
 
-func (v *AbstractSyntaxSubItem) Encode(e *dicom.Encoder) {
+func (v *AbstractSyntaxSubItem) Write(e *dicom.Encoder) {
 	encodeSubItemWithName(e, ItemTypeAbstractSyntax, v.Name)
 }
 
-func (v *AbstractSyntaxSubItem) DebugString() string {
+func (v *AbstractSyntaxSubItem) String() string {
 	return fmt.Sprintf("abstractsyntax{name: \"%s\"}", v.Name)
 }
 
@@ -285,11 +285,11 @@ func decodeTransferSyntaxSubItem(d *dicom.Decoder, length uint16) *TransferSynta
 	return &TransferSyntaxSubItem{Name: decodeSubItemWithName(d, length)}
 }
 
-func (v *TransferSyntaxSubItem) Encode(e *dicom.Encoder) {
+func (v *TransferSyntaxSubItem) Write(e *dicom.Encoder) {
 	encodeSubItemWithName(e, ItemTypeTransferSyntax, v.Name)
 }
 
-func (v *TransferSyntaxSubItem) DebugString() string {
+func (v *TransferSyntaxSubItem) String() string {
 	return fmt.Sprintf("transfersyntax{name: \"%s\"}", v.Name)
 }
 
@@ -307,9 +307,9 @@ func decodePresentationContextItem(d *dicom.Decoder, itemType byte, length uint1
 	v := &PresentationContextItem{Type: itemType}
 	d.PushLimit(int64(length))
 	defer d.PopLimit()
-	v.ContextID = d.DecodeByte()
+	v.ContextID = d.ReadByte()
 	d.Skip(1)
-	v.Result = d.DecodeByte()
+	v.Result = d.ReadByte()
 	d.Skip(1)
 	for d.Len() > 0 && d.Error() == nil {
 		v.Items = append(v.Items, decodeSubItem(d))
@@ -320,13 +320,13 @@ func decodePresentationContextItem(d *dicom.Decoder, itemType byte, length uint1
 	return v
 }
 
-func (v *PresentationContextItem) Encode(e *dicom.Encoder) {
+func (v *PresentationContextItem) Write(e *dicom.Encoder) {
 	doassert(v.Type == ItemTypePresentationContextRequest ||
 		v.Type == ItemTypePresentationContextResponse)
 
 	itemEncoder := dicom.NewEncoder(binary.BigEndian, dicom.UnknownVR)
 	for _, s := range v.Items {
-		s.Encode(itemEncoder)
+		s.Write(itemEncoder)
 	}
 	itemBytes, err := itemEncoder.Finish()
 	if err != nil {
@@ -334,18 +334,18 @@ func (v *PresentationContextItem) Encode(e *dicom.Encoder) {
 		return
 	}
 	encodeSubItemHeader(e, v.Type, uint16(4+len(itemBytes)))
-	e.EncodeByte(v.ContextID)
-	e.EncodeZeros(3)
-	e.EncodeBytes(itemBytes)
+	e.WriteByte(v.ContextID)
+	e.WriteZeros(3)
+	e.WriteBytes(itemBytes)
 }
 
-func (v *PresentationContextItem) DebugString() string {
+func (v *PresentationContextItem) String() string {
 	itemType := "rq"
 	if v.Type == ItemTypePresentationContextResponse {
 		itemType = "ac"
 	}
 	return fmt.Sprintf("presentationcontext%s{id: %d items:%s}",
-		itemType, v.ContextID, subItemListDebugString(v.Items))
+		itemType, v.ContextID, subItemListString(v.Items))
 }
 
 // P3.8 9.3.2.2.1 & 9.3.2.2.2
@@ -361,30 +361,21 @@ type PresentationDataValueItem struct {
 	Value []byte
 }
 
-// func NewPresentationDataValueItem(contextID byte, command bool, last bool, value []byte) PresentationDataValueItem {
-// 	return PresentationDataValueItem{
-// 		ContextID: contextID,
-// 		Command:   command,
-// 		Last:      last,
-// 		Value:     value,
-// 	}
-// }
-
-func DecodePresentationDataValueItem(d *dicom.Decoder) PresentationDataValueItem {
+func ReadPresentationDataValueItem(d *dicom.Decoder) PresentationDataValueItem {
 	item := PresentationDataValueItem{}
-	length := d.DecodeUInt32()
-	item.ContextID = d.DecodeByte()
-	header := d.DecodeByte()
+	length := d.ReadUInt32()
+	item.ContextID = d.ReadByte()
+	header := d.ReadByte()
 	item.Command = (header&1 != 0)
 	item.Last = (header&2 != 0)
-	item.Value = d.DecodeBytes(int(length - 2)) // remove contextID and header
+	item.Value = d.ReadBytes(int(length - 2)) // remove contextID and header
 	if header&0xfc != 0 {
 		d.SetError(fmt.Errorf("PresentationDataValueItem: illegal header byte %x", header))
 	}
 	return item
 }
 
-func (v *PresentationDataValueItem) Encode(e *dicom.Encoder) {
+func (v *PresentationDataValueItem) Write(e *dicom.Encoder) {
 	var header byte = 0
 	if v.Command {
 		header |= 1
@@ -392,13 +383,13 @@ func (v *PresentationDataValueItem) Encode(e *dicom.Encoder) {
 	if v.Last {
 		header |= 2
 	}
-	e.EncodeUInt32(uint32(2 + len(v.Value)))
-	e.EncodeByte(v.ContextID)
-	e.EncodeByte(header)
-	e.EncodeBytes(v.Value)
+	e.WriteUInt32(uint32(2 + len(v.Value)))
+	e.WriteByte(v.ContextID)
+	e.WriteByte(header)
+	e.WriteBytes(v.Value)
 }
 
-func (v *PresentationDataValueItem) DebugString() string {
+func (v *PresentationDataValueItem) String() string {
 	return fmt.Sprintf("presentationdatavalue{context: %d, cmd:%v last:%v value: %d bytes}", v.ContextID, v.Command, v.Last, len(v.Value))
 }
 
@@ -421,7 +412,7 @@ func EncodePDU(pdu PDU) ([]byte, error) {
 	}
 
 	e := dicom.NewEncoder(binary.BigEndian, dicom.UnknownVR)
-	pdu.EncodePayload(e)
+	pdu.WritePayload(e)
 	payload, err := e.Finish()
 	if err != nil {
 		return nil, err
@@ -435,7 +426,7 @@ func EncodePDU(pdu PDU) ([]byte, error) {
 	return append(header, payload...), nil
 }
 
-func DecodePDU(in io.Reader) (PDU, error) {
+func ReadPDU(in io.Reader) (PDU, error) {
 	var pduType PDUType
 	var skip byte
 	var length uint32
@@ -472,12 +463,12 @@ func DecodePDU(in io.Reader) (PDU, error) {
 		pdu = decodeA_RELEASE_RP(d)
 	}
 	if pdu == nil {
-		err := fmt.Errorf("DecodePDU: unknown message type %d", pduType)
+		err := fmt.Errorf("ReadPDU: unknown message type %d", pduType)
 		log.Panic(err)
 		return nil, err
 	}
 	if err := d.Finish(); err != nil {
-		log.Panicf("DecodePDU: conn=%v %v", in, err)
+		log.Panicf("ReadPDU: conn=%v %v", in, err)
 		return nil, err
 	}
 	return pdu, nil
@@ -492,11 +483,11 @@ func decodeA_RELEASE_RQ(d *dicom.Decoder) *A_RELEASE_RQ {
 	return pdu
 }
 
-func (pdu *A_RELEASE_RQ) EncodePayload(e *dicom.Encoder) {
-	e.EncodeZeros(4)
+func (pdu *A_RELEASE_RQ) WritePayload(e *dicom.Encoder) {
+	e.WriteZeros(4)
 }
 
-func (pdu *A_RELEASE_RQ) DebugString() string {
+func (pdu *A_RELEASE_RQ) String() string {
 	return fmt.Sprintf("A_RELEASE_RQ(%v)", *pdu)
 }
 
@@ -509,22 +500,22 @@ func decodeA_RELEASE_RP(d *dicom.Decoder) *A_RELEASE_RP {
 	return pdu
 }
 
-func (pdu *A_RELEASE_RP) EncodePayload(e *dicom.Encoder) {
-	e.EncodeZeros(4)
+func (pdu *A_RELEASE_RP) WritePayload(e *dicom.Encoder) {
+	e.WriteZeros(4)
 }
 
-func (pdu *A_RELEASE_RP) DebugString() string {
+func (pdu *A_RELEASE_RP) String() string {
 	return fmt.Sprintf("A_RELEASE_RP(%v)", *pdu)
 }
 
-func subItemListDebugString(items []SubItem) string {
+func subItemListString(items []SubItem) string {
 	buf := bytes.Buffer{}
 	buf.WriteString("[")
 	for i, subitem := range items {
 		if i > 0 {
 			buf.WriteString("\n")
 		}
-		buf.WriteString(subitem.DebugString())
+		buf.WriteString(subitem.String())
 	}
 	buf.WriteString("]")
 	return buf.String()
@@ -545,10 +536,10 @@ type A_ASSOCIATE struct {
 func decodeA_ASSOCIATE(d *dicom.Decoder, pduType PDUType) *A_ASSOCIATE {
 	pdu := &A_ASSOCIATE{}
 	pdu.Type = pduType
-	pdu.ProtocolVersion = d.DecodeUInt16()
+	pdu.ProtocolVersion = d.ReadUInt16()
 	d.Skip(2) // Reserved
-	pdu.CalledAETitle = d.DecodeString(16)
-	pdu.CallingAETitle = d.DecodeString(16)
+	pdu.CalledAETitle = d.ReadString(16)
+	pdu.CallingAETitle = d.ReadString(16)
 	d.Skip(8 * 4)
 	for d.Len() > 0 && d.Error() == nil {
 		pdu.Items = append(pdu.Items, decodeSubItem(d))
@@ -558,28 +549,28 @@ func decodeA_ASSOCIATE(d *dicom.Decoder, pduType PDUType) *A_ASSOCIATE {
 	return pdu
 }
 
-func (pdu *A_ASSOCIATE) EncodePayload(e *dicom.Encoder) {
+func (pdu *A_ASSOCIATE) WritePayload(e *dicom.Encoder) {
 	doassert(pdu.Type != 0)
 	doassert(pdu.CalledAETitle != "")
 	doassert(pdu.CallingAETitle != "")
-	e.EncodeUInt16(pdu.ProtocolVersion)
-	e.EncodeZeros(2) // Reserved
-	e.EncodeString(fillString(pdu.CalledAETitle, 16))
-	e.EncodeString(fillString(pdu.CallingAETitle, 16))
-	e.EncodeZeros(8 * 4)
+	e.WriteUInt16(pdu.ProtocolVersion)
+	e.WriteZeros(2) // Reserved
+	e.WriteString(fillString(pdu.CalledAETitle, 16))
+	e.WriteString(fillString(pdu.CallingAETitle, 16))
+	e.WriteZeros(8 * 4)
 	for _, item := range pdu.Items {
-		item.Encode(e)
+		item.Write(e)
 	}
 }
 
-func (pdu *A_ASSOCIATE) DebugString() string {
+func (pdu *A_ASSOCIATE) String() string {
 	name := "AC"
 	if pdu.Type == PDUTypeA_ASSOCIATE_RQ {
 		name = "RQ"
 	}
 	return fmt.Sprintf("A_ASSOCIATE_%s{version:%v called:'%v' calling:'%v' items:%s}",
 		name, pdu.ProtocolVersion,
-		pdu.CalledAETitle, pdu.CallingAETitle, subItemListDebugString(pdu.Items))
+		pdu.CalledAETitle, pdu.CallingAETitle, subItemListString(pdu.Items))
 }
 
 // P3.8 9.3.4
@@ -611,20 +602,20 @@ const (
 func decodeA_ASSOCIATE_RJ(d *dicom.Decoder) *A_ASSOCIATE_RJ {
 	pdu := &A_ASSOCIATE_RJ{}
 	d.Skip(1) // reserved
-	pdu.Result = d.DecodeByte()
-	pdu.Source = d.DecodeByte()
-	pdu.Reason = d.DecodeByte()
+	pdu.Result = d.ReadByte()
+	pdu.Source = d.ReadByte()
+	pdu.Reason = d.ReadByte()
 	return pdu
 }
 
-func (pdu *A_ASSOCIATE_RJ) EncodePayload(e *dicom.Encoder) {
-	e.EncodeZeros(1)
-	e.EncodeByte(pdu.Result)
-	e.EncodeByte(pdu.Source)
-	e.EncodeByte(pdu.Reason)
+func (pdu *A_ASSOCIATE_RJ) WritePayload(e *dicom.Encoder) {
+	e.WriteZeros(1)
+	e.WriteByte(pdu.Result)
+	e.WriteByte(pdu.Source)
+	e.WriteByte(pdu.Reason)
 }
 
-func (pdu *A_ASSOCIATE_RJ) DebugString() string {
+func (pdu *A_ASSOCIATE_RJ) String() string {
 	return "A_ASSOCIATE_RJ"
 }
 
@@ -636,18 +627,18 @@ type A_ABORT struct {
 func decodeA_ABORT(d *dicom.Decoder) *A_ABORT {
 	pdu := &A_ABORT{}
 	d.Skip(2)
-	pdu.Source = d.DecodeByte()
-	pdu.Reason = d.DecodeByte()
+	pdu.Source = d.ReadByte()
+	pdu.Reason = d.ReadByte()
 	return pdu
 }
 
-func (pdu *A_ABORT) EncodePayload(e *dicom.Encoder) {
-	e.EncodeZeros(2)
-	e.EncodeByte(pdu.Source)
-	e.EncodeByte(pdu.Reason)
+func (pdu *A_ABORT) WritePayload(e *dicom.Encoder) {
+	e.WriteZeros(2)
+	e.WriteByte(pdu.Source)
+	e.WriteByte(pdu.Reason)
 }
 
-func (pdu *A_ABORT) DebugString() string {
+func (pdu *A_ABORT) String() string {
 	return fmt.Sprintf("A_ABORT{source:%d reason:%d}", pdu.Source, pdu.Reason)
 }
 
@@ -658,18 +649,18 @@ type P_DATA_TF struct {
 func decodeP_DATA_TF(d *dicom.Decoder) *P_DATA_TF {
 	pdu := &P_DATA_TF{}
 	for d.Len() > 0 && d.Error() == nil {
-		pdu.Items = append(pdu.Items, DecodePresentationDataValueItem(d))
+		pdu.Items = append(pdu.Items, ReadPresentationDataValueItem(d))
 	}
 	return pdu
 }
 
-func (pdu *P_DATA_TF) EncodePayload(e *dicom.Encoder) {
+func (pdu *P_DATA_TF) WritePayload(e *dicom.Encoder) {
 	for _, item := range pdu.Items {
-		item.Encode(e)
+		item.Write(e)
 	}
 }
 
-func (pdu *P_DATA_TF) DebugString() string {
+func (pdu *P_DATA_TF) String() string {
 	buf := bytes.Buffer{}
 	buf.WriteString(fmt.Sprintf("P_DATA_TF{items: ["))
 
@@ -677,7 +668,7 @@ func (pdu *P_DATA_TF) DebugString() string {
 		if i > 0 {
 			buf.WriteString("\n")
 		}
-		buf.WriteString(item.DebugString())
+		buf.WriteString(item.String())
 	}
 	buf.WriteString("]}")
 	return buf.String()

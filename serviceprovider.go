@@ -137,6 +137,6 @@ func (sp *ServiceProvider) Run(listenAddr string) error {
 			log.Printf("Accept error: %v", err)
 			continue
 		}
-		go func() {RunProviderForConn(conn, sp.params)}()
+		go func() { RunProviderForConn(conn, sp.params) }()
 	}
 }

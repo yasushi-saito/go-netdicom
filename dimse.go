@@ -16,7 +16,7 @@ import (
 type DIMSEMessage interface {
 	Encode(*dicom.Encoder)
 	HasData() bool
-	DebugString() string
+	String() string
 }
 
 func findElementWithTag(elems []*dicom.DicomElement, tag dicom.Tag) (*dicom.DicomElement, error) {
@@ -35,7 +35,7 @@ func getStringFromElements(elems []*dicom.DicomElement, tag dicom.Tag) (string, 
 	if err != nil {
 		return "", err
 	}
-	return dicom.GetString(*e)
+	return e.GetString()
 }
 
 func getUInt32FromElements(elems []*dicom.DicomElement, tag dicom.Tag) (uint32, error) {
@@ -43,7 +43,7 @@ func getUInt32FromElements(elems []*dicom.DicomElement, tag dicom.Tag) (uint32, 
 	if err != nil {
 		return 0, err
 	}
-	return dicom.GetUInt32(*e)
+	return e.GetUInt32()
 }
 
 func getUInt16FromElements(elems []*dicom.DicomElement, tag dicom.Tag) (uint16, error) {
@@ -51,7 +51,7 @@ func getUInt16FromElements(elems []*dicom.DicomElement, tag dicom.Tag) (uint16, 
 	if err != nil {
 		return 0, err
 	}
-	return dicom.GetUInt16(*e)
+	return e.GetUInt16()
 }
 
 // Fields common to all DIMSE messages.
@@ -148,7 +148,7 @@ func decodeC_STORE_RQ(elems []*dicom.DicomElement) (*C_STORE_RQ, error) {
 	return &v, nil
 }
 
-func (v *C_STORE_RQ) DebugString() string {
+func (v *C_STORE_RQ) String() string {
 	return fmt.Sprintf("cstorerq{sopclass:%v messageid:%v pri: %v cmddatasettype: %v sopinstance: %v m0:%v m1:%v}",
 		v.AffectedSOPClassUID, v.MessageID, v.Priority, v.CommandDataSetType, v.AffectedSOPInstanceUID,
 		v.MoveOriginatorApplicationEntityTitle, v.MoveOriginatorMessageID)
@@ -212,13 +212,13 @@ func (v *C_STORE_RSP) HasData() bool {
 	return v.CommandDataSetType != CommandDataSetTypeNull
 }
 
-func (v *C_STORE_RSP) DebugString() string {
+func (v *C_STORE_RSP) String() string {
 	return fmt.Sprintf("cstorersp{sopclass:%v messageid:%v cmddatasettype: %v sopinstance: %v status: 0x%v}",
 		v.AffectedSOPClassUID, v.MessageIDBeingRespondedTo, v.CommandDataSetType, v.AffectedSOPInstanceUID,
 		v.Status)
 }
 
-func DecodeDIMSEMessage(io io.Reader, limit int64) (DIMSEMessage, error) {
+func ReadDIMSEMessage(io io.Reader, limit int64) (DIMSEMessage, error) {
 	var elems []*dicom.DicomElement
 	// Note: DIMSE elements are always implicit LE.
 	//
@@ -257,7 +257,7 @@ func encodeDIMSEMessage(v DIMSEMessage) ([]byte, error) {
 
 	e := dicom.NewEncoder(binary.LittleEndian, dicom.ImplicitVR)
 	encodeDataElementWithSingleValue(e, TagCommandGroupLength, uint32(len(bytes)))
-	e.EncodeBytes(bytes)
+	e.WriteBytes(bytes)
 	return e.Finish()
 }
 
@@ -298,7 +298,7 @@ func addPDataTF(a *dimseCommandAssembler, pdu *P_DATA_TF, contextManager *contex
 	}
 	if a.command == nil {
 		var err error
-		a.command, err = DecodeDIMSEMessage(bytes.NewBuffer(a.commandBytes), int64(len(a.commandBytes)))
+		a.command, err = ReadDIMSEMessage(bytes.NewBuffer(a.commandBytes), int64(len(a.commandBytes)))
 		if err != nil {
 			return "", "", nil, nil, err
 		}
@@ -313,8 +313,8 @@ func addPDataTF(a *dimseCommandAssembler, pdu *P_DATA_TF, contextManager *contex
 	command := a.command
 	dataBytes := a.dataBytes
 	log.Printf("Read all data for syntax %s, command [%v], data %d bytes, err%v",
-		dicom.UIDDebugString(context.abstractSyntaxUID),
-		command.DebugString(), len(a.dataBytes), err)
+		dicom.UIDString(context.abstractSyntaxUID),
+		command.String(), len(a.dataBytes), err)
 	*a = dimseCommandAssembler{}
 	return context.abstractSyntaxUID, context.transferSyntaxUID, command, dataBytes, nil
 	// TODO(saito) Verify that there's no unread items after the last command&data.

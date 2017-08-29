@@ -1,12 +1,12 @@
 package main
 
 import (
-	"flag"
-	"io/ioutil"
-	"fmt"
 	"encoding/binary"
+	"flag"
+	"fmt"
 	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-netdicom"
+	"io/ioutil"
 	"log"
 	"strings"
 	"sync/atomic"
@@ -28,7 +28,7 @@ func onCStoreRequest(
 	log.Printf("Writing %s", path)
 	e := dicom.NewEncoder(binary.LittleEndian, dicom.ExplicitVR)
 	dicom.WriteFileHeader(e, transferSyntaxUID, sopClassUID, sopInstanceUID)
-	e.EncodeBytes(data)
+	e.WriteBytes(data)
 	bytes, err := e.Finish()
 
 	if err != nil {

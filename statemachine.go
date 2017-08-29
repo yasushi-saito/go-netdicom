@@ -198,7 +198,7 @@ func splitDataIntoPDUs(sm *stateMachine, abstractSyntaxName string, command bool
 
 	context, err := sm.contextManager.lookupByAbstractSyntaxUID(abstractSyntaxName)
 	if err != nil {
-		log.Panicf("Illegal syntax name %s: %s", dicom.UIDDebugString(abstractSyntaxName), err)
+		log.Panicf("Illegal syntax name %s: %s", dicom.UIDString(abstractSyntaxName), err)
 	}
 	var pdus []P_DATA_TF
 	// two byte header overhead.
@@ -653,7 +653,7 @@ func sendPDU(sm *stateMachine, pdu PDU) {
 		sm.netCh <- stateEvent{event: evt17, err: err}
 		return
 	}
-	log.Printf("sendPDU: %v", pdu.DebugString())
+	log.Printf("sendPDU: %v", pdu.String())
 }
 
 func startTimer(sm *stateMachine) {
@@ -677,7 +677,7 @@ func stopTimer(sm *stateMachine) {
 func networkReaderThread(ch chan stateEvent, conn net.Conn) {
 	log.Printf("Starting network reader for %v", conn)
 	for {
-		pdu, err := DecodePDU(conn)
+		pdu, err := ReadPDU(conn)
 		if err != nil {
 			log.Printf("Failed to read PDU: %v", err)
 			if err == io.EOF {
@@ -689,7 +689,7 @@ func networkReaderThread(ch chan stateEvent, conn net.Conn) {
 			break
 		}
 		doassert(pdu != nil)
-		log.Printf("Read PDU: %v", pdu.DebugString())
+		log.Printf("Read PDU: %v", pdu.String())
 		if n, ok := pdu.(*A_ASSOCIATE); ok {
 			if n.Type == PDUTypeA_ASSOCIATE_RQ {
 				ch <- stateEvent{event: evt6, pdu: n, err: nil}
@@ -720,7 +720,7 @@ func networkReaderThread(ch chan stateEvent, conn net.Conn) {
 			ch <- stateEvent{event: evt16, pdu: n, err: nil}
 			continue
 		}
-		log.Panicf("Unknown PDU type: %v", pdu.DebugString())
+		log.Panicf("Unknown PDU type: %v", pdu.String())
 	}
 	log.Printf("Exiting network reader for %v", conn)
 }
