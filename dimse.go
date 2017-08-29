@@ -307,6 +307,9 @@ func addPDataTF(a *dimseCommandAssembler, pdu *P_DATA_TF, contextManager *contex
 		return "", "", nil, nil, nil
 	}
 	context, err := contextManager.lookupByContextID(a.contextID)
+	if err != nil {
+		log.Panic(err)
+	}
 	command := a.command
 	dataBytes := a.dataBytes
 	log.Printf("Read all data for syntax %s, command [%v], data %d bytes, err%v",

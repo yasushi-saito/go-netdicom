@@ -52,32 +52,15 @@ var actionAe1 = &stateAction{"AE-1",
 
 // Generate an item list to be embedded in an A_REQUEST_RQ PDU. The PDU is sent
 // when running as a service user.
-func buildAssociateRequestItems(params ServiceUserParams) (*contextManager, []SubItem) {
-	contextManager := newContextIDMap()
+func buildAssociateRequestItems(m *contextManager, params ServiceUserParams) []SubItem {
 	items := []SubItem{
 		&ApplicationContextItem{
 			Name: DefaultApplicationContextItemName,
 		}}
-	var contextID byte = 1
-	for _, sop := range params.RequiredServices {
-		// TODO(saito) Fix translation uid.
-		contextManager.addMapping(sop.UID, "", contextID)
-		syntaxItems := []SubItem{
-			&AbstractSyntaxSubItem{Name: sop.UID},
-		}
-		for _, syntaxUID := range params.SupportedTransferSyntaxes {
-			syntaxItems = append(syntaxItems,
-				&TransferSyntaxSubItem{Name: syntaxUID},
-			)
-		}
-		items = append(items,
-			&PresentationContextItem{
-				Type:      ItemTypePresentationContextRequest,
-				ContextID: contextID,
-				Result:    0, // must be zero for request
-				Items:     syntaxItems,
-			})
-		contextID += 2 // must be odd.
+	for _, item := range m.generateAssociateRequest(
+		params.RequiredServices,
+		params.SupportedTransferSyntaxes) {
+		items = append(items, item)
 	}
 	items = append(items,
 		&UserInformationItem{
@@ -85,12 +68,12 @@ func buildAssociateRequestItems(params ServiceUserParams) (*contextManager, []Su
 				&UserInformationMaximumLengthItem{params.MaxPDUSize},
 				&ImplementationClassUIDSubItem{dicom.DefaultImplementationClassUID},
 				&ImplementationVersionNameSubItem{dicom.DefaultImplementationVersionName}}})
-	return contextManager, items
+	return items
 }
 
 var actionAe2 = &stateAction{"AE-2", "Send A-ASSOCIATE-RQ-PDU",
 	func(sm *stateMachine, event stateEvent) *stateType {
-		newContextIDMap, items := buildAssociateRequestItems(sm.serviceUserParams)
+		items := buildAssociateRequestItems(sm.contextManager, sm.serviceUserParams)
 		pdu := &A_ASSOCIATE{
 			Type:            PDUTypeA_ASSOCIATE_RQ,
 			ProtocolVersion: CurrentProtocolVersion,
@@ -99,14 +82,21 @@ var actionAe2 = &stateAction{"AE-2", "Send A-ASSOCIATE-RQ-PDU",
 			Items:           items,
 		}
 		sendPDU(sm, pdu)
-		sm.contextManager = newContextIDMap
 		startTimer(sm)
 		return sta5
 	}}
 
 var actionAe3 = &stateAction{"AE-3", "Issue A-ASSOCIATE confirmation (accept) primitive",
 	func(sm *stateMachine, event stateEvent) *stateType {
-		// TODO(saito) Set the context ID map here!
+		pdu := event.pdu.(*A_ASSOCIATE)
+		doassert(pdu.Type == PDUTypeA_ASSOCIATE_AC)
+		var items []*PresentationContextItem
+		for _, item := range pdu.Items {
+			if n, ok := item.(*PresentationContextItem); ok {
+				items = append(items, n)
+			}
+		}
+		sm.contextManager.onAssociateResponse(items)
 		sm.upcallCh <- upcallEvent{eventType: upcallEventHandshakeCompleted}
 		return sta6
 	}}
@@ -132,7 +122,6 @@ service-dul: issue A-ASSOCIATE indication primitive
 otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 	func(sm *stateMachine, event stateEvent) *stateType {
 		stopTimer(sm)
-		newContextIDMap := newContextIDMap()
 		pdu := event.pdu.(*A_ASSOCIATE)
 		if pdu.ProtocolVersion != 0x0001 {
 			log.Printf("Wrong remote protocol version 0x%x", pdu.ProtocolVersion)
@@ -146,47 +135,20 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 				Name: DefaultApplicationContextItemName,
 			},
 		}
+
+		var contextItems []*PresentationContextItem
 		for _, item := range pdu.Items {
 			if n, ok := item.(*PresentationContextItem); ok {
-				// TODO(saito) Need to pick the syntax preferred by us.
-				// For now, just hardcode the syntax, ignoring the list
-				// in RQ.
-				//
-				// var syntaxItem SubItem
-				// for _, subitem := range(n.Items) {
-				// 	log.Printf("Received PresentaionContext(%x): %v", n.ContextID, subitem.DebugString())
-				// 	if n, ok := subitem.(*SubItemWithName); ok && n.Type == ItemTypeTransferSyntax {
-				// 		syntaxItem = n
-				// 		break
-				// 	}
-				// }
-				// doassert(syntaxItem != nil)
-				transferSyntaxUID := dicom.ImplicitVRLittleEndian
-				var syntaxItem = TransferSyntaxSubItem{
-					Name: transferSyntaxUID,
-				}
-				responses = append(responses,
-					&PresentationContextItem{
-						Type:      ItemTypePresentationContextResponse,
-						ContextID: n.ContextID,
-						Result:    0, // accepted
-						Items:     []SubItem{&syntaxItem}})
-				for _, aitem := range n.Items {
-					if aitem, ok := aitem.(*AbstractSyntaxSubItem); ok {
-						log.Printf("Map context %d -> %s", n.ContextID, aitem.Name)
-						newContextIDMap.addMapping(
-							aitem.Name,
-							transferSyntaxUID,
-							n.ContextID)
-					}
-					// TODO(saito) CHeck that each item has exactly one aitem.
-				}
+				contextItems = append(contextItems, n)
 			}
+		}
+		for _, item := range sm.contextManager.onAssociateRequest(contextItems) {
+			responses = append(responses, item)
 		}
 		// TODO(saito) Set the PDU size more properly.
 		responses = append(responses,
 			&UserInformationItem{
-				Items: []SubItem{&UserInformationMaximumLengthItem{MaximumLengthReceived: 1 << 20}}})
+				Items: []SubItem{&UserInformationMaximumLengthItem{MaximumLengthReceived: sm.params.maxPDUSize}}})
 		ok := true
 		// items, ok := sm.serviceProviderParams.onAssociateRequest(*pdu)
 		if ok {
@@ -203,7 +165,6 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 					Items:           responses,
 				},
 			}
-			sm.contextManager = newContextIDMap
 		} else {
 			sm.downcallCh <- stateEvent{
 				event: evt8,
@@ -822,7 +783,7 @@ func runStateMachineForServiceUser(
 	doassert(len(params.SupportedTransferSyntaxes) > 0)
 	sm := &stateMachine{
 		isUser:            true,
-		contextManager:      newContextIDMap(),
+		contextManager:    newContextManager(),
 		serviceUserParams: params,
 		netCh:             make(chan stateEvent, 128),
 		downcallCh:        downcallCh,
@@ -844,14 +805,14 @@ func runStateMachineForServiceProvider(
 	upcallCh chan upcallEvent,
 	downcallCh chan stateEvent) {
 	sm := &stateMachine{
-		isUser:       false,
-		params:       params,
-		contextManager: newContextIDMap(),
-		conn:         conn,
-		netCh:        make(chan stateEvent, 128),
-		maxPDUSize:   1 << 20, // TODO(saito)
-		downcallCh:   downcallCh,
-		upcallCh:     upcallCh,
+		isUser:         false,
+		params:         params,
+		contextManager: newContextManager(),
+		conn:           conn,
+		netCh:          make(chan stateEvent, 128),
+		maxPDUSize:     1 << 20, // TODO(saito)
+		downcallCh:     downcallCh,
+		upcallCh:       upcallCh,
 	}
 	event := stateEvent{event: evt5, conn: conn}
 	action := findAction(sta1, event.event)

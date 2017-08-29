@@ -19,7 +19,6 @@ func onCStoreRequest(
 	sopClassUID string,
 	sopInstanceUID string,
 	data []byte) uint16 {
-	transferSyntaxUID = "1.2.840.10008.1.2.1" // TODO(saito) fix!
 	log.Printf("Start C-STORE handler, transfersyntax=%s, sopclass=%s, sopinstance=%s",
 		dicom.UIDDebugString(transferSyntaxUID),
 		dicom.UIDDebugString(sopClassUID),
