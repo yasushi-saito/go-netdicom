@@ -56,8 +56,6 @@ func decodeSubItem(d *dicom.Decoder) SubItem {
 	itemType := d.DecodeByte()
 	d.Skip(1)
 	length := d.DecodeUInt16()
-	log.Printf("DecodeSUB: type=%d %d", itemType, d.Len())
-	// log.Printf("DecodeSubItem: item=0x%x length=%v, err=%v", itemType, length, d.Error())
 	if itemType == ItemTypeApplicationContext {
 		return decodeApplicationContextItem(d, length)
 	}
@@ -307,14 +305,12 @@ type PresentationContextItem struct {
 
 func decodePresentationContextItem(d *dicom.Decoder, itemType byte, length uint16) *PresentationContextItem {
 	v := &PresentationContextItem{Type: itemType}
-	log.Printf("DecodePres: %d %d", d.Len(), length)
 	d.PushLimit(int64(length))
 	defer d.PopLimit()
 	v.ContextID = d.DecodeByte()
 	d.Skip(1)
 	v.Result = d.DecodeByte()
 	d.Skip(1)
-	log.Printf("Decode presentation context: %d %v", d.Len(), d.Error())
 	for d.Len() > 0 && d.Error() == nil {
 		v.Items = append(v.Items, decodeSubItem(d))
 	}
@@ -337,7 +333,7 @@ func (v *PresentationContextItem) Encode(e *dicom.Encoder) {
 		e.SetError(err)
 		return
 	}
-	encodeSubItemHeader(e, v.Type, uint16(8+len(itemBytes)))
+	encodeSubItemHeader(e, v.Type, uint16(4+len(itemBytes)))
 	e.EncodeByte(v.ContextID)
 	e.EncodeZeros(3)
 	e.EncodeBytes(itemBytes)
@@ -458,13 +454,6 @@ func DecodePDU(in io.Reader) (PDU, error) {
 	d := dicom.NewDecoder(in, int64(length),
 		binary.BigEndian, // PDU is always big endian
 		dicom.UnknownVR)  // irrelevant for PDU parsing
-	log.Printf("Header: %v %v: %v", pduType, length, d.Error())
-
-	//d.in = in
-	//d.PushLimit(int(d.Length))
-	//log.Printf("NewDecoder: type=%d, length=%d", d.Type, d.Length)
-	// return d
-
 	var pdu PDU = nil
 	switch pduType {
 	case PDUTypeA_ASSOCIATE_RQ:
@@ -484,7 +473,7 @@ func DecodePDU(in io.Reader) (PDU, error) {
 	}
 	if pdu == nil {
 		err := fmt.Errorf("DecodePDU: unknown message type %d", pduType)
-		log.Panicf("%v", err)
+		log.Panic(err)
 		return nil, err
 	}
 	if err := d.Finish(); err != nil {

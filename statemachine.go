@@ -91,13 +91,14 @@ func buildAssociateRequestItems(params ServiceUserParams) (*contextIDMap, []SubI
 var actionAe2 = &stateAction{"AE-2", "Send A-ASSOCIATE-RQ-PDU",
 	func(sm *stateMachine, event stateEvent) *stateType {
 		newContextIDMap, items := buildAssociateRequestItems(sm.serviceUserParams)
-		sendPDU(sm, &A_ASSOCIATE{
+		pdu := &A_ASSOCIATE{
 			Type:            PDUTypeA_ASSOCIATE_RQ,
 			ProtocolVersion: CurrentProtocolVersion,
 			CalledAETitle:   sm.serviceUserParams.CalledAETitle,
 			CallingAETitle:  sm.serviceUserParams.CallingAETitle,
 			Items:           items,
-		})
+		}
+		sendPDU(sm, pdu)
 		sm.contextIDMap = newContextIDMap
 		startTimer(sm)
 		return sta5

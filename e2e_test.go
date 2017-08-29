@@ -2,7 +2,7 @@ package netdicom_test
 
 import (
 	// "fmt"
-	"encoding/binary"
+	"errors"
 	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-netdicom"
 	"io/ioutil"
@@ -11,16 +11,35 @@ import (
 	"testing"
 )
 
+var serverAddr string
+var cstoreData []byte
+
 func onCStoreRequest(
 	transferSyntaxUID string,
 	sopClassUID string,
 	sopInstanceUID string,
 	data []byte) uint16 {
+	transferSyntaxUID = "1.2.840.10008.1.2.1" // TODO(saito) fix!
+	log.Printf("Start C-STORE handler, transfersyntax=%s, sopclass=%s, sopinstance=%s",
+		dicom.UIDDebugString(transferSyntaxUID),
+		dicom.UIDDebugString(sopClassUID),
+		dicom.UIDDebugString(sopInstanceUID))
 
-	e := dicom.NewEncoder(binary.LittleEndian, dicom.ExplicitVR)
+	// endian, implicit, err := dicom.ParseTransferSyntaxUID(transferSyntaxUID)
+	// if err != nil {
+	// 	log.Panic(err)
+	// }
+
+	//implicit = dicom.ExplicitVR
+	e := dicom.NewEncoder(nil, dicom.UnknownVR)
 	dicom.WriteFileHeader(e, transferSyntaxUID, sopClassUID, sopInstanceUID)
 	e.EncodeBytes(data)
-	_, err := e.Finish()
+
+	if cstoreData != nil {
+		log.Panic("Received C-STORE data twice")
+	}
+	var err error
+	cstoreData, err = e.Finish()
 	if err != nil {
 		log.Panic(err)
 	}
@@ -28,7 +47,42 @@ func onCStoreRequest(
 	return 0 // Success
 }
 
-var serverAddr string
+func checkFileBodiesEqual(t *testing.T, in, out *dicom.DicomFile) {
+	var removeMetaElems = func(f *dicom.DicomFile) []*dicom.DicomElement {
+		var elems []*dicom.DicomElement
+		for _, elem := range f.Elements {
+			if elem.Tag.Group != dicom.TagMetadataGroup {
+				elems = append(elems, &elem)
+			}
+		}
+		return elems
+
+	}
+
+	inElems := removeMetaElems(in)
+	outElems := removeMetaElems(out)
+	if len(inElems) != len(outElems) {
+		t.Error("Wrong # of elems: in %d, out %d", len(inElems), len(outElems))
+	}
+	for i := 0; i < len(inElems); i++ {
+		ins := inElems[i].String()
+		outs := outElems[i].String()
+		if ins != outs {
+			t.Error("%dth element mismatch: %v <-> %v", i, ins, outs)
+		}
+	}
+}
+
+func getCStoreData() (*dicom.DicomFile, error) {
+	if cstoreData == nil {
+		return nil, errors.New("Did not receive C-STORE data")
+	}
+	f, err := dicom.ParseBytes(cstoreData)
+	if err != nil {
+		return nil, err
+	}
+	return f, nil
+}
 
 func init() {
 	listener, err := net.Listen("tcp", ":0")
@@ -54,12 +108,18 @@ func init() {
 	serverAddr = listener.Addr().String()
 }
 
-func TestStoreSingleFile(t*testing.T) {
+func TestStoreSingleFile(t *testing.T) {
 	data, err := ioutil.ReadFile("testdata/IM-0001-0003.dcm")
 	if err != nil {
 		log.Fatal(err)
 	}
-	decoder := dicom.NewBytesDecoder(data, binary.LittleEndian, dicom.ExplicitVR)
+
+	in, err := dicom.ParseBytes(data)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	decoder := dicom.NewBytesDecoder(data, nil, dicom.UnknownVR)
 	meta := dicom.ParseFileHeader(decoder)
 	if decoder.Error() != nil {
 		log.Fatal(decoder.Error())
@@ -78,4 +138,10 @@ func TestStoreSingleFile(t*testing.T) {
 	}
 	log.Printf("Store done!!")
 	su.Release()
+
+	out, err := getCStoreData()
+	if err != nil {
+		log.Fatal(err)
+	}
+	checkFileBodiesEqual(t, in, out)
 }
