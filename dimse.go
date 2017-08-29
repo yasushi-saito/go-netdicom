@@ -74,21 +74,6 @@ func encodeDIMSEMessageHeader(e *dicom.Encoder, v DIMSEMessageHeader) {
 	//encodeDataElementWithSingleValue(e, dicom.Tag{0, 2}, v.AffectedSOPClassUID)
 }
 
-// Standard DIMSE tags
-var (
-	TagCommandGroupLength                   = dicom.Tag{0, 0}
-	TagCommandField                         = dicom.Tag{0, 0x100}
-	TagAffectedSOPClassUID                  = dicom.Tag{0x0000, 0x0002}
-	TagMessageID                            = dicom.Tag{0000, 0x0110}
-	TagMessageIDBeingRespondedTo            = dicom.Tag{0000, 0x0120}
-	TagPriority                             = dicom.Tag{0000, 0x0700}
-	TagCommandDataSetType                   = dicom.Tag{0000, 0x0800}
-	TagStatus                               = dicom.Tag{0000, 0x0900}
-	TagAffectedSOPInstanceUID               = dicom.Tag{0000, 0x1000}
-	TagMoveOriginatorApplicationEntityTitle = dicom.Tag{0000, 0x1030}
-	TagMoveOriginatorMessageID              = dicom.Tag{0000, 0x1031}
-)
-
 // P3.7 9.3.1.1
 type C_STORE_RQ struct {
 	AffectedSOPClassUID                  string
@@ -106,12 +91,12 @@ func (v *C_STORE_RQ) HasData() bool {
 }
 
 func (v *C_STORE_RQ) Encode(e *dicom.Encoder) {
-	encodeDataElementWithSingleValue(e, TagCommandField, uint16(1))
-	encodeDataElementWithSingleValue(e, TagAffectedSOPClassUID, v.AffectedSOPClassUID)
-	encodeDataElementWithSingleValue(e, dicom.Tag{0, 0x110}, v.MessageID)
-	encodeDataElementWithSingleValue(e, dicom.Tag{0, 0x700}, v.Priority)
-	encodeDataElementWithSingleValue(e, dicom.Tag{0, 0x800}, v.CommandDataSetType)
-	encodeDataElementWithSingleValue(e, TagAffectedSOPInstanceUID, v.AffectedSOPInstanceUID)
+	encodeDataElementWithSingleValue(e, dicom.TagCommandField, uint16(1))
+	encodeDataElementWithSingleValue(e, dicom.TagAffectedSOPClassUID, v.AffectedSOPClassUID)
+	encodeDataElementWithSingleValue(e, dicom.TagMessageID, v.MessageID)
+	encodeDataElementWithSingleValue(e, dicom.TagPriority, v.Priority)
+	encodeDataElementWithSingleValue(e, dicom.TagCommandDataSetType, v.CommandDataSetType)
+	encodeDataElementWithSingleValue(e, dicom.TagAffectedSOPInstanceUID, v.AffectedSOPInstanceUID)
 	if v.MoveOriginatorApplicationEntityTitle != "" {
 		encodeDataElementWithSingleValue(e, dicom.Tag{0, 1030}, v.MoveOriginatorApplicationEntityTitle)
 	}
@@ -123,28 +108,28 @@ func (v *C_STORE_RQ) Encode(e *dicom.Encoder) {
 func decodeC_STORE_RQ(elems []*dicom.DicomElement) (*C_STORE_RQ, error) {
 	v := C_STORE_RQ{}
 	var err error
-	v.AffectedSOPClassUID, err = getStringFromElements(elems, TagAffectedSOPClassUID)
+	v.AffectedSOPClassUID, err = getStringFromElements(elems, dicom.TagAffectedSOPClassUID)
 	if err != nil {
 		return nil, err
 	}
-	v.MessageID, err = getUInt16FromElements(elems, TagMessageID)
+	v.MessageID, err = getUInt16FromElements(elems, dicom.TagMessageID)
 	if err != nil {
 		return nil, err
 	}
-	v.Priority, err = getUInt16FromElements(elems, TagPriority)
+	v.Priority, err = getUInt16FromElements(elems, dicom.TagPriority)
 	if err != nil {
 		return nil, err
 	}
-	v.CommandDataSetType, err = getUInt16FromElements(elems, TagCommandDataSetType)
+	v.CommandDataSetType, err = getUInt16FromElements(elems, dicom.TagCommandDataSetType)
 	if err != nil {
 		return nil, err
 	}
-	v.AffectedSOPInstanceUID, err = getStringFromElements(elems, TagAffectedSOPInstanceUID)
+	v.AffectedSOPInstanceUID, err = getStringFromElements(elems, dicom.TagAffectedSOPInstanceUID)
 	if err != nil {
 		return nil, err
 	}
-	v.MoveOriginatorApplicationEntityTitle, _ = getStringFromElements(elems, TagMoveOriginatorApplicationEntityTitle)
-	v.MoveOriginatorMessageID, _ = getUInt16FromElements(elems, TagMoveOriginatorMessageID)
+	v.MoveOriginatorApplicationEntityTitle, _ = getStringFromElements(elems, dicom.TagMoveOriginatorApplicationEntityTitle)
+	v.MoveOriginatorMessageID, _ = getUInt16FromElements(elems, dicom.TagMoveOriginatorMessageID)
 	return &v, nil
 }
 
@@ -178,19 +163,19 @@ const (
 func decodeC_STORE_RSP(elems []*dicom.DicomElement) (*C_STORE_RSP, error) {
 	v := &C_STORE_RSP{}
 	var err error
-	v.AffectedSOPClassUID, err = getStringFromElements(elems, TagAffectedSOPClassUID)
+	v.AffectedSOPClassUID, err = getStringFromElements(elems, dicom.TagAffectedSOPClassUID)
 	if err != nil {
 		return nil, err
 	}
-	v.MessageIDBeingRespondedTo, err = getUInt16FromElements(elems, TagMessageIDBeingRespondedTo)
+	v.MessageIDBeingRespondedTo, err = getUInt16FromElements(elems, dicom.TagMessageIDBeingRespondedTo)
 	if err != nil {
 		return nil, err
 	}
-	v.Status, err = getUInt16FromElements(elems, TagStatus)
+	v.Status, err = getUInt16FromElements(elems, dicom.TagStatus)
 	if err != nil {
 		return nil, err
 	}
-	v.CommandDataSetType, err = getUInt16FromElements(elems, TagCommandDataSetType)
+	v.CommandDataSetType, err = getUInt16FromElements(elems, dicom.TagCommandDataSetType)
 	if err != nil {
 		return nil, err
 	}
@@ -199,12 +184,12 @@ func decodeC_STORE_RSP(elems []*dicom.DicomElement) (*C_STORE_RSP, error) {
 
 func (v *C_STORE_RSP) Encode(e *dicom.Encoder) {
 	doassert(v.CommandDataSetType == 0x101)
-	encodeDataElementWithSingleValue(e, TagCommandField, uint16(0x8001))
-	encodeDataElementWithSingleValue(e, TagAffectedSOPClassUID, v.AffectedSOPClassUID)
-	encodeDataElementWithSingleValue(e, TagMessageIDBeingRespondedTo, v.MessageIDBeingRespondedTo)
-	encodeDataElementWithSingleValue(e, TagCommandDataSetType, v.CommandDataSetType)
-	encodeDataElementWithSingleValue(e, TagAffectedSOPInstanceUID, v.AffectedSOPInstanceUID)
-	encodeDataElementWithSingleValue(e, TagStatus, v.Status)
+	encodeDataElementWithSingleValue(e, dicom.TagCommandField, uint16(0x8001))
+	encodeDataElementWithSingleValue(e, dicom.TagAffectedSOPClassUID, v.AffectedSOPClassUID)
+	encodeDataElementWithSingleValue(e, dicom.TagMessageIDBeingRespondedTo, v.MessageIDBeingRespondedTo)
+	encodeDataElementWithSingleValue(e, dicom.TagCommandDataSetType, v.CommandDataSetType)
+	encodeDataElementWithSingleValue(e, dicom.TagAffectedSOPInstanceUID, v.AffectedSOPInstanceUID)
+	encodeDataElementWithSingleValue(e, dicom.TagStatus, v.Status)
 }
 
 func (v *C_STORE_RSP) HasData() bool {
@@ -232,7 +217,7 @@ func ReadDIMSEMessage(io io.Reader, limit int64) (DIMSEMessage, error) {
 		return nil, err
 	}
 
-	commandField, err := getUInt16FromElements(elems, TagCommandField)
+	commandField, err := getUInt16FromElements(elems, dicom.TagCommandField)
 	if err != nil {
 		return nil, err
 	}
@@ -256,7 +241,7 @@ func encodeDIMSEMessage(v DIMSEMessage) ([]byte, error) {
 	}
 
 	e := dicom.NewEncoder(binary.LittleEndian, dicom.ImplicitVR)
-	encodeDataElementWithSingleValue(e, TagCommandGroupLength, uint32(len(bytes)))
+	encodeDataElementWithSingleValue(e, dicom.TagCommandGroupLength, uint32(len(bytes)))
 	e.WriteBytes(bytes)
 	return e.Finish()
 }
