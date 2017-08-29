@@ -52,8 +52,8 @@ var actionAe1 = &stateAction{"AE-1",
 
 // Generate an item list to be embedded in an A_REQUEST_RQ PDU. The PDU is sent
 // when running as a service user.
-func buildAssociateRequestItems(params ServiceUserParams) (*contextIDMap, []SubItem) {
-	contextIDMap := newContextIDMap()
+func buildAssociateRequestItems(params ServiceUserParams) (*contextManager, []SubItem) {
+	contextManager := newContextIDMap()
 	items := []SubItem{
 		&ApplicationContextItem{
 			Name: DefaultApplicationContextItemName,
@@ -61,7 +61,7 @@ func buildAssociateRequestItems(params ServiceUserParams) (*contextIDMap, []SubI
 	var contextID byte = 1
 	for _, sop := range params.RequiredServices {
 		// TODO(saito) Fix translation uid.
-		contextIDMap.addMapping(sop.UID, "", contextID)
+		contextManager.addMapping(sop.UID, "", contextID)
 		syntaxItems := []SubItem{
 			&AbstractSyntaxSubItem{Name: sop.UID},
 		}
@@ -85,7 +85,7 @@ func buildAssociateRequestItems(params ServiceUserParams) (*contextIDMap, []SubI
 				&UserInformationMaximumLengthItem{params.MaxPDUSize},
 				&ImplementationClassUIDSubItem{dicom.DefaultImplementationClassUID},
 				&ImplementationVersionNameSubItem{dicom.DefaultImplementationVersionName}}})
-	return contextIDMap, items
+	return contextManager, items
 }
 
 var actionAe2 = &stateAction{"AE-2", "Send A-ASSOCIATE-RQ-PDU",
@@ -99,7 +99,7 @@ var actionAe2 = &stateAction{"AE-2", "Send A-ASSOCIATE-RQ-PDU",
 			Items:           items,
 		}
 		sendPDU(sm, pdu)
-		sm.contextIDMap = newContextIDMap
+		sm.contextManager = newContextIDMap
 		startTimer(sm)
 		return sta5
 	}}
@@ -203,7 +203,7 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 					Items:           responses,
 				},
 			}
-			sm.contextIDMap = newContextIDMap
+			sm.contextManager = newContextIDMap
 		} else {
 			sm.downcallCh <- stateEvent{
 				event: evt8,
@@ -235,7 +235,7 @@ func splitDataIntoPDUs(sm *stateMachine, abstractSyntaxName string, command bool
 	doassert(sm.maxPDUSize > 0)
 	doassert(len(data) > 0)
 
-	context, err := sm.contextIDMap.lookupByAbstractSyntaxUID(abstractSyntaxName)
+	context, err := sm.contextManager.lookupByAbstractSyntaxUID(abstractSyntaxName)
 	if err != nil {
 		log.Panicf("Illegal syntax name %s: %s", dicom.UIDDebugString(abstractSyntaxName), err)
 	}
@@ -281,7 +281,7 @@ var actionDt1 = &stateAction{"DT-1", "Send P-DATA-TF PDU",
 
 var actionDt2 = &stateAction{"DT-2", "Send P-DATA indication primitive",
 	func(sm *stateMachine, event stateEvent) *stateType {
-		abstractSyntaxUID, transferSyntaxUID, command, data, err := addPDataTF(&sm.commandAssembler, event.pdu.(*P_DATA_TF), sm.contextIDMap)
+		abstractSyntaxUID, transferSyntaxUID, command, data, err := addPDataTF(&sm.commandAssembler, event.pdu.(*P_DATA_TF), sm.contextManager)
 		if err != nil {
 			log.Panic(err) // TODO(saito)
 		}
@@ -641,7 +641,7 @@ type stateMachine struct {
 	// syntax string such as 1.2.840.10008.5.1.4.1.1.1.2.  This field is set
 	// on receiving A_ASSOCIATE_RQ message. Thus, it is set only on the
 	// provider side (not the user).
-	contextIDMap *contextIDMap
+	contextManager *contextManager
 	//contextIDToAbstractSyntaxNameMap map[byte]string
 	//abstractSyntaxNameToContextIDMap map[string]byte
 
@@ -798,7 +798,7 @@ type stateMachineParams struct {
 	maxPDUSize uint32
 
 	// onAssociateRequest func(A_ASSOCIATE) ([]SubItem, bool)
-	// onDataRequest func(*stateMachine, P_DATA_TF, contextIDMap)
+	// onDataRequest func(*stateMachine, P_DATA_TF, contextManager)
 }
 
 const DefaultMaximiumPDUSize = uint32(1 << 20)
@@ -822,7 +822,7 @@ func runStateMachineForServiceUser(
 	doassert(len(params.SupportedTransferSyntaxes) > 0)
 	sm := &stateMachine{
 		isUser:            true,
-		contextIDMap:      newContextIDMap(),
+		contextManager:      newContextIDMap(),
 		serviceUserParams: params,
 		netCh:             make(chan stateEvent, 128),
 		downcallCh:        downcallCh,
@@ -846,7 +846,7 @@ func runStateMachineForServiceProvider(
 	sm := &stateMachine{
 		isUser:       false,
 		params:       params,
-		contextIDMap: newContextIDMap(),
+		contextManager: newContextIDMap(),
 		conn:         conn,
 		netCh:        make(chan stateEvent, 128),
 		maxPDUSize:   1 << 20, // TODO(saito)

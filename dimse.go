@@ -271,7 +271,7 @@ type dimseCommandAssembler struct {
 	readAllData bool
 }
 
-func addPDataTF(a *dimseCommandAssembler, pdu *P_DATA_TF, contextIDMap *contextIDMap) (string, string, DIMSEMessage, []byte, error) {
+func addPDataTF(a *dimseCommandAssembler, pdu *P_DATA_TF, contextManager *contextManager) (string, string, DIMSEMessage, []byte, error) {
 	for _, item := range pdu.Items {
 		if a.contextID == 0 {
 			a.contextID = item.ContextID
@@ -306,7 +306,7 @@ func addPDataTF(a *dimseCommandAssembler, pdu *P_DATA_TF, contextIDMap *contextI
 	if a.command.HasData() && !a.readAllData {
 		return "", "", nil, nil, nil
 	}
-	context, err := contextIDMap.lookupByContextID(a.contextID)
+	context, err := contextManager.lookupByContextID(a.contextID)
 	command := a.command
 	dataBytes := a.dataBytes
 	log.Printf("Read all data for syntax %s, command [%v], data %d bytes, err%v",
