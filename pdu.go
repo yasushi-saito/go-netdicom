@@ -464,11 +464,9 @@ func ReadPDU(in io.Reader) (PDU, error) {
 	}
 	if pdu == nil {
 		err := fmt.Errorf("ReadPDU: unknown message type %d", pduType)
-		log.Panic(err)
 		return nil, err
 	}
 	if err := d.Finish(); err != nil {
-		log.Panicf("ReadPDU: conn=%v %v", in, err)
 		return nil, err
 	}
 	return pdu, nil

@@ -39,15 +39,15 @@ type eventType struct {
 }
 
 var (
-	evt01  = eventType{1, "A-ASSOCIATE request (local user)"}
-	evt02  = eventType{2, "Connection established (for service user)"}
-	evt03  = eventType{3, "A-ASSOCIATE-AC PDU (received on transport connection)"}
-	evt04  = eventType{4, "A-ASSOCIATE-RJ PDU (received on transport connection)"}
-	evt05  = eventType{5, "Connection accepted (for service provider)"}
-	evt06  = eventType{6, "A-ASSOCIATE-RQ PDU (on tranport connection)"}
-	evt07  = eventType{7, "A-ASSOCIATE response primitive (accept)"}
-	evt08  = eventType{8, "A-ASSOCIATE response primitive (reject)"}
-	evt09  = eventType{9, "P-DATA request primitive"}
+	evt01 = eventType{1, "A-ASSOCIATE request (local user)"}
+	evt02 = eventType{2, "Connection established (for service user)"}
+	evt03 = eventType{3, "A-ASSOCIATE-AC PDU (received on transport connection)"}
+	evt04 = eventType{4, "A-ASSOCIATE-RJ PDU (received on transport connection)"}
+	evt05 = eventType{5, "Connection accepted (for service provider)"}
+	evt06 = eventType{6, "A-ASSOCIATE-RQ PDU (on tranport connection)"}
+	evt07 = eventType{7, "A-ASSOCIATE response primitive (accept)"}
+	evt08 = eventType{8, "A-ASSOCIATE response primitive (reject)"}
+	evt09 = eventType{9, "P-DATA request primitive"}
 	evt10 = eventType{10, "P-DATA-TF PDU (on transport connection)"}
 	evt11 = eventType{11, "A-RELEASE request primitive"}
 	evt12 = eventType{12, "A-RELEASE-RQ PDU (on transport)"}
@@ -478,127 +478,134 @@ type stateTransition struct {
 // State transitions are defined in P3.8 9.2.3.
 var stateTransitions = []stateTransition{
 	stateTransition{sta01, evt01, actionAe1},
-	stateTransition{sta04, evt02, actionAe2},
-	stateTransition{sta02, evt03, actionAa1},
-	stateTransition{sta03, evt03, actionAa8},
-	stateTransition{sta05, evt03, actionAe3},
-	stateTransition{sta06, evt03, actionAa8},
-	stateTransition{sta07, evt03, actionAa8},
-	stateTransition{sta08, evt03, actionAa8},
-	stateTransition{sta09, evt03, actionAa8},
-	stateTransition{sta10, evt03, actionAa8},
-	stateTransition{sta11, evt03, actionAa8},
-	stateTransition{sta12, evt03, actionAa8},
-	stateTransition{sta13, evt03, actionAa6},
-	stateTransition{sta02, evt04, actionAa1},
-	stateTransition{sta03, evt04, actionAa8},
-	stateTransition{sta05, evt04, actionAe4},
-	stateTransition{sta06, evt04, actionAa8},
-	stateTransition{sta07, evt04, actionAa8},
-	stateTransition{sta08, evt04, actionAa8},
-	stateTransition{sta09, evt04, actionAa8},
-	stateTransition{sta10, evt04, actionAa8},
-	stateTransition{sta11, evt04, actionAa8},
-	stateTransition{sta12, evt04, actionAa8},
-	stateTransition{sta13, evt04, actionAa6},
 	stateTransition{sta01, evt05, actionAe5},
+	stateTransition{sta02, evt03, actionAa1},
+	stateTransition{sta02, evt04, actionAa1},
 	stateTransition{sta02, evt06, actionAe6},
+	stateTransition{sta02, evt10, actionAa1},
+	stateTransition{sta02, evt12, actionAa1},
+	stateTransition{sta02, evt13, actionAa1},
+	stateTransition{sta02, evt16, actionAa2},
+	stateTransition{sta02, evt17, actionAa5},
+	stateTransition{sta02, evt18, actionAa2},
+	stateTransition{sta02, evt19, actionAa1},
+	stateTransition{sta03, evt03, actionAa8},
+	stateTransition{sta03, evt04, actionAa8},
 	stateTransition{sta03, evt06, actionAa8},
-	stateTransition{sta05, evt06, actionAa8},
-	stateTransition{sta06, evt06, actionAa8},
-	stateTransition{sta07, evt06, actionAa8},
-	stateTransition{sta08, evt06, actionAa8},
-	stateTransition{sta09, evt06, actionAa8},
-	stateTransition{sta10, evt06, actionAa8},
-	stateTransition{sta11, evt06, actionAa8},
-	stateTransition{sta12, evt06, actionAa8},
-	stateTransition{sta13, evt06, actionAa7},
 	stateTransition{sta03, evt07, actionAe7},
 	stateTransition{sta03, evt08, actionAe8},
-	stateTransition{sta06, evt09, actionDt1},
-	stateTransition{sta08, evt09, actionAr7},
-	stateTransition{sta02, evt10, actionAa1},
 	stateTransition{sta03, evt10, actionAa8},
-	stateTransition{sta05, evt10, actionAa8},
-	stateTransition{sta06, evt10, actionDt2},
-	stateTransition{sta07, evt10, actionAr6},
-	stateTransition{sta08, evt10, actionAa8},
-	stateTransition{sta09, evt10, actionAa8},
-	stateTransition{sta10, evt10, actionAa8},
-	stateTransition{sta11, evt10, actionAa8},
-	stateTransition{sta12, evt10, actionAa8},
-	stateTransition{sta13, evt10, actionAa6},
-	stateTransition{sta06, evt11, actionAr1},
-	stateTransition{sta02, evt12, actionAa1},
 	stateTransition{sta03, evt12, actionAa8},
-	stateTransition{sta05, evt12, actionAa8},
-	stateTransition{sta06, evt12, actionAr2},
-	stateTransition{sta07, evt12, actionAr8},
-	stateTransition{sta08, evt12, actionAa8},
-	stateTransition{sta09, evt12, actionAa8},
-	stateTransition{sta10, evt12, actionAa8},
-	stateTransition{sta11, evt12, actionAa8},
-	stateTransition{sta12, evt12, actionAa8},
-	stateTransition{sta13, evt12, actionAa6},
-	stateTransition{sta02, evt13, actionAa1},
 	stateTransition{sta03, evt13, actionAa8},
-	stateTransition{sta05, evt13, actionAa8},
-	stateTransition{sta06, evt13, actionAa8},
-	stateTransition{sta07, evt13, actionAr3},
-	stateTransition{sta08, evt13, actionAa8},
-	stateTransition{sta09, evt13, actionAa8},
-	stateTransition{sta10, evt13, actionAr10},
-	stateTransition{sta11, evt13, actionAr3},
-	stateTransition{sta12, evt13, actionAa8},
-	stateTransition{sta13, evt13, actionAa6},
-	stateTransition{sta08, evt14, actionAr4},
-	stateTransition{sta09, evt14, actionAr9},
-	stateTransition{sta12, evt14, actionAr4},
 	stateTransition{sta03, evt15, actionAa1},
-	stateTransition{sta04, evt15, actionAa2},
-	stateTransition{sta05, evt15, actionAa1},
-	stateTransition{sta06, evt15, actionAa1},
-	stateTransition{sta07, evt15, actionAa1},
-	stateTransition{sta08, evt15, actionAa1},
-	stateTransition{sta09, evt15, actionAa1},
-	stateTransition{sta10, evt15, actionAa1},
-	stateTransition{sta11, evt15, actionAa1},
-	stateTransition{sta12, evt15, actionAa1},
-	stateTransition{sta02, evt16, actionAa2},
 	stateTransition{sta03, evt16, actionAa3},
-	stateTransition{sta05, evt16, actionAa3},
-	stateTransition{sta06, evt16, actionAa3},
-	stateTransition{sta07, evt16, actionAa3},
-	stateTransition{sta08, evt16, actionAa3},
-	stateTransition{sta09, evt16, actionAa3},
-	stateTransition{sta10, evt16, actionAa3},
-	stateTransition{sta11, evt16, actionAa3},
-	stateTransition{sta12, evt16, actionAa3},
-	stateTransition{sta13, evt16, actionAa2},
-	stateTransition{sta02, evt17, actionAa5},
 	stateTransition{sta03, evt17, actionAa4},
-	stateTransition{sta04, evt17, actionAa4},
-	stateTransition{sta05, evt17, actionAa4},
-	stateTransition{sta06, evt17, actionAa4},
-	stateTransition{sta07, evt17, actionAa4},
-	stateTransition{sta08, evt17, actionAa4},
-	stateTransition{sta09, evt17, actionAa4},
-	stateTransition{sta10, evt17, actionAa4},
-	stateTransition{sta11, evt17, actionAa4},
-	stateTransition{sta12, evt17, actionAa4},
-	stateTransition{sta13, evt17, actionAr5},
-	stateTransition{sta02, evt18, actionAa2},
-	stateTransition{sta13, evt18, actionAa2},
-	stateTransition{sta02, evt19, actionAa1},
 	stateTransition{sta03, evt19, actionAa8},
+	stateTransition{sta04, evt02, actionAe2},
+	stateTransition{sta04, evt15, actionAa2},
+	stateTransition{sta04, evt17, actionAa4},
+	stateTransition{sta05, evt03, actionAe3},
+	stateTransition{sta05, evt04, actionAe4},
+	stateTransition{sta05, evt06, actionAa8},
+	stateTransition{sta05, evt10, actionAa8},
+	stateTransition{sta05, evt12, actionAa8},
+	stateTransition{sta05, evt13, actionAa8},
+	stateTransition{sta05, evt15, actionAa1},
+	stateTransition{sta05, evt16, actionAa3},
+	stateTransition{sta05, evt17, actionAa4},
 	stateTransition{sta05, evt19, actionAa8},
+	stateTransition{sta06, evt03, actionAa8},
+	stateTransition{sta06, evt04, actionAa8},
+	stateTransition{sta06, evt06, actionAa8},
+	stateTransition{sta06, evt09, actionDt1},
+	stateTransition{sta06, evt10, actionDt2},
+	stateTransition{sta06, evt11, actionAr1},
+	stateTransition{sta06, evt12, actionAr2},
+	stateTransition{sta06, evt13, actionAa8},
+	stateTransition{sta06, evt15, actionAa1},
+	stateTransition{sta06, evt16, actionAa3},
+	stateTransition{sta06, evt17, actionAa4},
 	stateTransition{sta06, evt19, actionAa8},
+	stateTransition{sta07, evt03, actionAa8},
+	stateTransition{sta07, evt04, actionAa8},
+	stateTransition{sta07, evt06, actionAa8},
+	stateTransition{sta07, evt10, actionAr6},
+	stateTransition{sta07, evt12, actionAr8},
+	stateTransition{sta07, evt13, actionAr3},
+	stateTransition{sta07, evt15, actionAa1},
+	stateTransition{sta07, evt16, actionAa3},
+	stateTransition{sta07, evt17, actionAa4},
 	stateTransition{sta07, evt19, actionAa8},
+	stateTransition{sta08, evt03, actionAa8},
+	stateTransition{sta08, evt04, actionAa8},
+	stateTransition{sta08, evt06, actionAa8},
+	stateTransition{sta08, evt09, actionAr7},
+	stateTransition{sta08, evt10, actionAa8},
+	stateTransition{sta08, evt12, actionAa8},
+	stateTransition{sta08, evt13, actionAa8},
+	stateTransition{sta08, evt14, actionAr4},
+	stateTransition{sta08, evt15, actionAa1},
+	stateTransition{sta08, evt16, actionAa3},
+	stateTransition{sta08, evt17, actionAa4},
 	stateTransition{sta08, evt19, actionAa8},
+	stateTransition{sta09, evt03, actionAa8},
+	stateTransition{sta09, evt04, actionAa8},
+	stateTransition{sta09, evt06, actionAa8},
+	stateTransition{sta09, evt10, actionAa8},
+	stateTransition{sta09, evt12, actionAa8},
+	stateTransition{sta09, evt13, actionAa8},
+	stateTransition{sta09, evt14, actionAr9},
+	stateTransition{sta09, evt15, actionAa1},
+	stateTransition{sta09, evt16, actionAa3},
+	stateTransition{sta09, evt17, actionAa4},
 	stateTransition{sta09, evt19, actionAa8},
+	stateTransition{sta10, evt03, actionAa8},
+	stateTransition{sta10, evt04, actionAa8},
+	stateTransition{sta10, evt06, actionAa8},
+	stateTransition{sta10, evt10, actionAa8},
+	stateTransition{sta10, evt12, actionAa8},
+	stateTransition{sta10, evt13, actionAr10},
+	stateTransition{sta10, evt15, actionAa1},
+	stateTransition{sta10, evt16, actionAa3},
+	stateTransition{sta10, evt17, actionAa4},
 	stateTransition{sta10, evt19, actionAa8},
+	stateTransition{sta11, evt03, actionAa8},
+	stateTransition{sta11, evt04, actionAa8},
+	stateTransition{sta11, evt06, actionAa8},
+	stateTransition{sta11, evt10, actionAa8},
+	stateTransition{sta11, evt12, actionAa8},
+	stateTransition{sta11, evt13, actionAr3},
+	stateTransition{sta11, evt15, actionAa1},
+	stateTransition{sta11, evt16, actionAa3},
+	stateTransition{sta11, evt17, actionAa4},
 	stateTransition{sta11, evt19, actionAa8},
+	stateTransition{sta12, evt03, actionAa8},
+	stateTransition{sta12, evt04, actionAa8},
+	stateTransition{sta12, evt06, actionAa8},
+	stateTransition{sta12, evt10, actionAa8},
+	stateTransition{sta12, evt12, actionAa8},
+	stateTransition{sta12, evt13, actionAa8},
+	stateTransition{sta12, evt14, actionAr4},
+	stateTransition{sta12, evt15, actionAa1},
+	stateTransition{sta12, evt16, actionAa3},
+	stateTransition{sta12, evt17, actionAa4},
 	stateTransition{sta12, evt19, actionAa8},
+
+	stateTransition{sta13, evt03, actionAa6},
+	stateTransition{sta13, evt04, actionAa6},
+	stateTransition{sta13, evt06, actionAa7},
+	stateTransition{sta13, evt07, actionAa7},
+	stateTransition{sta13, evt08, actionAa7},
+	stateTransition{sta13, evt09, actionAa7},
+	stateTransition{sta13, evt10, actionAa6},
+	stateTransition{sta13, evt11, actionAa6},
+	stateTransition{sta13, evt12, actionAa6},
+	stateTransition{sta13, evt13, actionAa6},
+	stateTransition{sta13, evt14, actionAa6},
+	stateTransition{sta13, evt15, actionAa2},
+	stateTransition{sta13, evt16, actionAa2},
+	stateTransition{sta13, evt17, actionAr5},
+	stateTransition{sta13, evt18, actionAa2},
 	stateTransition{sta13, evt19, actionAa7},
 }
 
@@ -753,23 +760,32 @@ func networkReaderThread(ch chan stateEvent, conn net.Conn, smName string) {
 func getNextEvent(sm *stateMachine) stateEvent {
 	var ok bool
 	var event stateEvent
+	var channel string
 	for event.event.Event == 0 {
 		select {
 		case event, ok = <-sm.netCh:
+			channel = "net"
 			if !ok {
 				sm.netCh = nil
 			}
 		case event = <-sm.errorCh:
+			channel = "error"
 			// this channel shall never close.
 		case event, ok = <-sm.timerCh:
+			channel = "timer"
 			if !ok {
 				sm.timerCh = nil
 			}
 		case event, ok = <-sm.downcallCh:
+			channel = "downcall"
 			if !ok {
 				sm.downcallCh = nil
 			}
 		}
+	}
+	if event.event.Event == 0 {
+		log.Panicf("%s: received null event from channel '%s', sm: %v",
+			sm.name, channel, sm)
 	}
 	switch event.event {
 	case evt02:
