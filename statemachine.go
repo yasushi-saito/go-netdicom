@@ -689,7 +689,7 @@ func sendPDU(sm *stateMachine, pdu PDU) {
 }
 
 func startTimer(sm *stateMachine) {
-	ch := make(chan stateEvent)
+	ch := make(chan stateEvent, 1)
 	sm.timerCh = ch
 	time.AfterFunc(time.Duration(10)*time.Second,
 		func() {
@@ -703,7 +703,7 @@ func restartTimer(sm *stateMachine) {
 }
 
 func stopTimer(sm *stateMachine) {
-	sm.timerCh = make(chan stateEvent)
+	sm.timerCh = make(chan stateEvent, 1)
 }
 
 func networkReaderThread(ch chan stateEvent, conn net.Conn, smName string) {
