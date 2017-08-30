@@ -68,7 +68,7 @@ func onDIMSECommand(downcallCh chan stateEvent, abstractSyntaxUID string,
 			panic(err) // TODO(saito)
 		}
 		downcallCh <- stateEvent{
-			event: evt9,
+			event: evt09,
 			pdu:   nil,
 			conn:  nil,
 			dataPayload: &stateEventDataPayload{

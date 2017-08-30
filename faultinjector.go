@@ -34,10 +34,8 @@ func (f *FaultInjector) shouldContinue() bool {
 		return true
 	}
 	f.steps++
-	totalBits := len(f.fuzz) * 8
-	i := (f.steps / 8) % totalBits
-	bit := f.steps % 8
-	if f.fuzz[i]&(1<<uint8(bit)) != 0 {
+	action := f.fuzz[f.steps % len(f.fuzz)]
+	if action < byte(0x70) {
 		return true
 	} else {
 		return false

@@ -165,12 +165,12 @@ func (su *ServiceUser) CStore(data []byte) error {
 		return err
 	}
 	su.downcallCh <- stateEvent{
-		event: evt9,
+		event: evt09,
 		dataPayload: &stateEventDataPayload{abstractSyntaxName: sopClassUID,
 			command: true,
 			data:    req}}
 	su.downcallCh <- stateEvent{
-		event: evt9,
+		event: evt09,
 		dataPayload: &stateEventDataPayload{abstractSyntaxName: sopClassUID,
 			command: false,
 			data:    body}}
