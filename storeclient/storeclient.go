@@ -31,9 +31,9 @@ func main() {
 		log.Fatal(err)
 	}
 	params := netdicom.NewServiceUserParams(
-		server, "dontcare", "testclient", netdicom.StorageClasses,
+		"dontcare", "testclient", netdicom.StorageClasses,
 		[]string{transferSyntaxUID.MustGetString()})
-	su := netdicom.NewServiceUser(params)
+	su := netdicom.NewServiceUser(server, params)
 
 	err = su.CStore(data)
 	if err != nil {

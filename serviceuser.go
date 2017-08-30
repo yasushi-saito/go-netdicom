@@ -27,7 +27,6 @@ type ServiceUser struct {
 }
 
 type ServiceUserParams struct {
-	Provider         string // server "host:port"
 	CalledAETitle    string
 	CallingAETitle   string
 	RequiredServices []SOPUID
@@ -41,12 +40,11 @@ type ServiceUserParams struct {
 	// spec is particularly moronic here, since we could just have specified
 	// the transfer syntax per data sent.
 	SupportedTransferSyntaxes []string
-	MaxPDUSize                uint32
+	MaxPDUSize                int
 }
 
 // If transferSyntaxUIDs is empty, the standard list of syntax is used.
 func NewServiceUserParams(
-	provider string,
 	calledAETitle string,
 	callingAETitle string,
 	requiredServices []SOPUID,
@@ -65,7 +63,6 @@ func NewServiceUserParams(
 		transferSyntaxUIDs = canonical
 	}
 	return ServiceUserParams{
-		Provider:                  provider,
 		CalledAETitle:             calledAETitle,
 		CallingAETitle:            callingAETitle,
 		RequiredServices:          requiredServices,
@@ -74,7 +71,7 @@ func NewServiceUserParams(
 	}
 }
 
-func NewServiceUser(params ServiceUserParams) *ServiceUser {
+func NewServiceUser(serverAddr string, params ServiceUserParams) *ServiceUser {
 	su := &ServiceUser{
 		status: serviceUserInitial,
 		// sm: NewStateMachineForServiceUser(params, nil, nil),
@@ -82,7 +79,7 @@ func NewServiceUser(params ServiceUserParams) *ServiceUser {
 		upcallCh:      make(chan upcallEvent, 128),
 		nextMessageID: 123, // any value != 0 suffices.
 	}
-	go runStateMachineForServiceUser(params, su.upcallCh, su.downcallCh)
+	go runStateMachineForServiceUser(serverAddr, params, su.upcallCh, su.downcallCh)
 	return su
 }
 

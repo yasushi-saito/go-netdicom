@@ -8,8 +8,18 @@ import (
 type ServiceProviderParams struct {
 	// The max PDU size, in bytes, that this instance is willing to receive.
 	// If the value is <=0, DefaultMaxPDUSize is used.
-	MaxPDUSize uint32
+	MaxPDUSize int
+}
 
+const DefaultMaxPDUSize int = 4 << 20
+
+type CStoreCallback func(
+	transferSyntaxUID string,
+	sopClassUID string,
+	sopInstanceUID string,
+	data []byte) uint16
+
+type ServiceProviderCallbacks struct {
 	// Called on receiving a C_STORE_RQ message.  sopClassUID and
 	// sopInstanceUID are the IDs of the data. They are from the C-STORE
 	// request packat.
@@ -24,28 +34,23 @@ type ServiceProviderParams struct {
 	// The handler should store encode the sop{Class,InstanceUID} as the
 	// DICOM header, followed by data. It should return either 0 on success,
 	// or one of CStoreStatus* error codes.
-	OnCStoreRequest func(
-		transferSyntaxUID string,
-		sopClassUID string,
-		sopInstanceUID string,
-		data []byte) uint16
+	CStore CStoreCallback
 }
 
-const DefaultMaxPDUSize uint32 = 4 << 20
-
 type ServiceProvider struct {
-	params ServiceProviderParams
+	params    ServiceProviderParams
+	callbacks ServiceProviderCallbacks
 }
 
 func onDIMSECommand(downcallCh chan stateEvent, abstractSyntaxUID string,
 	transferSyntaxUID string,
-	msg DIMSEMessage, data []byte, params ServiceProviderParams) {
+	msg DIMSEMessage, data []byte, callbacks ServiceProviderCallbacks) {
 	doassert(transferSyntaxUID != "")
 	switch c := msg.(type) {
 	case *C_STORE_RQ:
 		status := CStoreStatusCannotUnderstand
-		if params.OnCStoreRequest != nil {
-			status = params.OnCStoreRequest(
+		if callbacks.CStore != nil {
+			status = callbacks.CStore(
 				transferSyntaxUID,
 				c.AffectedSOPClassUID,
 				c.AffectedSOPInstanceUID,
@@ -76,16 +81,20 @@ func onDIMSECommand(downcallCh chan stateEvent, abstractSyntaxUID string,
 	}
 }
 
-func NewServiceProvider(params ServiceProviderParams) *ServiceProvider {
+func NewServiceProvider(
+	params ServiceProviderParams,
+	callbacks ServiceProviderCallbacks) *ServiceProvider {
 	if params.MaxPDUSize <= 0 {
 		params.MaxPDUSize = DefaultMaxPDUSize
 	}
-	sp := &ServiceProvider{params: params}
+	sp := &ServiceProvider{params: params, callbacks: callbacks}
 	return sp
 }
 
 // Run a thread that listens to events from the DUL statemachine (DICOM spec P3.8).
-func runUpperLayerForServiceProvider(params ServiceProviderParams, upcallCh chan upcallEvent, downcallCh chan stateEvent) {
+func runUpperLayerForServiceProvider(callbacks ServiceProviderCallbacks,
+	upcallCh chan upcallEvent,
+	downcallCh chan stateEvent) {
 	handshakeCompleted := false
 	for event := range upcallCh {
 		if event.eventType == upcallEventHandshakeCompleted {
@@ -99,26 +108,20 @@ func runUpperLayerForServiceProvider(params ServiceProviderParams, upcallCh chan
 		doassert(handshakeCompleted == true)
 		onDIMSECommand(downcallCh, event.abstractSyntaxUID,
 			event.transferSyntaxUID,
-			event.command, event.data, params)
+			event.command, event.data, callbacks)
 	}
 	log.Printf("Finished upper layer service!")
 }
 
 // Start threads for handling "conn". This function returns immediately; "conn"
 // will be cleaned up in the background.
-func RunProviderForConn(conn net.Conn, spParams ServiceProviderParams) {
+func RunProviderForConn(conn net.Conn,
+	params ServiceProviderParams,
+	callbacks ServiceProviderCallbacks) {
 	downcallCh := make(chan stateEvent, 128)
 	upcallCh := make(chan upcallEvent, 128)
-	smParams := stateMachineParams{
-		verbose:    true,
-		maxPDUSize: spParams.MaxPDUSize,
-		// // onAssociateRequest: onAssociateRequest,
-		// onDataRequest: func(sm *StateMachine, pdu P_DATA_TF, contextIDMap contextIDMap) {
-		// 	onDataRequest(sm, pdu, contextIDMap, dataState, sp.params)
-		// },
-	}
-	go runStateMachineForServiceProvider(conn, smParams, upcallCh, downcallCh)
-	runUpperLayerForServiceProvider(spParams, upcallCh, downcallCh)
+	go runStateMachineForServiceProvider(conn, params, upcallCh, downcallCh)
+	runUpperLayerForServiceProvider(callbacks, upcallCh, downcallCh)
 	log.Print("Finished the provider")
 }
 
@@ -137,6 +140,6 @@ func (sp *ServiceProvider) Run(listenAddr string) error {
 			log.Printf("Accept error: %v", err)
 			continue
 		}
-		go func() { RunProviderForConn(conn, sp.params) }()
+		go func() { RunProviderForConn(conn, sp.params, sp.callbacks) }()
 	}
 }

@@ -36,6 +36,7 @@ type stateAction struct {
 var actionAe1 = &stateAction{"AE-1",
 	"Issue TRANSPORT CONNECT request primitive to local transport service",
 	func(sm *stateMachine, event stateEvent) *stateType {
+		doassert(event.conn != nil || event.serverAddr != "")
 		go func(ch chan stateEvent, serverHostPort string) {
 			conn, err := net.Dial("tcp", serverHostPort)
 			if err != nil {
@@ -46,7 +47,7 @@ var actionAe1 = &stateAction{"AE-1",
 			}
 			ch <- stateEvent{event: evt2, pdu: nil, err: nil, conn: conn}
 			networkReaderThread(ch, conn)
-		}(sm.netCh, sm.serviceUserParams.Provider)
+		}(sm.netCh, event.serverAddr)
 		return sta4
 	}}
 
@@ -65,7 +66,7 @@ func buildAssociateRequestItems(m *contextManager, params ServiceUserParams) []S
 	items = append(items,
 		&UserInformationItem{
 			Items: []SubItem{
-				&UserInformationMaximumLengthItem{params.MaxPDUSize},
+				&UserInformationMaximumLengthItem{uint32(params.MaxPDUSize)},
 				&ImplementationClassUIDSubItem{dicom.DefaultImplementationClassUID},
 				&ImplementationVersionNameSubItem{dicom.DefaultImplementationVersionName}}})
 	return items
@@ -73,12 +74,12 @@ func buildAssociateRequestItems(m *contextManager, params ServiceUserParams) []S
 
 var actionAe2 = &stateAction{"AE-2", "Send A-ASSOCIATE-RQ-PDU",
 	func(sm *stateMachine, event stateEvent) *stateType {
-		items := buildAssociateRequestItems(sm.contextManager, sm.serviceUserParams)
+		items := buildAssociateRequestItems(sm.contextManager, sm.userParams)
 		pdu := &A_ASSOCIATE{
 			Type:            PDUTypeA_ASSOCIATE_RQ,
 			ProtocolVersion: CurrentProtocolVersion,
-			CalledAETitle:   sm.serviceUserParams.CalledAETitle,
-			CallingAETitle:  sm.serviceUserParams.CallingAETitle,
+			CalledAETitle:   sm.userParams.CalledAETitle,
+			CallingAETitle:  sm.userParams.CallingAETitle,
 			Items:           items,
 		}
 		sendPDU(sm, pdu)
@@ -98,6 +99,8 @@ var actionAe3 = &stateAction{"AE-3", "Issue A-ASSOCIATE confirmation (accept) pr
 		}
 		sm.contextManager.onAssociateResponse(items)
 		sm.upcallCh <- upcallEvent{eventType: upcallEventHandshakeCompleted}
+		sm.maxPDUSize = sm.userParams.MaxPDUSize // TODO(saito) Extract from response!
+		doassert(sm.maxPDUSize > 0)
 		return sta6
 	}}
 
@@ -148,7 +151,10 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 		// TODO(saito) Set the PDU size more properly.
 		responses = append(responses,
 			&UserInformationItem{
-				Items: []SubItem{&UserInformationMaximumLengthItem{MaximumLengthReceived: sm.params.maxPDUSize}}})
+				Items: []SubItem{&UserInformationMaximumLengthItem{MaximumLengthReceived: uint32(sm.providerParams.MaxPDUSize)}}})
+		// TODO(saito) extract the user params.
+		sm.maxPDUSize = sm.providerParams.MaxPDUSize
+		doassert(sm.maxPDUSize > 0)
 		ok := true
 		// items, ok := sm.serviceProviderParams.onAssociateRequest(*pdu)
 		if ok {
@@ -447,6 +453,7 @@ type stateEvent struct {
 	err   error
 	conn  net.Conn
 
+	serverAddr  string                 // host:port to connect to. Set only for evt1
 	dataPayload *stateEventDataPayload // set iff event==evt9.
 }
 
@@ -594,9 +601,9 @@ const (
 )
 
 type stateMachine struct {
-	isUser            bool // true if service user, false if provider
-	serviceUserParams ServiceUserParams
-	params            stateMachineParams
+	isUser         bool // true if service user, false if provider
+	userParams     ServiceUserParams
+	providerParams ServiceProviderParams
 
 	// abstractSyntaxMap maps a contextID (an odd integer) to an abstract
 	// syntax string such as 1.2.840.10008.5.1.4.1.1.1.2.  This field is set
@@ -623,6 +630,7 @@ type stateMachine struct {
 	maxPDUSize int
 
 	commandAssembler dimseCommandAssembler
+	faults           *FaultInjector
 }
 
 func doassert(x bool) {
@@ -753,15 +761,6 @@ func findAction(currentState *stateType, event eventType) *stateAction {
 	return nil
 }
 
-type stateMachineParams struct {
-	verbose bool
-	// listenAddr     string // Set only when running as provider
-	maxPDUSize uint32
-
-	// onAssociateRequest func(A_ASSOCIATE) ([]SubItem, bool)
-	// onDataRequest func(*stateMachine, P_DATA_TF, contextManager)
-}
-
 const DefaultMaximiumPDUSize = uint32(1 << 20)
 
 func runOneStep(sm *stateMachine) {
@@ -770,27 +769,33 @@ func runOneStep(sm *stateMachine) {
 	action := findAction(sm.currentState, event.event)
 	log.Printf("Running action %v", action)
 	sm.currentState = action.Callback(sm, event)
+	if sm.faults != nil && !sm.faults.shouldContinue() {
+		if sm.conn != nil {
+			log.Printf("FAULT: closing connection for test")
+			sm.conn.Close()
+		}
+	}
 	log.Printf("Next state: %v", sm.currentState)
 }
 
 func runStateMachineForServiceUser(
+	serverAddr string,
 	params ServiceUserParams,
 	upcallCh chan upcallEvent,
 	downcallCh chan stateEvent) {
-	doassert(params.Provider != "")
 	doassert(params.CallingAETitle != "")
 	doassert(len(params.RequiredServices) > 0)
 	doassert(len(params.SupportedTransferSyntaxes) > 0)
 	sm := &stateMachine{
-		isUser:            true,
-		contextManager:    newContextManager(),
-		serviceUserParams: params,
-		netCh:             make(chan stateEvent, 128),
-		downcallCh:        downcallCh,
-		upcallCh:          upcallCh,
-		maxPDUSize:        1 << 20, // TODO(saito)
+		isUser:         true,
+		contextManager: newContextManager(),
+		userParams:     params,
+		netCh:          make(chan stateEvent, 128),
+		downcallCh:     downcallCh,
+		upcallCh:       upcallCh,
+		faults:         GetUserFaultInjector(),
 	}
-	event := stateEvent{event: evt1}
+	event := stateEvent{event: evt1, serverAddr: serverAddr}
 	action := findAction(sta1, event.event)
 	sm.currentState = action.Callback(sm, event)
 	for sm.currentState != sta1 {
@@ -801,18 +806,18 @@ func runStateMachineForServiceUser(
 
 func runStateMachineForServiceProvider(
 	conn net.Conn,
-	params stateMachineParams,
+	params ServiceProviderParams,
 	upcallCh chan upcallEvent,
 	downcallCh chan stateEvent) {
 	sm := &stateMachine{
 		isUser:         false,
-		params:         params,
+		providerParams: params,
 		contextManager: newContextManager(),
 		conn:           conn,
 		netCh:          make(chan stateEvent, 128),
-		maxPDUSize:     1 << 20, // TODO(saito)
 		downcallCh:     downcallCh,
 		upcallCh:       upcallCh,
+		faults:         GetProviderFaultInjector(),
 	}
 	event := stateEvent{event: evt5, conn: conn}
 	action := findAction(sta1, event.event)

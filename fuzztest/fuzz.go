@@ -1,4 +1,4 @@
-package netdicom_test
+package fuzz
 
 import (
 	"errors"
@@ -81,7 +81,8 @@ func getCStoreData() (*dicom.DicomFile, error) {
 	return f, nil
 }
 
-func init() {
+func startServer(faults *netdicom.FaultInjector) string {
+	netdicom.SetProviderFaultInjector(faults)
 	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
 		log.Panic(err)
@@ -89,7 +90,6 @@ func init() {
 	go func() {
 		// TODO(saito) test w/ small PDU.
 		params := netdicom.ServiceProviderParams{MaxPDUSize: 4096000}
-		callbacks := netdicom.ServiceProviderCallbacks{CStore: onCStoreRequest}
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
@@ -97,14 +97,14 @@ func init() {
 				continue
 			}
 			log.Printf("Accepted connection %v", conn)
-			netdicom.RunProviderForConn(conn, params, callbacks)
+			netdicom.RunProviderForConn(conn, params, netdicom.ServiceProviderCallbacks{})
 		}
 	}()
-	serverAddr = listener.Addr().String()
+	return listener.Addr().String()
 }
 
-func TestStoreSingleFile(t *testing.T) {
-	data, err := ioutil.ReadFile("testdata/IM-0001-0003.dcm")
+func runClient(faults *netdicom.FaultInjector) {
+	data, err := ioutil.ReadFile("../testdata/reportsi.dcm")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -112,24 +112,19 @@ func TestStoreSingleFile(t *testing.T) {
 	if err != nil {
 		log.Fatal(err)
 	}
+	netdicom.SetUserFaultInjector(faults)
+
 	params := netdicom.NewServiceUserParams(
 		"dontcare", "testclient", netdicom.StorageClasses,
 		[]string{transferSyntaxUID})
 	su := netdicom.NewServiceUser(serverAddr, params)
-	err = su.CStore(data)
-	if err != nil {
-		log.Fatal(err)
-	}
+	su.CStore(data)
 	log.Printf("Store done!!")
 	su.Release()
+}
 
-	out, err := getCStoreData()
-	if err != nil {
-		log.Fatal(err)
-	}
-	in, err := dicom.ParseBytes(data)
-	if err != nil {
-		log.Fatal(err)
-	}
-	checkFileBodiesEqual(t, in, out)
+func Fuzz(data []byte) int {
+	startServer(netdicom.NewFaultInjector(data))
+	runClient(netdicom.NewFaultInjector(data))
+	return 0
 }
