@@ -5,14 +5,13 @@ package netdicom
 // http://dicom.nema.org/medical/dicom/current/output/pdf/part07.pdf
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"github.com/yasushi-saito/go-dicom"
-	"io"
 	"log"
 )
 
+// Common interface for all C-XXX message types.
 type DIMSEMessage interface {
 	Encode(*dicom.Encoder)
 	HasData() bool
@@ -71,11 +70,6 @@ func getUInt16FromElements(elems []*dicom.DicomElement, tag dicom.Tag, errp *err
 	return v
 }
 
-// Fields common to all DIMSE messages.
-type DIMSEMessageHeader struct {
-	CommandField uint16 // (0000,0100)
-}
-
 func encodeDataElementWithSingleValue(e *dicom.Encoder, tag dicom.Tag, v interface{}) {
 	elem := dicom.DicomElement{
 		Tag:   tag,
@@ -84,11 +78,6 @@ func encodeDataElementWithSingleValue(e *dicom.Encoder, tag dicom.Tag, v interfa
 		Value: []interface{}{v},
 	}
 	dicom.EncodeDataElement(e, &elem)
-}
-
-func encodeDIMSEMessageHeader(e *dicom.Encoder, v DIMSEMessageHeader) {
-	//encodeDataElementWithSingleValue(e, dicom.Tag{0, 0}, v.CommandGroupLength)
-	//encodeDataElementWithSingleValue(e, dicom.Tag{0, 2}, v.AffectedSOPClassUID)
 }
 
 // P3.7 9.3.1.1
@@ -268,42 +257,7 @@ func (v *C_ECHO_RQ) HasData() bool {
 	return v.CommandDataSetType != CommandDataSetTypeNull
 }
 
-func ReadDIMSEMessage(io io.Reader, limit int64) (DIMSEMessage, error) {
-	var elems []*dicom.DicomElement
-	// Note: DIMSE elements are always implicit LE.
-	//
-	// TODO(saito) make sure that's the case. Where the ref?
-	d := dicom.NewDecoder(io, limit, binary.LittleEndian, dicom.ImplicitVR)
-	for d.Len() > 0 {
-		elem := dicom.ReadDataElement(d)
-		if d.Error() != nil {
-			break
-		}
-		elems = append(elems, elem)
-	}
-	if err := d.Finish(); err != nil {
-		return nil, err
-	}
-
-	var err error
-	commandField := getUInt16FromElements(elems, dicom.TagCommandField, &err)
-	if err != nil {
-		return nil, err
-	}
-	switch commandField {
-	case 1:
-		return decodeC_STORE_RQ(elems)
-	case 0x8001:
-		return decodeC_STORE_RSP(elems)
-	case 0x30:
-		return decodeC_ECHO_RQ(elems)
-	case 0x8030:
-		return decodeC_ECHO_RSP(elems)
-	}
-	return nil, fmt.Errorf("Unknown DIMSE command 0x%x", commandField)
-}
-
-func ReadDIMSEMessage2(d *dicom.Decoder) DIMSEMessage {
+func ReadDIMSEMessage(d *dicom.Decoder) DIMSEMessage {
 	var elems []*dicom.DicomElement
 	// Note: DIMSE elements are always implicit LE.
 	//
@@ -380,6 +334,9 @@ type dimseCommandAssembler struct {
 	readAllData bool
 }
 
+// Add a P_DATA_TF fragment. If the final fragment is received, returns <SOPUID,
+// TransferSyntaxUID, payload, nil>.  If it expects more fragments, it retutrns
+// <"", "", nil, nil>.  On error, the final return value is non-nil.
 func addPDataTF(a *dimseCommandAssembler, pdu *P_DATA_TF, contextManager *contextManager) (string, string, DIMSEMessage, []byte, error) {
 	for _, item := range pdu.Items {
 		if a.contextID == 0 {
@@ -409,9 +366,9 @@ func addPDataTF(a *dimseCommandAssembler, pdu *P_DATA_TF, contextManager *contex
 		return "", "", nil, nil, nil
 	}
 	if a.command == nil {
-		var err error
-		a.command, err = ReadDIMSEMessage(bytes.NewBuffer(a.commandBytes), int64(len(a.commandBytes)))
-		if err != nil {
+		d := dicom.NewBytesDecoder(a.commandBytes, nil, dicom.UnknownVR)
+		a.command = ReadDIMSEMessage(d)
+		if err := d.Finish(); err != nil {
 			return "", "", nil, nil, err
 		}
 	}

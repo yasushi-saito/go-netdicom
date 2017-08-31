@@ -15,7 +15,7 @@ func testDIMSE(t *testing.T, v netdicom.DIMSEMessage) {
 		t.Fatal(err)
 	}
 	d := dicom.NewBytesDecoder(bytes, binary.LittleEndian, dicom.ImplicitVR)
-	v2 := netdicom.ReadDIMSEMessage2(d)
+	v2 := netdicom.ReadDIMSEMessage(d)
 	err = d.Finish()
 	if err != nil {
 		t.Fatal(err)
