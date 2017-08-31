@@ -1,4 +1,4 @@
-package pdufuzz
+package fuzzpdu
 
 import (
 	"bytes"
@@ -7,6 +7,6 @@ import (
 
 func Fuzz(data []byte) int {
 	in := bytes.NewBuffer(data)
-	netdicom.ReadPDU(in)
+	netdicom.ReadPDU(in, 4 << 20)
 	return 0
 }

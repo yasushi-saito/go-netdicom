@@ -81,7 +81,7 @@ var actionAe1 = &stateAction{"AE-1",
 				return
 			}
 			ch <- stateEvent{event: evt02, pdu: nil, err: nil, conn: conn}
-			networkReaderThread(ch, conn, sm.name)
+			networkReaderThread(ch, conn, sm.userParams.MaxPDUSize, sm.name)
 		}(sm.netCh, event.serverAddr)
 		return sta04
 	}}
@@ -150,7 +150,7 @@ var actionAe5 = &stateAction{"AE-5", "Issue Transport connection response primit
 		doassert(event.conn != nil)
 		startTimer(sm)
 		go func(ch chan stateEvent, conn net.Conn) {
-			networkReaderThread(ch, conn, sm.name)
+			networkReaderThread(ch, conn, sm.providerParams.MaxPDUSize, sm.name)
 		}(sm.netCh, event.conn)
 		return sta02
 	}}
@@ -654,12 +654,6 @@ type stateMachine struct {
 	faults           *FaultInjector
 }
 
-func doassert(x bool) {
-	if !x {
-		panic("doassert")
-	}
-}
-
 func closeConnection(sm *stateMachine) {
 	close(sm.upcallCh)
 	log.Printf("%s: Closing connection %v", sm.name, sm.conn)
@@ -710,10 +704,11 @@ func stopTimer(sm *stateMachine) {
 	sm.timerCh = make(chan stateEvent, 1)
 }
 
-func networkReaderThread(ch chan stateEvent, conn net.Conn, smName string) {
-	log.Printf("%s: Starting network reader for %v", smName, conn)
+func networkReaderThread(ch chan stateEvent, conn net.Conn, maxPDUSize int, smName string) {
+	log.Printf("%s: Starting network reader for %v, maxPDU %d", smName, conn, maxPDUSize)
+	doassert(maxPDUSize > 16*1024)
 	for {
-		pdu, err := ReadPDU(conn)
+		pdu, err := ReadPDU(conn, maxPDUSize)
 		if err != nil {
 			log.Printf("%s: Failed to read PDU: %v", err, smName)
 			if err == io.EOF {

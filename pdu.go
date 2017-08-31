@@ -86,7 +86,7 @@ func decodeSubItem(d *dicom.Decoder) SubItem {
 	if itemType == ItemTypeImplementationVersionName {
 		return decodeImplementationVersionNameSubItem(d, length)
 	}
-	log.Panicf("Unknown item type: 0x%x", itemType)
+	d.SetError(fmt.Errorf("Unknown item type: 0x%x", itemType))
 	return nil
 }
 
@@ -120,8 +120,12 @@ func decodeUserInformationItem(d *dicom.Decoder, length uint16) *UserInformation
 	v := &UserInformationItem{}
 	d.PushLimit(int64(length))
 	defer d.PopLimit()
-	for d.Len() > 0 && d.Error() == nil {
-		v.Items = append(v.Items, decodeSubItem(d))
+	for d.Len() > 0 {
+		item := decodeSubItem(d)
+		if d.Error() != nil {
+			break
+		}
+		v.Items = append(v.Items, item)
 	}
 	return v
 }
@@ -142,7 +146,9 @@ func (v *UserInformationMaximumLengthItem) Write(e *dicom.Encoder) {
 }
 
 func decodeUserInformationMaximumLengthItem(d *dicom.Decoder, length uint16) *UserInformationMaximumLengthItem {
-	doassert(length == 4) //TODO
+	if length != 4 {
+		d.SetError(fmt.Errorf("UserInformationMaximumLengthItem must be 4 bytes, but found %dB", length))
+	}
 	return &UserInformationMaximumLengthItem{MaximumLengthReceived: d.ReadUInt32()}
 }
 
@@ -311,8 +317,12 @@ func decodePresentationContextItem(d *dicom.Decoder, itemType byte, length uint1
 	d.Skip(1)
 	v.Result = d.ReadByte()
 	d.Skip(1)
-	for d.Len() > 0 && d.Error() == nil {
-		v.Items = append(v.Items, decodeSubItem(d))
+	for d.Len() > 0 {
+		item := decodeSubItem(d)
+		if d.Error() != nil {
+			break
+		}
+		v.Items = append(v.Items, item)
 	}
 	if v.ContextID%2 != 1 {
 		d.SetError(fmt.Errorf("PresentationContextItem ID must be odd, but found %x", v.ContextID))
@@ -426,7 +436,7 @@ func EncodePDU(pdu PDU) ([]byte, error) {
 	return append(header, payload...), nil
 }
 
-func ReadPDU(in io.Reader) (PDU, error) {
+func ReadPDU(in io.Reader, maxPDUSize int) (PDU, error) {
 	var pduType PDUType
 	var skip byte
 	var length uint32
@@ -441,6 +451,10 @@ func ReadPDU(in io.Reader) (PDU, error) {
 	err = binary.Read(in, binary.BigEndian, &length)
 	if err != nil {
 		return nil, err
+	}
+	if length >= uint32(maxPDUSize)*2 {
+		// Avoid using too much memory. *2 is just an arbitrary slack.
+		return nil, fmt.Errorf("Invalid length %d; it's much larger than max PDU size of %d", length, maxPDUSize)
 	}
 	d := dicom.NewDecoder(in, int64(length),
 		binary.BigEndian, // PDU is always big endian
@@ -539,11 +553,16 @@ func decodeA_ASSOCIATE(d *dicom.Decoder, pduType PDUType) *A_ASSOCIATE {
 	pdu.CalledAETitle = d.ReadString(16)
 	pdu.CallingAETitle = d.ReadString(16)
 	d.Skip(8 * 4)
-	for d.Len() > 0 && d.Error() == nil {
-		pdu.Items = append(pdu.Items, decodeSubItem(d))
+	for d.Len() > 0 {
+		item := decodeSubItem(d)
+		if d.Error() != nil {
+			break
+		}
+		pdu.Items = append(pdu.Items, item)
 	}
-	doassert(pdu.CalledAETitle != "")
-	doassert(pdu.CallingAETitle != "")
+	if pdu.CalledAETitle == "" || pdu.CallingAETitle == "" {
+		d.SetError(fmt.Errorf("A_ASSOCIATE.{Called,Calling}AETitle must not be empty, in %v", pdu.String()))
+	}
 	return pdu
 }
 
@@ -646,8 +665,12 @@ type P_DATA_TF struct {
 
 func decodeP_DATA_TF(d *dicom.Decoder) *P_DATA_TF {
 	pdu := &P_DATA_TF{}
-	for d.Len() > 0 && d.Error() == nil {
-		pdu.Items = append(pdu.Items, ReadPresentationDataValueItem(d))
+	for d.Len() > 0 {
+		item := ReadPresentationDataValueItem(d)
+		if d.Error() != nil {
+			break
+		}
+		pdu.Items = append(pdu.Items, item)
 	}
 	return pdu
 }
