@@ -230,8 +230,7 @@ func ReadDIMSEMessage(io io.Reader, limit int64) (DIMSEMessage, error) {
 	case 0x8001:
 		return decodeC_STORE_RSP(elems)
 	}
-	log.Printf("Unknown DIMSE command 0x%x", commandField)
-	return nil, err
+	return nil, fmt.Errorf("Unknown DIMSE command 0x%x", commandField)
 }
 
 func encodeDIMSEMessage(v DIMSEMessage) ([]byte, error) {
@@ -269,13 +268,17 @@ func addPDataTF(a *dimseCommandAssembler, pdu *P_DATA_TF, contextManager *contex
 		if item.Command {
 			a.commandBytes = append(a.commandBytes, item.Value...)
 			if item.Last {
-				doassert(!a.readAllCommand)
+				if a.readAllCommand {
+					return "", "", nil, nil, fmt.Errorf("P_DATA_TF: found >1 command chunks with the Last bit set")
+				}
 				a.readAllCommand = true
 			}
 		} else {
 			a.dataBytes = append(a.dataBytes, item.Value...)
 			if item.Last {
-				doassert(!a.readAllData)
+				if a.readAllData {
+					return "", "", nil, nil, fmt.Errorf("P_DATA_TF: found >1 data chunks with the Last bit set")
+				}
 				a.readAllData = true
 			}
 		}
@@ -290,6 +293,7 @@ func addPDataTF(a *dimseCommandAssembler, pdu *P_DATA_TF, contextManager *contex
 			return "", "", nil, nil, err
 		}
 	}
+	doassert(a.command != nil)
 	if a.command.HasData() && !a.readAllData {
 		return "", "", nil, nil, nil
 	}

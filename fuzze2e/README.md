@@ -5,5 +5,5 @@ Then run:
 ```
 go-fuzz-build github.com/yasushi-saito/go-netdicom/fuzze2e
 mkdir -p /tmp/fuzze2e
-go-fuzz -bin fuzze2e-fuzz.zip -workdir /tmp/fuzze2e
+go-fuzz -procs 64 -bin fuzze2e-fuzz.zip -workdir /tmp/fuzze2e
 ```

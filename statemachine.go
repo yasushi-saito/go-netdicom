@@ -1,11 +1,15 @@
 package netdicom
 
+// Implements the network statemachine, as defined in P3.8 9.2.3.
+// http://dicom.nema.org/medical/dicom/current/output/pdf/part08.pdf
+
 import (
 	"fmt"
 	"github.com/yasushi-saito/go-dicom"
 	"io"
 	"log"
 	"net"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -13,6 +17,10 @@ import (
 type stateType struct {
 	Name        string
 	Description string
+}
+
+func (s *stateType) String() string {
+	return fmt.Sprintf("%s(%s)", s.Name, s.Description)
 }
 
 var smSeq int32 = 32 // for assignign unique stateMachine.name
@@ -64,6 +72,10 @@ type stateAction struct {
 	Name        string
 	Description string
 	Callback    func(sm *stateMachine, event stateEvent) *stateType
+}
+
+func (s *stateAction) String() string {
+	return fmt.Sprintf("%s(%s)", s.Name, s.Description)
 }
 
 var actionAe1 = &stateAction{"AE-1",
@@ -124,6 +136,7 @@ var actionAe2 = &stateAction{"AE-2", "Send A-ASSOCIATE-RQ-PDU",
 
 var actionAe3 = &stateAction{"AE-3", "Issue A-ASSOCIATE confirmation (accept) primitive",
 	func(sm *stateMachine, event stateEvent) *stateType {
+		stopTimer(sm)
 		pdu := event.pdu.(*A_ASSOCIATE)
 		doassert(pdu.Type == PDUTypeA_ASSOCIATE_AC)
 		var items []*PresentationContextItem
@@ -132,11 +145,16 @@ var actionAe3 = &stateAction{"AE-3", "Issue A-ASSOCIATE confirmation (accept) pr
 				items = append(items, n)
 			}
 		}
-		sm.contextManager.onAssociateResponse(items)
-		sm.upcallCh <- upcallEvent{eventType: upcallEventHandshakeCompleted}
-		sm.maxPDUSize = sm.userParams.MaxPDUSize // TODO(saito) Extract from response!
-		doassert(sm.maxPDUSize > 0)
-		return sta06
+		err := sm.contextManager.onAssociateResponse(items)
+		if err == nil {
+			sm.upcallCh <- upcallEvent{eventType: upcallEventHandshakeCompleted}
+			sm.maxPDUSize = sm.userParams.MaxPDUSize // TODO(saito) Extract from response!
+			doassert(sm.maxPDUSize > 0)
+			return sta06
+		} else {
+			log.Print(err)
+			return actionAa8.Callback(sm, event)
+		}
 	}}
 
 var actionAe4 = &stateAction{"AE-4", "Issue A-ASSOCIATE confirmation (reject) primitive and close transport connection",
@@ -154,6 +172,16 @@ var actionAe5 = &stateAction{"AE-5", "Issue Transport connection response primit
 		}(sm.netCh, event.conn)
 		return sta02
 	}}
+
+func extractPresentationContextItems(items []SubItem) []*PresentationContextItem {
+	var contextItems []*PresentationContextItem
+	for _, item := range items {
+		if n, ok := item.(*PresentationContextItem); ok {
+			contextItems = append(contextItems, n)
+		}
+	}
+	return contextItems
+}
 
 var actionAe6 = &stateAction{"AE-6", `Stop ARTIM timer and if A-ASSOCIATE-RQ acceptable by "
 service-dul: issue A-ASSOCIATE indication primitive
@@ -173,26 +201,28 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 				Name: DefaultApplicationContextItemName,
 			},
 		}
-
-		var contextItems []*PresentationContextItem
-		for _, item := range pdu.Items {
-			if n, ok := item.(*PresentationContextItem); ok {
-				contextItems = append(contextItems, n)
+		items, err := sm.contextManager.onAssociateRequest(extractPresentationContextItems(pdu.Items))
+		if err != nil {
+			// TODO(saito) set proper error code.
+			sm.downcallCh <- stateEvent{
+				event: evt08,
+				pdu: &A_ASSOCIATE_RJ{
+					Result: ResultRejectedPermanent,
+					Source: SourceULServiceProviderACSE,
+					Reason: 1,
+				},
 			}
-		}
-		for _, item := range sm.contextManager.onAssociateRequest(contextItems) {
-			responses = append(responses, item)
-		}
-		// TODO(saito) Set the PDU size more properly.
-		responses = append(responses,
-			&UserInformationItem{
-				Items: []SubItem{&UserInformationMaximumLengthItem{MaximumLengthReceived: uint32(sm.providerParams.MaxPDUSize)}}})
-		// TODO(saito) extract the user params.
-		sm.maxPDUSize = sm.providerParams.MaxPDUSize
-		doassert(sm.maxPDUSize > 0)
-		ok := true
-		// items, ok := sm.serviceProviderParams.onAssociateRequest(*pdu)
-		if ok {
+		} else {
+			for _, item := range items {
+				responses = append(responses, item)
+			}
+			// TODO(saito) Set the PDU size more properly.
+			responses = append(responses,
+				&UserInformationItem{
+					Items: []SubItem{&UserInformationMaximumLengthItem{MaximumLengthReceived: uint32(sm.providerParams.MaxPDUSize)}}})
+			// TODO(saito) extract the user params.
+			sm.maxPDUSize = sm.providerParams.MaxPDUSize
+			doassert(sm.maxPDUSize > 0)
 			doassert(len(responses) > 0)
 			doassert(pdu.CalledAETitle != "")
 			doassert(pdu.CallingAETitle != "")
@@ -204,15 +234,6 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 					CalledAETitle:   pdu.CalledAETitle,
 					CallingAETitle:  pdu.CallingAETitle,
 					Items:           responses,
-				},
-			}
-		} else {
-			sm.downcallCh <- stateEvent{
-				event: evt08,
-				pdu: &A_ASSOCIATE_RJ{
-					Result: ResultRejectedPermanent,
-					Source: SourceULServiceProviderACSE,
-					Reason: 1,
 				},
 			}
 		}
@@ -281,20 +302,22 @@ var actionDt1 = &stateAction{"DT-1", "Send P-DATA-TF PDU",
 var actionDt2 = &stateAction{"DT-2", "Send P-DATA indication primitive",
 	func(sm *stateMachine, event stateEvent) *stateType {
 		abstractSyntaxUID, transferSyntaxUID, command, data, err := addPDataTF(&sm.commandAssembler, event.pdu.(*P_DATA_TF), sm.contextManager)
-		if err != nil {
-			log.Panicf("%s: Failed to assemble data: %v", sm.name, err) // TODO(saito)
-		}
-		if command != nil {
-			sm.upcallCh <- upcallEvent{
-				eventType:         upcallEventData,
-				abstractSyntaxUID: abstractSyntaxUID,
-				transferSyntaxUID: transferSyntaxUID,
-				command:           command,
-				data:              data}
+		if err == nil {
+			if command != nil {
+				sm.upcallCh <- upcallEvent{
+					eventType:         upcallEventData,
+					abstractSyntaxUID: abstractSyntaxUID,
+					transferSyntaxUID: transferSyntaxUID,
+					command:           command,
+					data:              data}
+			} else {
+				// Not all fragments received yet
+			}
+			return sta06
 		} else {
-			// Not all fragments received yet
+			log.Printf("%s: Failed to assemble data: %v", sm.name, err) // TODO(saito)
+			return actionAa8.Callback(sm, event)
 		}
-		return sta06
 	}}
 
 // Assocation Release related actions
@@ -452,6 +475,10 @@ type stateEventDataPayload struct {
 	data []byte
 }
 
+type stateEventDebugInfo struct {
+	state *stateType // the state the system was in when timer was created.
+}
+
 type stateEvent struct {
 	event eventType
 	pdu   PDU
@@ -460,10 +487,15 @@ type stateEvent struct {
 
 	serverAddr  string                 // host:port to connect to. Set only for evt01
 	dataPayload *stateEventDataPayload // set iff event==evt09.
+	debug       *stateEventDebugInfo
 }
 
 func (e *stateEvent) String() string {
-	return fmt.Sprintf("type:%d(%s) err:%v pdu:%v", e.event.Event, e.event.Description, e.err, e.pdu)
+	debug := ""
+	if e.debug != nil {
+		debug = e.debug.state.String()
+	}
+	return fmt.Sprintf("type:%d(%s) err:%v debug:%v pdu:%v", e.event.Event, e.event.Description, e.err, debug, e.pdu)
 }
 
 type stateTransition struct {
@@ -472,7 +504,6 @@ type stateTransition struct {
 	action  *stateAction
 }
 
-// State transitions are defined in P3.8 9.2.3.
 var stateTransitions = []stateTransition{
 	stateTransition{sta01, evt01, actionAe1},
 	stateTransition{sta01, evt05, actionAe5},
@@ -510,7 +541,9 @@ var stateTransitions = []stateTransition{
 	stateTransition{sta05, evt15, actionAa1},
 	stateTransition{sta05, evt16, actionAa3},
 	stateTransition{sta05, evt17, actionAa4},
+	stateTransition{sta05, evt18, actionAa8},
 	stateTransition{sta05, evt19, actionAa8},
+
 	stateTransition{sta06, evt03, actionAa8},
 	stateTransition{sta06, evt04, actionAa8},
 	stateTransition{sta06, evt06, actionAa8},
@@ -689,9 +722,10 @@ func sendPDU(sm *stateMachine, pdu PDU) {
 func startTimer(sm *stateMachine) {
 	ch := make(chan stateEvent, 1)
 	sm.timerCh = ch
+	currentState := sm.currentState
 	time.AfterFunc(time.Duration(10)*time.Second,
 		func() {
-			ch <- stateEvent{event: evt18}
+			ch <- stateEvent{event: evt18, debug: &stateEventDebugInfo{currentState}}
 			close(ch)
 		})
 }
@@ -803,7 +837,6 @@ func findAction(currentState *stateType, event *stateEvent, smName string) *stat
 			return t.action
 		}
 	}
-	log.Panicf("%s: No action found for state %v, event %v", smName, *currentState, event.String())
 	return nil
 }
 
@@ -813,6 +846,20 @@ func runOneStep(sm *stateMachine) {
 	event := getNextEvent(sm)
 	log.Printf("%s: Current state: %v, Event %v", sm.name, sm.currentState, event)
 	action := findAction(sm.currentState, &event, sm.name)
+	if action == nil {
+		msg := fmt.Sprintf("%s: No action found for state %v, event %v", sm.name, sm.currentState, event.String())
+		if sm.faults != nil {
+			msg += " FIhistory: " + sm.faults.String()
+		}
+		log.Printf("Unknown state transition:")
+		for _, s := range strings.Split(msg, "\n") {
+			log.Printf(s)
+		}
+		log.Panicf(msg)
+	}
+	if sm.faults != nil {
+		sm.faults.onStateTransition(sm.currentState, &event, action)
+	}
 	log.Printf("%s: Running action %v", sm.name, action)
 	sm.currentState = action.Callback(sm, event)
 	log.Printf("Next state: %v", sm.currentState)

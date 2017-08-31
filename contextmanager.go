@@ -72,7 +72,7 @@ func (m *contextManager) generateAssociateRequest(
 
 // Called when A_ASSOCIATE_RQ pdu arrives, on the provider side. Returns a list of items to be sent in
 // the A_ASSOCIATE_AC pdu.
-func (m *contextManager) onAssociateRequest(requests []*PresentationContextItem) []*PresentationContextItem {
+func (m *contextManager) onAssociateRequest(requests []*PresentationContextItem) ([]*PresentationContextItem, error) {
 	var responses []*PresentationContextItem
 	for _, contextItem := range requests {
 		var sopUID string
@@ -90,7 +90,7 @@ func (m *contextManager) onAssociateRequest(requests []*PresentationContextItem)
 					pickedTransferSyntaxUID = c.Name
 				}
 			default:
-				log.Fatalf("Unknown subitem in PresentationContext: %s", subItem.String())
+				return nil, fmt.Errorf("Unknown subitem in PresentationContext: %s", subItem.String())
 			}
 		}
 		if sopUID == "" || pickedTransferSyntaxUID == "" {
@@ -104,11 +104,11 @@ func (m *contextManager) onAssociateRequest(requests []*PresentationContextItem)
 		log.Printf("Provider(%p): addmapping %v %v %v", m, sopUID, pickedTransferSyntaxUID, contextItem.ContextID)
 		addContextMapping(m, sopUID, pickedTransferSyntaxUID, contextItem.ContextID)
 	}
-	return responses
+	return responses, nil
 }
 
 // Called by the user (client) to when A_ASSOCIATE_AC PDU arrives from the provider.
-func (m *contextManager) onAssociateResponse(responses []*PresentationContextItem) {
+func (m *contextManager) onAssociateResponse(responses []*PresentationContextItem) error {
 	for _, contextItem := range responses {
 		var pickedTransferSyntaxUID string
 		for _, subItem := range contextItem.Items {
@@ -118,15 +118,17 @@ func (m *contextManager) onAssociateResponse(responses []*PresentationContextIte
 				if pickedTransferSyntaxUID == "" {
 					pickedTransferSyntaxUID = c.Name
 				} else {
-					log.Fatalf("Multiple syntax UIDs returned in A_ASSOCIATE_AC: %v", contextItem.String())
+					return fmt.Errorf("Multiple syntax UIDs returned in A_ASSOCIATE_AC: %v", contextItem.String())
 				}
 			default:
-				log.Fatalf("Unknown subitem in PresentationContext: %s", subItem.String())
+				return fmt.Errorf("Unknown subitem %s in PresentationContext: %s", subItem.String(), contextItem.String())
 			}
 		}
 		request, ok := m.tmpRequests[contextItem.ContextID]
 		if !ok {
-			log.Fatalf("Unknown context ID for A_ASSOCIATE_AC: %v", contextItem.String())
+			return fmt.Errorf("Unknown context ID %d for A_ASSOCIATE_AC: %v",
+				contextItem.ContextID,
+				contextItem.String())
 		}
 		found := false
 		var sopUID string
@@ -142,10 +144,11 @@ func (m *contextManager) onAssociateResponse(responses []*PresentationContextIte
 			}
 		}
 		if !found || sopUID == "" {
-			log.Fatalf("No matching transfer syntax uid found in %v", contextItem.String())
+			return fmt.Errorf("TransferSyntaxUID or AbstractSyntaxSubItem not found in %v", contextItem.String())
 		}
 		addContextMapping(m, sopUID, pickedTransferSyntaxUID, contextItem.ContextID)
 	}
+	return nil
 }
 
 // Add a mapping between a (global) UID and a (per-session) context ID.
