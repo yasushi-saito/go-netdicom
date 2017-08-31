@@ -209,8 +209,11 @@ func ReadDIMSEMessage(io io.Reader, limit int64) (DIMSEMessage, error) {
 	//
 	// TODO(saito) make sure that's the case. Where the ref?
 	d := dicom.NewDecoder(io, limit, binary.LittleEndian, dicom.ImplicitVR)
-	for d.Len() > 0 && d.Error() == nil {
+	for d.Len() > 0 {
 		elem := dicom.ReadDataElement(d)
+		if d.Error() != nil {
+			break
+		}
 		elems = append(elems, elem)
 	}
 	if err := d.Finish(); err != nil {
