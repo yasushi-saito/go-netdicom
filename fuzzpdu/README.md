@@ -3,7 +3,7 @@ https://github.com/dvyukov/go-fuzz and install two packages, go-fuzz-build and g
 Then run:
 
 ```
-go-fuzz-build github.com/yasushi-saito/go-netdicom/fuzztest
-mkdir -p /tmp/fuzz
-go-fuzz -bin fuzz-fuzz.zip -workdir /tmp/fuzz
+go-fuzz-build github.com/yasushi-saito/go-netdicom/fuzzpdu
+mkdir -p /tmp/fuzzpdu
+go-fuzz -bin fuzzpdu-fuzz.zip -workdir /tmp/fuzzpdu
 ```

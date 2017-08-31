@@ -1,4 +1,4 @@
-package fuzztest
+package fuzze2e
 
 import (
 	"github.com/yasushi-saito/go-netdicom"
