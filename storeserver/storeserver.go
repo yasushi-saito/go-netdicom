@@ -50,10 +50,9 @@ func main() {
 		port = ":" + port
 	}
 	log.Printf("Listening on %s", port)
-	params := netdicom.ServiceProviderParams{
-		OnCStoreRequest: onCStoreRequest,
-	}
-	su := netdicom.NewServiceProvider(params)
+	params := netdicom.ServiceProviderParams{}
+	callbacks := netdicom.ServiceProviderCallbacks{CStore: onCStoreRequest}
+	su := netdicom.NewServiceProvider(params, callbacks)
 	err := su.Run(port)
 	if err != nil {
 		panic(err)

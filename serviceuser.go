@@ -155,12 +155,14 @@ func (su *ServiceUser) CStore(data []byte) error {
 	if err != nil {
 		return err
 	}
-	req, err := encodeDIMSEMessage(&C_STORE_RQ{
+	e := dicom.NewEncoder(nil, dicom.UnknownVR)
+	EncodeDIMSEMessage(e, &C_STORE_RQ{
 		AffectedSOPClassUID:    sopClassUID,
 		MessageID:              newMessageID(su),
 		CommandDataSetType:     1, // anything other than 0x101 suffices.
 		AffectedSOPInstanceUID: sopInstanceUID,
 	})
+	req, err := e.Finish()
 	if err != nil {
 		return err
 	}

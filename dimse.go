@@ -26,32 +26,49 @@ func findElementWithTag(elems []*dicom.DicomElement, tag dicom.Tag) (*dicom.Dico
 			return elem, nil
 		}
 	}
-
-	return nil, fmt.Errorf("Element %s not found during DIMSE decoding", tag.String())
+	return nil, fmt.Errorf("Element %s not found during DIMSE decoding", dicom.TagString(tag))
 }
 
-func getStringFromElements(elems []*dicom.DicomElement, tag dicom.Tag) (string, error) {
+func getStringFromElements(elems []*dicom.DicomElement, tag dicom.Tag, errp *error) string {
 	e, err := findElementWithTag(elems, tag)
 	if err != nil {
-		return "", err
+		*errp = err
+		return ""
 	}
-	return e.GetString()
+	v, err := e.GetString()
+	if err != nil {
+		*errp = err
+		return ""
+	}
+	return v
 }
 
-func getUInt32FromElements(elems []*dicom.DicomElement, tag dicom.Tag) (uint32, error) {
+func getUInt32FromElements(elems []*dicom.DicomElement, tag dicom.Tag, errp *error) uint32 {
 	e, err := findElementWithTag(elems, tag)
 	if err != nil {
-		return 0, err
+		*errp = err
+		return 0
 	}
-	return e.GetUInt32()
+	v, err := e.GetUInt32()
+	if err != nil {
+		*errp = err
+		return 0
+	}
+	return v
 }
 
-func getUInt16FromElements(elems []*dicom.DicomElement, tag dicom.Tag) (uint16, error) {
+func getUInt16FromElements(elems []*dicom.DicomElement, tag dicom.Tag, errp *error) uint16 {
 	e, err := findElementWithTag(elems, tag)
 	if err != nil {
-		return 0, err
+		*errp = err
+		return 0
 	}
-	return e.GetUInt16()
+	v, err := e.GetUInt16()
+	if err != nil {
+		*errp = err
+		return 0
+	}
+	return v
 }
 
 // Fields common to all DIMSE messages.
@@ -108,28 +125,18 @@ func (v *C_STORE_RQ) Encode(e *dicom.Encoder) {
 func decodeC_STORE_RQ(elems []*dicom.DicomElement) (*C_STORE_RQ, error) {
 	v := C_STORE_RQ{}
 	var err error
-	v.AffectedSOPClassUID, err = getStringFromElements(elems, dicom.TagAffectedSOPClassUID)
+	v.AffectedSOPClassUID = getStringFromElements(elems, dicom.TagAffectedSOPClassUID, &err)
+	v.MessageID = getUInt16FromElements(elems, dicom.TagMessageID, &err)
+	v.Priority = getUInt16FromElements(elems, dicom.TagPriority, &err)
+	v.CommandDataSetType = getUInt16FromElements(elems, dicom.TagCommandDataSetType, &err)
+	v.AffectedSOPInstanceUID = getStringFromElements(elems, dicom.TagAffectedSOPInstanceUID, &err)
+
+	var err2 error
+	v.MoveOriginatorApplicationEntityTitle = getStringFromElements(elems, dicom.TagMoveOriginatorApplicationEntityTitle, &err2)
+	v.MoveOriginatorMessageID = getUInt16FromElements(elems, dicom.TagMoveOriginatorMessageID, &err2)
 	if err != nil {
 		return nil, err
 	}
-	v.MessageID, err = getUInt16FromElements(elems, dicom.TagMessageID)
-	if err != nil {
-		return nil, err
-	}
-	v.Priority, err = getUInt16FromElements(elems, dicom.TagPriority)
-	if err != nil {
-		return nil, err
-	}
-	v.CommandDataSetType, err = getUInt16FromElements(elems, dicom.TagCommandDataSetType)
-	if err != nil {
-		return nil, err
-	}
-	v.AffectedSOPInstanceUID, err = getStringFromElements(elems, dicom.TagAffectedSOPInstanceUID)
-	if err != nil {
-		return nil, err
-	}
-	v.MoveOriginatorApplicationEntityTitle, _ = getStringFromElements(elems, dicom.TagMoveOriginatorApplicationEntityTitle)
-	v.MoveOriginatorMessageID, _ = getUInt16FromElements(elems, dicom.TagMoveOriginatorMessageID)
 	return &v, nil
 }
 
@@ -163,19 +170,10 @@ const (
 func decodeC_STORE_RSP(elems []*dicom.DicomElement) (*C_STORE_RSP, error) {
 	v := &C_STORE_RSP{}
 	var err error
-	v.AffectedSOPClassUID, err = getStringFromElements(elems, dicom.TagAffectedSOPClassUID)
-	if err != nil {
-		return nil, err
-	}
-	v.MessageIDBeingRespondedTo, err = getUInt16FromElements(elems, dicom.TagMessageIDBeingRespondedTo)
-	if err != nil {
-		return nil, err
-	}
-	v.Status, err = getUInt16FromElements(elems, dicom.TagStatus)
-	if err != nil {
-		return nil, err
-	}
-	v.CommandDataSetType, err = getUInt16FromElements(elems, dicom.TagCommandDataSetType)
+	v.AffectedSOPClassUID = getStringFromElements(elems, dicom.TagAffectedSOPClassUID, &err)
+	v.MessageIDBeingRespondedTo = getUInt16FromElements(elems, dicom.TagMessageIDBeingRespondedTo, &err)
+	v.Status = getUInt16FromElements(elems, dicom.TagStatus, &err)
+	v.CommandDataSetType = getUInt16FromElements(elems, dicom.TagCommandDataSetType, &err)
 	if err != nil {
 		return nil, err
 	}
@@ -203,6 +201,73 @@ func (v *C_STORE_RSP) String() string {
 		v.Status)
 }
 
+// P3.7 9.3.5
+type C_ECHO_RQ struct {
+	MessageID          uint16
+	CommandDataSetType uint16
+}
+
+func (v *C_ECHO_RQ) Encode(e *dicom.Encoder) {
+	encodeDataElementWithSingleValue(e, dicom.TagCommandField, uint16(0x30))
+	encodeDataElementWithSingleValue(e, dicom.TagMessageID, v.MessageID)
+	encodeDataElementWithSingleValue(e, dicom.TagCommandDataSetType, v.CommandDataSetType)
+}
+
+func decodeC_ECHO_RQ(elems []*dicom.DicomElement) (*C_ECHO_RQ, error) {
+	v := C_ECHO_RQ{}
+	var err error
+	v.MessageID = getUInt16FromElements(elems, dicom.TagMessageID, &err)
+	v.CommandDataSetType = getUInt16FromElements(elems, dicom.TagCommandDataSetType, &err)
+	if err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
+func (v *C_ECHO_RQ) String() string {
+	return fmt.Sprintf("echorsp{messageid:%v cmddatasettype: %v}",
+		v.MessageID, v.CommandDataSetType)
+}
+
+type C_ECHO_RSP struct {
+	MessageIDBeingRespondedTo uint16
+	CommandDataSetType        uint16
+	Status                    uint16
+}
+
+func (v *C_ECHO_RSP) HasData() bool {
+	doassert(v.CommandDataSetType == CommandDataSetTypeNull) // TODO(saito)
+	return v.CommandDataSetType != CommandDataSetTypeNull
+}
+
+func (v *C_ECHO_RSP) String() string {
+	return fmt.Sprintf("echorsp{messageid:%v cmddatasettype: %v status: %v}", v.MessageIDBeingRespondedTo, v.CommandDataSetType, v.Status)
+}
+
+func (v *C_ECHO_RSP) Encode(e *dicom.Encoder) {
+	encodeDataElementWithSingleValue(e, dicom.TagCommandField, uint16(0x8030))
+	encodeDataElementWithSingleValue(e, dicom.TagMessageIDBeingRespondedTo, v.MessageIDBeingRespondedTo)
+	encodeDataElementWithSingleValue(e, dicom.TagCommandDataSetType, v.CommandDataSetType)
+	encodeDataElementWithSingleValue(e, dicom.TagStatus, v.Status)
+}
+
+func decodeC_ECHO_RSP(elems []*dicom.DicomElement) (*C_ECHO_RSP, error) {
+	v := C_ECHO_RSP{}
+	var err error
+	v.MessageIDBeingRespondedTo = getUInt16FromElements(elems, dicom.TagMessageIDBeingRespondedTo, &err)
+	v.CommandDataSetType = getUInt16FromElements(elems, dicom.TagCommandDataSetType, &err)
+	v.Status = getUInt16FromElements(elems, dicom.TagStatus, &err)
+	if err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
+func (v *C_ECHO_RQ) HasData() bool {
+	doassert(v.CommandDataSetType == CommandDataSetTypeNull) // TODO(saito)
+	return v.CommandDataSetType != CommandDataSetTypeNull
+}
+
 func ReadDIMSEMessage(io io.Reader, limit int64) (DIMSEMessage, error) {
 	var elems []*dicom.DicomElement
 	// Note: DIMSE elements are always implicit LE.
@@ -220,7 +285,8 @@ func ReadDIMSEMessage(io io.Reader, limit int64) (DIMSEMessage, error) {
 		return nil, err
 	}
 
-	commandField, err := getUInt16FromElements(elems, dicom.TagCommandField)
+	var err error
+	commandField := getUInt16FromElements(elems, dicom.TagCommandField, &err)
 	if err != nil {
 		return nil, err
 	}
@@ -229,23 +295,79 @@ func ReadDIMSEMessage(io io.Reader, limit int64) (DIMSEMessage, error) {
 		return decodeC_STORE_RQ(elems)
 	case 0x8001:
 		return decodeC_STORE_RSP(elems)
+	case 0x30:
+		return decodeC_ECHO_RQ(elems)
+	case 0x8030:
+		return decodeC_ECHO_RSP(elems)
 	}
 	return nil, fmt.Errorf("Unknown DIMSE command 0x%x", commandField)
 }
 
-func encodeDIMSEMessage(v DIMSEMessage) ([]byte, error) {
+func ReadDIMSEMessage2(d *dicom.Decoder) DIMSEMessage {
+	var elems []*dicom.DicomElement
+	// Note: DIMSE elements are always implicit LE.
+	//
+	// TODO(saito) make sure that's the case. Where the ref?
+	d.PushTransferSyntax(binary.LittleEndian, dicom.ImplicitVR)
+	defer d.PopTransferSyntax()
+	for d.Len() > 0 {
+		elem := dicom.ReadDataElement(d)
+		if d.Error() != nil {
+			break
+		}
+		elems = append(elems, elem)
+	}
+	var err error
+	commandField := getUInt16FromElements(elems, dicom.TagCommandField, &err)
+	if err != nil {
+		d.SetError(err)
+		return nil
+	}
+	switch commandField {
+	case 1:
+		v, err := decodeC_STORE_RQ(elems)
+		if err != nil {
+			d.SetError(err)
+		}
+		return v
+	case 0x8001:
+		v, err := decodeC_STORE_RSP(elems)
+		if err != nil {
+			d.SetError(err)
+		}
+		return v
+	case 0x30:
+		v, err := decodeC_ECHO_RQ(elems)
+		if err != nil {
+			d.SetError(err)
+		}
+		return v
+	case 0x8030:
+		v, err := decodeC_ECHO_RSP(elems)
+		if err != nil {
+			d.SetError(err)
+		}
+		return v
+	}
+
+	d.SetError(fmt.Errorf("Unknown DIMSE command 0x%x", commandField))
+	return nil
+}
+
+// func EncodeDIMSEMessage(v DIMSEMessage) ([]byte, error) {
+func EncodeDIMSEMessage(e *dicom.Encoder, v DIMSEMessage) {
 	// DIMSE messages are always encoded Implicit+LE. See P3.7 6.3.1.
 	subEncoder := dicom.NewEncoder(binary.LittleEndian, dicom.ImplicitVR)
 	v.Encode(subEncoder)
 	bytes, err := subEncoder.Finish()
 	if err != nil {
-		return nil, err
+		e.SetError(err)
+		return
 	}
-
-	e := dicom.NewEncoder(binary.LittleEndian, dicom.ImplicitVR)
+	e.PushTransferSyntax(binary.LittleEndian, dicom.ImplicitVR)
+	defer e.PopTransferSyntax()
 	encodeDataElementWithSingleValue(e, dicom.TagCommandGroupLength, uint32(len(bytes)))
 	e.WriteBytes(bytes)
-	return e.Finish()
 }
 
 type dimseCommandAssembler struct {

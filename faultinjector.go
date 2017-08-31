@@ -13,8 +13,8 @@ const (
 )
 
 type faultInjectorStateTransition struct {
-	state *stateType
-	event *stateEvent
+	state  *stateType
+	event  *stateEvent
 	action *stateAction
 }
 
@@ -84,8 +84,8 @@ func GetProviderFaultInjector() *FaultInjector {
 }
 
 // Called when an "event" happens when at "state".
-func (f *FaultInjector) onStateTransition(state *stateType, event *stateEvent, action*stateAction) {
-	f.stateHistory = append(f.stateHistory, faultInjectorStateTransition{state, event,action})
+func (f *FaultInjector) onStateTransition(state *stateType, event *stateEvent, action *stateAction) {
+	f.stateHistory = append(f.stateHistory, faultInjectorStateTransition{state, event, action})
 }
 
 func (f *FaultInjector) onSend(data []byte) faultInjectorAction {

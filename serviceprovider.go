@@ -1,6 +1,7 @@
 package netdicom
 
 import (
+	"github.com/yasushi-saito/go-dicom"
 	"log"
 	"net"
 )
@@ -19,6 +20,8 @@ type CStoreCallback func(
 	sopInstanceUID string,
 	data []byte) uint16
 
+type CEchoCallback func() uint16
+
 type ServiceProviderCallbacks struct {
 	// Called on receiving a C_STORE_RQ message.  sopClassUID and
 	// sopInstanceUID are the IDs of the data. They are from the C-STORE
@@ -35,6 +38,9 @@ type ServiceProviderCallbacks struct {
 	// DICOM header, followed by data. It should return either 0 on success,
 	// or one of CStoreStatus* error codes.
 	CStore CStoreCallback
+
+	// Called on C_ECHO request.
+	CEcho CEchoCallback
 }
 
 type ServiceProvider struct {
@@ -63,7 +69,34 @@ func onDIMSECommand(downcallCh chan stateEvent, abstractSyntaxUID string,
 			AffectedSOPInstanceUID:    c.AffectedSOPInstanceUID,
 			Status:                    status,
 		}
-		bytes, err := encodeDIMSEMessage(resp)
+		e := dicom.NewEncoder(nil, dicom.UnknownVR)
+		EncodeDIMSEMessage(e, resp)
+		bytes, err := e.Finish()
+		if err != nil {
+			panic(err) // TODO(saito)
+		}
+		downcallCh <- stateEvent{
+			event: evt09,
+			pdu:   nil,
+			conn:  nil,
+			dataPayload: &stateEventDataPayload{
+				abstractSyntaxName: abstractSyntaxUID,
+				command:            true,
+				data:               bytes},
+		}
+	case *C_ECHO_RQ:
+		status := CStoreStatusCannotUnderstand
+		if callbacks.CEcho != nil {
+			status = callbacks.CEcho()
+		}
+		resp := &C_ECHO_RSP{
+			MessageIDBeingRespondedTo: c.MessageID,
+			CommandDataSetType:        CommandDataSetTypeNull,
+			Status:                    status,
+		}
+		e := dicom.NewEncoder(nil, dicom.UnknownVR)
+		EncodeDIMSEMessage(e, resp)
+		bytes, err := e.Finish()
 		if err != nil {
 			panic(err) // TODO(saito)
 		}
