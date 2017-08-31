@@ -7,7 +7,7 @@ import (
 	"net"
 )
 
-func startServer(faults *netdicom.FaultInjector) string {
+func startServer(faults *netdicom.FaultInjector) net.Listener {
 	netdicom.SetProviderFaultInjector(faults)
 	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
@@ -29,13 +29,13 @@ func startServer(faults *netdicom.FaultInjector) string {
 			conn, err := listener.Accept()
 			if err != nil {
 				log.Printf("Accept error: %v", err)
-				continue
+				break
 			}
 			log.Printf("Accepted connection %v", conn)
 			netdicom.RunProviderForConn(conn, params, callbacks)
 		}
 	}()
-	return listener.Addr().String()
+	return listener
 }
 
 func runClient(serverAddr string, faults *netdicom.FaultInjector) {
@@ -59,7 +59,8 @@ func runClient(serverAddr string, faults *netdicom.FaultInjector) {
 }
 
 func Fuzz(data []byte) int {
-	serverAddr := startServer(netdicom.NewFaultInjector(data))
-	runClient(serverAddr, netdicom.NewFaultInjector(data))
+	listener := startServer(netdicom.NewFaultInjector(data))
+	runClient(listener.Addr().String(), netdicom.NewFaultInjector(data))
+	listener.Close()
 	return 0
 }

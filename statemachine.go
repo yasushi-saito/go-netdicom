@@ -264,7 +264,6 @@ func splitDataIntoPDUs(sm *stateMachine, abstractSyntaxName string, command bool
 	if len(pdus) > 0 {
 		pdus[len(pdus)-1].Items[0].Last = true
 	}
-	log.Printf("%s: Created %d data pdus", sm.name, len(pdus))
 	return pdus
 }
 
@@ -273,11 +272,9 @@ var actionDt1 = &stateAction{"DT-1", "Send P-DATA-TF PDU",
 	func(sm *stateMachine, event stateEvent) *stateType {
 		doassert(event.dataPayload != nil)
 		pdus := splitDataIntoPDUs(sm, event.dataPayload.abstractSyntaxName, event.dataPayload.command, event.dataPayload.data)
-		log.Printf("%s: Sending %d data pdus", sm.name, len(pdus))
 		for _, pdu := range pdus {
 			sendPDU(sm, &pdu)
 		}
-		log.Printf("%s: Finished sending %d data pdus", sm.name, len(pdus))
 		return sta06
 	}}
 
@@ -678,6 +675,13 @@ func sendPDU(sm *stateMachine, pdu PDU) {
 		sm.errorCh <- stateEvent{event: evt17, err: err}
 		return
 	}
+	if sm.faults != nil {
+		action := sm.faults.onSend(data)
+		if action == faultInjectorDisconnect {
+			log.Printf("%s: FAULT: closing connection for test", sm.name)
+			sm.conn.Close()
+		}
+	}
 	n, err := sm.conn.Write(data)
 	if n != len(data) || err != nil {
 		log.Printf("%s: Failed to write %d bytes. Actual %d bytes : %v; closing connection %v", sm.name, len(data), n, err, sm.conn)
@@ -685,7 +689,7 @@ func sendPDU(sm *stateMachine, pdu PDU) {
 		sm.errorCh <- stateEvent{event: evt17, err: err}
 		return
 	}
-	log.Printf("%s: sendPDU: %v", sm.name, pdu.String())
+	// log.Printf("%s: sendPDU: %v", sm.name, pdu.String())
 }
 
 func startTimer(sm *stateMachine) {
@@ -721,7 +725,7 @@ func networkReaderThread(ch chan stateEvent, conn net.Conn, smName string) {
 			break
 		}
 		doassert(pdu != nil)
-		log.Printf("%s: Read PDU: %v", pdu.String(), smName)
+		// log.Printf("%s: Read PDU: %v", pdu.String(), smName)
 		if n, ok := pdu.(*A_ASSOCIATE); ok {
 			if n.Type == PDUTypeA_ASSOCIATE_RQ {
 				ch <- stateEvent{event: evt06, pdu: n, err: nil}
@@ -816,12 +820,6 @@ func runOneStep(sm *stateMachine) {
 	action := findAction(sm.currentState, &event, sm.name)
 	log.Printf("%s: Running action %v", sm.name, action)
 	sm.currentState = action.Callback(sm, event)
-	if sm.faults != nil && !sm.faults.shouldContinue() {
-		if sm.conn != nil {
-			log.Printf("%s: FAULT: closing connection for test", sm.name)
-			sm.conn.Close()
-		}
-	}
 	log.Printf("Next state: %v", sm.currentState)
 }
 
