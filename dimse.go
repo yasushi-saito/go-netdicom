@@ -230,7 +230,7 @@ func ReadDIMSEMessage(io io.Reader, limit int64) (DIMSEMessage, error) {
 	case 0x8001:
 		return decodeC_STORE_RSP(elems)
 	}
-	log.Panicf("Unknown DIMSE command 0x%x", commandField)
+	log.Printf("Unknown DIMSE command 0x%x", commandField)
 	return nil, err
 }
 
@@ -264,8 +264,7 @@ func addPDataTF(a *dimseCommandAssembler, pdu *P_DATA_TF, contextManager *contex
 		if a.contextID == 0 {
 			a.contextID = item.ContextID
 		} else if a.contextID != item.ContextID {
-			// TODO(saito) don't panic here.
-			log.Panicf("Mixed context: %d %d", a.contextID, item.ContextID)
+			return "", "", nil, nil, fmt.Errorf("Mixed context: %d %d", a.contextID, item.ContextID)
 		}
 		if item.Command {
 			a.commandBytes = append(a.commandBytes, item.Value...)
@@ -296,7 +295,7 @@ func addPDataTF(a *dimseCommandAssembler, pdu *P_DATA_TF, contextManager *contex
 	}
 	context, err := contextManager.lookupByContextID(a.contextID)
 	if err != nil {
-		log.Panic(err)
+		return "", "", nil, nil, err
 	}
 	command := a.command
 	dataBytes := a.dataBytes
