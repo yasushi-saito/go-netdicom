@@ -12,6 +12,7 @@ import (
 
 func main() {
 	flag.Parse()
+	vlog.ConfigureLibraryLoggerFromFlags()
 	if len(flag.Args()) != 2 {
 		log.Fatal("Usage: storeclient <serverhost:port> <file>")
 	}
