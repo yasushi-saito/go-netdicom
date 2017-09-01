@@ -80,7 +80,7 @@ func (m *contextManager) onAssociateRequest(requests []*PresentationContextItem)
 			switch c := subItem.(type) {
 			case *AbstractSyntaxSubItem:
 				if sopUID != "" {
-					glog.Fatalf("Multiple AbstractSyntaxSubItem found in %v", contextItem.String())
+					return nil, fmt.Errorf("Multiple AbstractSyntaxSubItem found in %v", contextItem.String())
 				}
 				sopUID = c.Name
 			case *TransferSyntaxSubItem:
@@ -93,7 +93,7 @@ func (m *contextManager) onAssociateRequest(requests []*PresentationContextItem)
 			}
 		}
 		if sopUID == "" || pickedTransferSyntaxUID == "" {
-			glog.Fatalf("SOP or transfersyntax not found in PresentationContext: %v", contextItem.String())
+			return nil, fmt.Errorf("SOP or transfersyntax not found in PresentationContext: %v", contextItem.String())
 		}
 		responses = append(responses, &PresentationContextItem{
 			Type:      ItemTypePresentationContextResponse,

@@ -257,9 +257,9 @@ var actionAe8 = &stateAction{"AE-8", "Send A-ASSOCIATE-RJ PDU and start ARTIM ti
 func splitDataIntoPDUs(sm *stateMachine, abstractSyntaxName string, command bool, data []byte) []P_DATA_TF {
 	doassert(sm.maxPDUSize > 0)
 	doassert(len(data) > 0)
-
 	context, err := sm.contextManager.lookupByAbstractSyntaxUID(abstractSyntaxName)
 	if err != nil {
+		// TODO(saito) Don't crash here.
 		glog.Fatalf("%s: Illegal syntax name %s: %s", sm.name, dicom.UIDString(abstractSyntaxName), err)
 	}
 	var pdus []P_DATA_TF
@@ -754,8 +754,8 @@ func networkReaderThread(ch chan stateEvent, conn net.Conn, maxPDUSize int, smNa
 			break
 		}
 		doassert(pdu != nil)
-		// glog.Infof("%s: Read PDU: %v", pdu.String(), smName)
-		if n, ok := pdu.(*A_ASSOCIATE); ok {
+		switch n := pdu.(type) {
+			case *A_ASSOCIATE:
 			if n.Type == PDUTypeA_ASSOCIATE_RQ {
 				ch <- stateEvent{event: evt06, pdu: n, err: nil}
 			} else {
@@ -763,29 +763,27 @@ func networkReaderThread(ch chan stateEvent, conn net.Conn, maxPDUSize int, smNa
 				ch <- stateEvent{event: evt03, pdu: n, err: nil}
 			}
 			continue
-		}
-		// TODO(saito) use type switches
-		if n, ok := pdu.(*A_ASSOCIATE_RJ); ok {
+		case *A_ASSOCIATE_RJ:
 			ch <- stateEvent{event: evt04, pdu: n, err: nil}
 			continue
-		}
-		if n, ok := pdu.(*P_DATA_TF); ok {
+		case *P_DATA_TF:
 			ch <- stateEvent{event: evt10, pdu: n, err: nil}
 			continue
-		}
-		if n, ok := pdu.(*A_RELEASE_RQ); ok {
+		case *A_RELEASE_RQ:
 			ch <- stateEvent{event: evt12, pdu: n, err: nil}
 			continue
-		}
-		if n, ok := pdu.(*A_RELEASE_RP); ok {
+		case *A_RELEASE_RP:
 			ch <- stateEvent{event: evt13, pdu: n, err: nil}
 			continue
-		}
-		if n, ok := pdu.(*A_ABORT); ok {
+		case *A_ABORT:
 			ch <- stateEvent{event: evt16, pdu: n, err: nil}
 			continue
+		default:
+			err := fmt.Errorf("%s: Unknown PDU type: %v", pdu.String(), smName)
+			ch <- stateEvent{event: evt19, pdu: pdu, err: err}
+			glog.Error(err)
+			continue
 		}
-		glog.Fatalf("%s: Unknown PDU type: %v", pdu.String(), smName)
 	}
 	glog.V(1).Infof("%s: Exiting network reader for %v", conn, smName)
 }

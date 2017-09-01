@@ -22,13 +22,6 @@ func onCStoreRequest(
 		dicom.UIDString(transferSyntaxUID),
 		dicom.UIDString(sopClassUID),
 		dicom.UIDString(sopInstanceUID))
-
-	// endian, implicit, err := dicom.ParseTransferSyntaxUID(transferSyntaxUID)
-	// if err != nil {
-	// 	log.Panic(err)
-	// }
-
-	//implicit = dicom.ExplicitVR
 	e := dicom.NewEncoder(nil, dicom.UnknownVR)
 	dicom.WriteFileHeader(e, transferSyntaxUID, sopClassUID, sopInstanceUID)
 	e.WriteBytes(data)

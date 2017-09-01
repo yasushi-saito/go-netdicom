@@ -73,7 +73,7 @@ func onDIMSECommand(downcallCh chan stateEvent, abstractSyntaxUID string,
 		EncodeDIMSEMessage(e, resp)
 		bytes, err := e.Finish()
 		if err != nil {
-			panic(err) // TODO(saito)
+			panic(err)
 		}
 		downcallCh <- stateEvent{
 			event: evt09,

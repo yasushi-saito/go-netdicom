@@ -92,7 +92,9 @@ type C_STORE_RQ struct {
 }
 
 func (v *C_STORE_RQ) HasData() bool {
-	doassert(v.CommandDataSetType != CommandDataSetTypeNull) // TODO(saito)
+	if v.CommandDataSetType == CommandDataSetTypeNull {
+		glog.Warning("Bogus C_STORE_RQ without dataset")
+	}
 	return v.CommandDataSetType != CommandDataSetTypeNull
 }
 
@@ -180,7 +182,9 @@ func (v *C_STORE_RSP) Encode(e *dicom.Encoder) {
 }
 
 func (v *C_STORE_RSP) HasData() bool {
-	doassert(v.CommandDataSetType == CommandDataSetTypeNull) // TODO(saito)
+	if v.CommandDataSetType != CommandDataSetTypeNull {
+		glog.Warning("Bogus C_STORE_RSP with dataset")
+	}
 	return v.CommandDataSetType != CommandDataSetTypeNull
 }
 
@@ -225,7 +229,9 @@ type C_ECHO_RSP struct {
 }
 
 func (v *C_ECHO_RSP) HasData() bool {
-	doassert(v.CommandDataSetType == CommandDataSetTypeNull) // TODO(saito)
+	if v.CommandDataSetType != CommandDataSetTypeNull {
+		glog.Warning("Bogus C_ECHO_RSP with dataset")
+	}
 	return v.CommandDataSetType != CommandDataSetTypeNull
 }
 
@@ -253,7 +259,9 @@ func decodeC_ECHO_RSP(elems []*dicom.DicomElement) (*C_ECHO_RSP, error) {
 }
 
 func (v *C_ECHO_RQ) HasData() bool {
-	doassert(v.CommandDataSetType == CommandDataSetTypeNull) // TODO(saito)
+	if v.CommandDataSetType != CommandDataSetTypeNull {
+		glog.Warning("Bogus C_ECHO_RQ with dataset")
+	}
 	return v.CommandDataSetType != CommandDataSetTypeNull
 }
 
