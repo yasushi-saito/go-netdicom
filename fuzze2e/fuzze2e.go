@@ -1,6 +1,7 @@
 package fuzze2e
 
 import (
+	"flag"
 	"github.com/yasushi-saito/go-netdicom"
 	"io/ioutil"
 	"log"
@@ -56,6 +57,10 @@ func runClient(serverAddr string, faults *netdicom.FaultInjector) {
 	err = su.CStore(data)
 	log.Printf("Store done with status: %v", err)
 	su.Release()
+}
+
+func init() {
+	flag.Parse()
 }
 
 func Fuzz(data []byte) int {

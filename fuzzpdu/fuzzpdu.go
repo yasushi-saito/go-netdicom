@@ -1,9 +1,14 @@
 package fuzzpdu
 
 import (
+	"flag"
 	"bytes"
 	"github.com/yasushi-saito/go-netdicom"
 )
+
+func init() {
+	flag.Parse()
+}
 
 func Fuzz(data []byte) int {
 	in := bytes.NewBuffer(data)

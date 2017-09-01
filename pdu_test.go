@@ -25,12 +25,30 @@ func testDIMSE(t *testing.T, v netdicom.DIMSEMessage) {
 	}
 }
 
-// Encode and decode C_ECHO_RQ.
+func TestCStoreRq(t *testing.T) {
+	testDIMSE(t, &netdicom.C_STORE_RQ{
+		"1.2.3",
+		0x1234,
+		0x2345,
+		1,
+		"3.4.5",
+		"foohah",
+		0x3456})
+}
+
+func TestCStoreRsp(t *testing.T) {
+	testDIMSE(t, &netdicom.C_STORE_RSP{
+		"1.2.3",
+		0x1234,
+		netdicom.CommandDataSetTypeNull,
+		"3.4.5",
+		0x3456})
+}
+
 func TestCEchoRq(t *testing.T) {
 	testDIMSE(t, &netdicom.C_ECHO_RQ{0x1234, 1})
 }
 
-// Encode and decode C_ECHO_RSP.
 func TestCEchoRsp(t *testing.T) {
 	testDIMSE(t, &netdicom.C_ECHO_RSP{0x1234, 1, 0x2345})
 }

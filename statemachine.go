@@ -646,19 +646,19 @@ const (
 	ReadingPDU
 )
 
+// Per-TCP-connection state.
 type stateMachine struct {
-	name           string // For logging only
-	isUser         bool   // true if service user, false if provider
-	userParams     ServiceUserParams
-	providerParams ServiceProviderParams
+	name   string // For logging only
+	isUser bool   // true if service user, false if provider
 
-	// abstractSyntaxMap maps a contextID (an odd integer) to an abstract
-	// syntax string such as 1.2.840.10008.5.1.4.1.1.1.2.  This field is set
-	// on receiving A_ASSOCIATE_RQ message. Thus, it is set only on the
-	// provider side (not the user).
+	// Exactly one of the below fields is nonempty.
+	userParams     ServiceUserParams     // used for client-side statemachine
+	providerParams ServiceProviderParams // used by server-side statemachine
+
+	// Manages mappings between one-byte contextID to the
+	// <abstractsyntaxUID, transfersyntaxuid> pair.  Filled during A_ACCEPT
+	// handshake.
 	contextManager *contextManager
-	//contextIDToAbstractSyntaxNameMap map[byte]string
-	//abstractSyntaxNameToContextIDMap map[string]byte
 
 	// For receiving PDU and network status events.
 	// Owned by networkReaderThread.
@@ -676,15 +676,20 @@ type stateMachine struct {
 	upcallCh chan upcallEvent
 
 	// For Timer expiration event
-	timerCh      chan stateEvent
+	timerCh chan stateEvent
+
+	// The socket to the remote peer.
 	conn         net.Conn
 	currentState *stateType
 
 	// The negotiated PDU size.
 	maxPDUSize int
 
+	// For assembling DIMSE command from multiple P_DATA_TF fragments.
 	commandAssembler dimseCommandAssembler
-	faults           *FaultInjector
+
+	// Only for testing.
+	faults *FaultInjector
 }
 
 func closeConnection(sm *stateMachine) {
@@ -755,7 +760,7 @@ func networkReaderThread(ch chan stateEvent, conn net.Conn, maxPDUSize int, smNa
 		}
 		doassert(pdu != nil)
 		switch n := pdu.(type) {
-			case *A_ASSOCIATE:
+		case *A_ASSOCIATE:
 			if n.Type == PDUTypeA_ASSOCIATE_RQ {
 				ch <- stateEvent{event: evt06, pdu: n, err: nil}
 			} else {
