@@ -2,8 +2,8 @@ package netdicom
 
 import (
 	"fmt"
-	"github.com/golang/glog"
 	"github.com/yasushi-saito/go-dicom"
+	"v.io/x/lib/vlog"
 )
 
 type contextManagerEntry struct {
@@ -100,7 +100,7 @@ func (m *contextManager) onAssociateRequest(requests []*PresentationContextItem)
 			ContextID: contextItem.ContextID,
 			Result:    0, // accepted
 			Items:     []SubItem{&TransferSyntaxSubItem{Name: pickedTransferSyntaxUID}}})
-		glog.V(1).Infof("Provider(%p): addmapping %v %v %v", m, sopUID, pickedTransferSyntaxUID, contextItem.ContextID)
+		vlog.VI(1).Infof("Provider(%p): addmapping %v %v %v", m, sopUID, pickedTransferSyntaxUID, contextItem.ContextID)
 		addContextMapping(m, sopUID, pickedTransferSyntaxUID, contextItem.ContextID)
 	}
 	return responses, nil
@@ -156,7 +156,7 @@ func addContextMapping(
 	abstractSyntaxUID string,
 	transferSyntaxUID string,
 	contextID byte) {
-	glog.V(1).Infof("Map context %d -> %s, %s",
+	vlog.VI(1).Infof("Map context %d -> %s, %s",
 		contextID, dicom.UIDString(abstractSyntaxUID),
 		dicom.UIDString(transferSyntaxUID))
 	doassert(abstractSyntaxUID != "")

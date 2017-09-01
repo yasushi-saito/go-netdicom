@@ -7,8 +7,8 @@ package netdicom
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/golang/glog"
 	"github.com/yasushi-saito/go-dicom"
+	"v.io/x/lib/vlog"
 )
 
 // Common interface for all C-XXX message types.
@@ -42,7 +42,7 @@ func (d *dimseDecoder) setError(err error) {
 func (d *dimseDecoder) findElement(tag dicom.Tag, optional isOptionalElement) *dicom.DicomElement {
 	for _, elem := range d.elems {
 		if elem.Tag == tag {
-			glog.V(1).Infof("Return %v for %s", elem, tag.String())
+			vlog.VI(1).Infof("Return %v for %s", elem, tag.String())
 			return elem
 		}
 	}
@@ -115,7 +115,7 @@ type C_STORE_RQ struct {
 
 func (v *C_STORE_RQ) HasData() bool {
 	if v.CommandDataSetType == CommandDataSetTypeNull {
-		glog.Warning("Bogus C_STORE_RQ without dataset")
+		vlog.Error("Bogus C_STORE_RQ without dataset")
 	}
 	return v.CommandDataSetType != CommandDataSetTypeNull
 }
@@ -200,7 +200,7 @@ func (v *C_STORE_RSP) Encode(e *dicom.Encoder) {
 
 func (v *C_STORE_RSP) HasData() bool {
 	if v.CommandDataSetType != CommandDataSetTypeNull {
-		glog.Warning("Bogus C_STORE_RSP with dataset")
+		vlog.Error("Bogus C_STORE_RSP with dataset")
 	}
 	return v.CommandDataSetType != CommandDataSetTypeNull
 }
@@ -245,7 +245,7 @@ type C_ECHO_RSP struct {
 // Decode C_ECHO_RSP object. Errors are reported in dd.err.
 func (v *C_ECHO_RSP) HasData() bool {
 	if v.CommandDataSetType != CommandDataSetTypeNull {
-		glog.Warning("Bogus C_ECHO_RSP with dataset")
+		vlog.Error("Bogus C_ECHO_RSP with dataset")
 	}
 	return v.CommandDataSetType != CommandDataSetTypeNull
 }
@@ -271,7 +271,7 @@ func decodeC_ECHO_RSP(dd *dimseDecoder) *C_ECHO_RSP {
 
 func (v *C_ECHO_RQ) HasData() bool {
 	if v.CommandDataSetType != CommandDataSetTypeNull {
-		glog.Warning("Bogus C_ECHO_RQ with dataset")
+		vlog.Error("Bogus C_ECHO_RQ with dataset")
 	}
 	return v.CommandDataSetType != CommandDataSetTypeNull
 }
@@ -394,7 +394,7 @@ func addPDataTF(a *dimseCommandAssembler, pdu *P_DATA_TF, contextManager *contex
 	}
 	command := a.command
 	dataBytes := a.dataBytes
-	glog.V(1).Infof("Read all data for syntax %s, command [%v], data %d bytes, err%v",
+	vlog.VI(1).Infof("Read all data for syntax %s, command [%v], data %d bytes, err%v",
 		dicom.UIDString(context.abstractSyntaxUID),
 		command.String(), len(a.dataBytes), err)
 	*a = dimseCommandAssembler{}

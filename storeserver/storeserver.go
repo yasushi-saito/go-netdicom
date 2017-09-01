@@ -4,9 +4,9 @@ import (
 	"encoding/binary"
 	"flag"
 	"fmt"
+	"github.com/golang/glog"
 	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-netdicom"
-	"github.com/golang/glog"
 	"io/ioutil"
 	"strings"
 	"sync/atomic"
@@ -17,6 +17,11 @@ var (
 )
 
 var pathSeq int32
+
+func onCEchoRequest() uint16 {
+	glog.Info("Received C-ECHO")
+	return 0
+}
 
 func onCStoreRequest(
 	transferSyntaxUID string,
@@ -51,7 +56,10 @@ func main() {
 	}
 	glog.Infof("Listening on %s", port)
 	params := netdicom.ServiceProviderParams{}
-	callbacks := netdicom.ServiceProviderCallbacks{CStore: onCStoreRequest}
+	callbacks := netdicom.ServiceProviderCallbacks{
+		CEcho:  onCEchoRequest,
+		CStore: onCStoreRequest,
+	}
 	su := netdicom.NewServiceProvider(params, callbacks)
 	err := su.Run(port)
 	if err != nil {

@@ -2,8 +2,8 @@ package netdicom
 
 import (
 	"github.com/yasushi-saito/go-dicom"
-	"github.com/golang/glog"
 	"net"
+	"v.io/x/lib/vlog"
 )
 
 type ServiceProviderParams struct {
@@ -133,7 +133,7 @@ func runUpperLayerForServiceProvider(callbacks ServiceProviderCallbacks,
 		if event.eventType == upcallEventHandshakeCompleted {
 			doassert(!handshakeCompleted)
 			handshakeCompleted = true
-			glog.V(1).Infof("handshake completed")
+			vlog.VI(1).Infof("handshake completed")
 			continue
 		}
 		doassert(event.eventType == upcallEventData)
@@ -143,7 +143,7 @@ func runUpperLayerForServiceProvider(callbacks ServiceProviderCallbacks,
 			event.transferSyntaxUID,
 			event.command, event.data, callbacks)
 	}
-	glog.V(1).Infof("Finished upper layer service!")
+	vlog.VI(1).Infof("Finished upper layer service!")
 }
 
 // Start threads for handling "conn". This function returns immediately; "conn"
@@ -155,7 +155,7 @@ func RunProviderForConn(conn net.Conn,
 	upcallCh := make(chan upcallEvent, 128)
 	go runStateMachineForServiceProvider(conn, params, upcallCh, downcallCh)
 	runUpperLayerForServiceProvider(callbacks, upcallCh, downcallCh)
-	glog.V(1).Info("Finished the provider")
+	vlog.VI(1).Info("Finished the provider")
 }
 
 // Listen to incoming connections, accept them, and run the DICOM protocol. This
@@ -170,7 +170,7 @@ func (sp *ServiceProvider) Run(listenAddr string) error {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			glog.Errorf("Accept error: %v", err)
+			vlog.Errorf("Accept error: %v", err)
 			continue
 		}
 		go func() { RunProviderForConn(conn, sp.params, sp.callbacks) }()

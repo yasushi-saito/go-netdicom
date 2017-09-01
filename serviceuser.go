@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/golang/glog"
 	"github.com/yasushi-saito/go-dicom"
 	"sync/atomic"
+	"v.io/x/lib/vlog"
 )
 
 type serviceUserStatus int
@@ -62,7 +62,7 @@ func NewServiceUserParams(
 			var err error
 			canonical[i], err = dicom.CanonicalTransferSyntaxUID(uid)
 			if err != nil {
-				glog.Fatal(err) // TODO(saito)
+				vlog.Fatal(err) // TODO(saito)
 			}
 		}
 		transferSyntaxUIDs = canonical
@@ -99,7 +99,7 @@ func waitAssociationEstablishment(su *ServiceUser) error {
 			su.status = serviceUserAssociationActive
 			break
 		}
-		glog.Fatalf("Illegal upcall event during handshake: %v", event)
+		vlog.Fatalf("Illegal upcall event during handshake: %v", event)
 	}
 	if su.status != serviceUserAssociationActive {
 		return fmt.Errorf("Connection failed")
@@ -153,7 +153,7 @@ func (su *ServiceUser) CStore(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("C-STORE data lacks MediaStorageSOPClassUID: %v", err)
 	}
-	glog.V(1).Infof("DICOM transfersyntax:%s, abstractsyntax: %s, sopinstance: %s",
+	vlog.VI(1).Infof("DICOM transfersyntax:%s, abstractsyntax: %s, sopinstance: %s",
 		transferSyntaxUID, sopClassUID, sopInstanceUID)
 
 	// The remainder of the file becomes the actual C-STORE payload.
@@ -216,6 +216,6 @@ func (su *ServiceUser) Release() {
 			su.status = serviceUserClosed
 			break
 		}
-		glog.Fatalf("No event expected after release, but received %v", event)
+		vlog.Fatalf("No event expected after release, but received %v", event)
 	}
 }

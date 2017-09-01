@@ -5,9 +5,9 @@ import (
 	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-netdicom"
 	"io/ioutil"
-	"github.com/golang/glog"
 	"net"
 	"testing"
+	"v.io/x/lib/vlog"
 )
 
 var serverAddr string
@@ -18,7 +18,7 @@ func onCStoreRequest(
 	sopClassUID string,
 	sopInstanceUID string,
 	data []byte) uint16 {
-	glog.Infof("Start C-STORE handler, transfersyntax=%s, sopclass=%s, sopinstance=%s",
+	vlog.Infof("Start C-STORE handler, transfersyntax=%s, sopclass=%s, sopinstance=%s",
 		dicom.UIDString(transferSyntaxUID),
 		dicom.UIDString(sopClassUID),
 		dicom.UIDString(sopInstanceUID))
@@ -27,14 +27,14 @@ func onCStoreRequest(
 	e.WriteBytes(data)
 
 	if cstoreData != nil {
-		glog.Fatal("Received C-STORE data twice")
+		vlog.Fatal("Received C-STORE data twice")
 	}
 	var err error
 	cstoreData, err = e.Finish()
 	if err != nil {
-		glog.Fatal(err)
+		vlog.Fatal(err)
 	}
-	glog.Infof("Received C-STORE requset")
+	vlog.Infof("Received C-STORE requset")
 	return 0 // Success
 }
 
@@ -77,7 +77,7 @@ func getCStoreData() (*dicom.DicomFile, error) {
 func init() {
 	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
-		glog.Fatal(err)
+		vlog.Fatal(err)
 	}
 	go func() {
 		// TODO(saito) test w/ small PDU.
@@ -86,10 +86,10 @@ func init() {
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
-				glog.Infof("Accept error: %v", err)
+				vlog.Infof("Accept error: %v", err)
 				continue
 			}
-			glog.Infof("Accepted connection %v", conn)
+			vlog.Infof("Accepted connection %v", conn)
 			netdicom.RunProviderForConn(conn, params, callbacks)
 		}
 	}()
@@ -99,11 +99,11 @@ func init() {
 func TestStoreSingleFile(t *testing.T) {
 	data, err := ioutil.ReadFile("testdata/IM-0001-0003.dcm")
 	if err != nil {
-		glog.Fatal(err)
+		vlog.Fatal(err)
 	}
 	transferSyntaxUID, err := netdicom.GetTransferSyntaxUIDInBytes(data)
 	if err != nil {
-		glog.Fatal(err)
+		vlog.Fatal(err)
 	}
 	params := netdicom.NewServiceUserParams(
 		"dontcare", "testclient", netdicom.StorageClasses,
@@ -111,18 +111,18 @@ func TestStoreSingleFile(t *testing.T) {
 	su := netdicom.NewServiceUser(serverAddr, params)
 	err = su.CStore(data)
 	if err != nil {
-		glog.Fatal(err)
+		vlog.Fatal(err)
 	}
-	glog.Infof("Store done!!")
+	vlog.Infof("Store done!!")
 	su.Release()
 
 	out, err := getCStoreData()
 	if err != nil {
-		glog.Fatal(err)
+		vlog.Fatal(err)
 	}
 	in, err := dicom.ParseBytes(data)
 	if err != nil {
-		glog.Fatal(err)
+		vlog.Fatal(err)
 	}
 	checkFileBodiesEqual(t, in, out)
 }
