@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/golang/glog"
 	"github.com/yasushi-saito/go-dicom"
-	"log"
 	"sync/atomic"
 )
 
@@ -27,8 +27,10 @@ type ServiceUser struct {
 }
 
 type ServiceUserParams struct {
-	CalledAETitle    string
-	CallingAETitle   string
+	CalledAETitle  string // Must be nonempty
+	CallingAETitle string // Must be nonempty
+
+	// List of SOPUIDs wanted by the user.
 	RequiredServices []SOPUID
 
 	// List of Transfer syntaxes supported by the user.  If you know the
@@ -40,7 +42,10 @@ type ServiceUserParams struct {
 	// spec is particularly moronic here, since we could just have specified
 	// the transfer syntax per data sent.
 	SupportedTransferSyntaxes []string
-	MaxPDUSize                int
+
+	// Max size of a message chunk (PDU) that the client can receiuve.  If
+	// <= 0, DefaultMaxPDUSize is used.
+	MaxPDUSize int
 }
 
 // If transferSyntaxUIDs is empty, the standard list of syntax is used.
@@ -57,7 +62,7 @@ func NewServiceUserParams(
 			var err error
 			canonical[i], err = dicom.CanonicalTransferSyntaxUID(uid)
 			if err != nil {
-				log.Panic(err) // TODO(saito)
+				glog.Fatal(err) // TODO(saito)
 			}
 		}
 		transferSyntaxUIDs = canonical
@@ -94,7 +99,7 @@ func waitAssociationEstablishment(su *ServiceUser) error {
 			su.status = serviceUserAssociationActive
 			break
 		}
-		log.Panicf("Illegal upcall event during handshake: %v", event)
+		glog.Fatalf("Illegal upcall event during handshake: %v", event)
 	}
 	if su.status != serviceUserAssociationActive {
 		return fmt.Errorf("Connection failed")
@@ -102,11 +107,17 @@ func waitAssociationEstablishment(su *ServiceUser) error {
 	return nil
 }
 
+// Generate a new message ID that's unique within the "su".
 func newMessageID(su *ServiceUser) uint16 {
 	id := atomic.AddInt32(&su.nextMessageID, 1)
 	return uint16(id % 0x10000)
 }
 
+// Issue a C-STORE request; blocks until the server responds, or an error
+// happens. "data" is a DICOM file. Its transfer syntax must match the one
+// established in during DICOM A_ASSOCIATE handshake.
+//
+// TODO(saito) Re-encode the data using the valid transfer syntax.
 func (su *ServiceUser) CStore(data []byte) error {
 	// Parse the beginning of file, extract syntax UIDs to fill in the
 	// C-STORE request.
@@ -142,7 +153,7 @@ func (su *ServiceUser) CStore(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("C-STORE data lacks MediaStorageSOPClassUID: %v", err)
 	}
-	log.Printf("DICOM transfersyntax:%s, abstractsyntax: %s, sopinstance: %s",
+	glog.V(1).Infof("DICOM transfersyntax:%s, abstractsyntax: %s, sopinstance: %s",
 		transferSyntaxUID, sopClassUID, sopInstanceUID)
 
 	// The remainder of the file becomes the actual C-STORE payload.
@@ -150,7 +161,6 @@ func (su *ServiceUser) CStore(data []byte) error {
 	if decoder.Error() != nil {
 		return decoder.Error()
 	}
-
 	err = waitAssociationEstablishment(su)
 	if err != nil {
 		return err
@@ -206,6 +216,6 @@ func (su *ServiceUser) Release() {
 			su.status = serviceUserClosed
 			break
 		}
-		log.Panicf("No event expected after release, but received %v", event)
+		glog.Fatalf("No event expected after release, but received %v", event)
 	}
 }

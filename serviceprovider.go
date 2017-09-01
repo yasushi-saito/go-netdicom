@@ -2,13 +2,13 @@ package netdicom
 
 import (
 	"github.com/yasushi-saito/go-dicom"
-	"log"
+	"github.com/golang/glog"
 	"net"
 )
 
 type ServiceProviderParams struct {
-	// The max PDU size, in bytes, that this instance is willing to receive.
-	// If the value is <=0, DefaultMaxPDUSize is used.
+	// Max size of a message chunk (PDU) that the client can receiuve.  If
+	// <= 0, DefaultMaxPDUSize is used.
 	MaxPDUSize int
 }
 
@@ -133,7 +133,7 @@ func runUpperLayerForServiceProvider(callbacks ServiceProviderCallbacks,
 		if event.eventType == upcallEventHandshakeCompleted {
 			doassert(!handshakeCompleted)
 			handshakeCompleted = true
-			log.Printf("handshake completed")
+			glog.V(1).Infof("handshake completed")
 			continue
 		}
 		doassert(event.eventType == upcallEventData)
@@ -143,7 +143,7 @@ func runUpperLayerForServiceProvider(callbacks ServiceProviderCallbacks,
 			event.transferSyntaxUID,
 			event.command, event.data, callbacks)
 	}
-	log.Printf("Finished upper layer service!")
+	glog.V(1).Infof("Finished upper layer service!")
 }
 
 // Start threads for handling "conn". This function returns immediately; "conn"
@@ -155,7 +155,7 @@ func RunProviderForConn(conn net.Conn,
 	upcallCh := make(chan upcallEvent, 128)
 	go runStateMachineForServiceProvider(conn, params, upcallCh, downcallCh)
 	runUpperLayerForServiceProvider(callbacks, upcallCh, downcallCh)
-	log.Print("Finished the provider")
+	glog.V(1).Info("Finished the provider")
 }
 
 // Listen to incoming connections, accept them, and run the DICOM protocol. This
@@ -170,7 +170,7 @@ func (sp *ServiceProvider) Run(listenAddr string) error {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			log.Printf("Accept error: %v", err)
+			glog.Errorf("Accept error: %v", err)
 			continue
 		}
 		go func() { RunProviderForConn(conn, sp.params, sp.callbacks) }()

@@ -7,8 +7,8 @@ package netdicom
 import (
 	"encoding/binary"
 	"fmt"
+	"github.com/golang/glog"
 	"github.com/yasushi-saito/go-dicom"
-	"log"
 )
 
 // Common interface for all C-XXX message types.
@@ -21,7 +21,7 @@ type DIMSEMessage interface {
 func findElementWithTag(elems []*dicom.DicomElement, tag dicom.Tag) (*dicom.DicomElement, error) {
 	for _, elem := range elems {
 		if elem.Tag == tag {
-			log.Printf("Return %v for %s", elem, tag.String())
+			glog.V(1).Infof("Return %v for %s", elem, tag.String())
 			return elem, nil
 		}
 	}
@@ -382,7 +382,7 @@ func addPDataTF(a *dimseCommandAssembler, pdu *P_DATA_TF, contextManager *contex
 	}
 	command := a.command
 	dataBytes := a.dataBytes
-	log.Printf("Read all data for syntax %s, command [%v], data %d bytes, err%v",
+	glog.V(1).Infof("Read all data for syntax %s, command [%v], data %d bytes, err%v",
 		dicom.UIDString(context.abstractSyntaxUID),
 		command.String(), len(a.dataBytes), err)
 	*a = dimseCommandAssembler{}

@@ -5,9 +5,9 @@ package netdicom
 
 import (
 	"fmt"
+	"github.com/golang/glog"
 	"github.com/yasushi-saito/go-dicom"
 	"io"
-	"log"
 	"net"
 	"strings"
 	"sync/atomic"
@@ -82,12 +82,12 @@ var actionAe1 = &stateAction{"AE-1",
 	"Issue TRANSPORT CONNECT request primitive to local transport service",
 	func(sm *stateMachine, event stateEvent) *stateType {
 		if event.conn == nil && event.serverAddr == "" {
-			log.Panicf("%s: illegal event %v", sm.name, event)
+			glog.Fatalf("%s: illegal event %v", sm.name, event)
 		}
 		go func(ch chan stateEvent, serverHostPort string) {
 			conn, err := net.Dial("tcp", serverHostPort)
 			if err != nil {
-				log.Printf("%s: Failed to connect to %s: %v", sm.name, serverHostPort, err)
+				glog.Infof("%s: Failed to connect to %s: %v", sm.name, serverHostPort, err)
 				ch <- stateEvent{event: evt17, pdu: nil, err: err}
 				close(ch)
 				return
@@ -152,7 +152,7 @@ var actionAe3 = &stateAction{"AE-3", "Issue A-ASSOCIATE confirmation (accept) pr
 			doassert(sm.maxPDUSize > 0)
 			return sta06
 		} else {
-			log.Print(err)
+			glog.Error(err)
 			return actionAa8.Callback(sm, event)
 		}
 	}}
@@ -190,7 +190,7 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 		stopTimer(sm)
 		pdu := event.pdu.(*A_ASSOCIATE)
 		if pdu.ProtocolVersion != 0x0001 {
-			log.Printf("%s: Wrong remote protocol version 0x%x", sm.name, pdu.ProtocolVersion)
+			glog.Infof("%s: Wrong remote protocol version 0x%x", sm.name, pdu.ProtocolVersion)
 			rj := A_ASSOCIATE_RJ{Result: 1, Source: 2, Reason: 2}
 			sendPDU(sm, &rj)
 			startTimer(sm)
@@ -260,7 +260,7 @@ func splitDataIntoPDUs(sm *stateMachine, abstractSyntaxName string, command bool
 
 	context, err := sm.contextManager.lookupByAbstractSyntaxUID(abstractSyntaxName)
 	if err != nil {
-		log.Panicf("%s: Illegal syntax name %s: %s", sm.name, dicom.UIDString(abstractSyntaxName), err)
+		glog.Fatalf("%s: Illegal syntax name %s: %s", sm.name, dicom.UIDString(abstractSyntaxName), err)
 	}
 	var pdus []P_DATA_TF
 	// two byte header overhead.
@@ -315,7 +315,7 @@ var actionDt2 = &stateAction{"DT-2", "Send P-DATA indication primitive",
 			}
 			return sta06
 		} else {
-			log.Printf("%s: Failed to assemble data: %v", sm.name, err) // TODO(saito)
+			glog.Infof("%s: Failed to assemble data: %v", sm.name, err) // TODO(saito)
 			return actionAa8.Callback(sm, event)
 		}
 	}}
@@ -689,7 +689,7 @@ type stateMachine struct {
 
 func closeConnection(sm *stateMachine) {
 	close(sm.upcallCh)
-	log.Printf("%s: Closing connection %v", sm.name, sm.conn)
+	glog.Infof("%s: Closing connection %v", sm.name, sm.conn)
 	sm.conn.Close()
 }
 
@@ -697,7 +697,7 @@ func sendPDU(sm *stateMachine, pdu PDU) {
 	doassert(sm.conn != nil)
 	data, err := EncodePDU(pdu)
 	if err != nil {
-		log.Printf("%s: Failed to encode: %v; closing connection %v", sm.name, err, sm.conn)
+		glog.Infof("%s: Failed to encode: %v; closing connection %v", sm.name, err, sm.conn)
 		sm.conn.Close()
 		sm.errorCh <- stateEvent{event: evt17, err: err}
 		return
@@ -705,18 +705,18 @@ func sendPDU(sm *stateMachine, pdu PDU) {
 	if sm.faults != nil {
 		action := sm.faults.onSend(data)
 		if action == faultInjectorDisconnect {
-			log.Printf("%s: FAULT: closing connection for test", sm.name)
+			glog.Infof("%s: FAULT: closing connection for test", sm.name)
 			sm.conn.Close()
 		}
 	}
 	n, err := sm.conn.Write(data)
 	if n != len(data) || err != nil {
-		log.Printf("%s: Failed to write %d bytes. Actual %d bytes : %v; closing connection %v", sm.name, len(data), n, err, sm.conn)
+		glog.Infof("%s: Failed to write %d bytes. Actual %d bytes : %v; closing connection %v", sm.name, len(data), n, err, sm.conn)
 		sm.conn.Close()
 		sm.errorCh <- stateEvent{event: evt17, err: err}
 		return
 	}
-	// log.Printf("%s: sendPDU: %v", sm.name, pdu.String())
+	// glog.Infof("%s: sendPDU: %v", sm.name, pdu.String())
 }
 
 func startTimer(sm *stateMachine) {
@@ -739,12 +739,12 @@ func stopTimer(sm *stateMachine) {
 }
 
 func networkReaderThread(ch chan stateEvent, conn net.Conn, maxPDUSize int, smName string) {
-	log.Printf("%s: Starting network reader for %v, maxPDU %d", smName, conn, maxPDUSize)
+	glog.V(1).Infof("%s: Starting network reader for %v, maxPDU %d", smName, conn, maxPDUSize)
 	doassert(maxPDUSize > 16*1024)
 	for {
 		pdu, err := ReadPDU(conn, maxPDUSize)
 		if err != nil {
-			log.Printf("%s: Failed to read PDU: %v", err, smName)
+			glog.Infof("%s: Failed to read PDU: %v", err, smName)
 			if err == io.EOF {
 				ch <- stateEvent{event: evt17, pdu: nil, err: nil}
 			} else {
@@ -754,7 +754,7 @@ func networkReaderThread(ch chan stateEvent, conn net.Conn, maxPDUSize int, smNa
 			break
 		}
 		doassert(pdu != nil)
-		// log.Printf("%s: Read PDU: %v", pdu.String(), smName)
+		// glog.Infof("%s: Read PDU: %v", pdu.String(), smName)
 		if n, ok := pdu.(*A_ASSOCIATE); ok {
 			if n.Type == PDUTypeA_ASSOCIATE_RQ {
 				ch <- stateEvent{event: evt06, pdu: n, err: nil}
@@ -785,9 +785,9 @@ func networkReaderThread(ch chan stateEvent, conn net.Conn, maxPDUSize int, smNa
 			ch <- stateEvent{event: evt16, pdu: n, err: nil}
 			continue
 		}
-		log.Panicf("%s: Unknown PDU type: %v", pdu.String(), smName)
+		glog.Fatalf("%s: Unknown PDU type: %v", pdu.String(), smName)
 	}
-	log.Printf("%s: Exiting network reader for %v", conn, smName)
+	glog.V(1).Infof("%s: Exiting network reader for %v", conn, smName)
 }
 
 func getNextEvent(sm *stateMachine) stateEvent {
@@ -817,7 +817,7 @@ func getNextEvent(sm *stateMachine) stateEvent {
 		}
 	}
 	if event.event.Event == 0 {
-		log.Panicf("%s: received null event from channel '%s', sm: %v",
+		glog.Fatalf("%s: received null event from channel '%s', sm: %v",
 			sm.name, channel, sm)
 	}
 	switch event.event {
@@ -844,25 +844,25 @@ const DefaultMaximiumPDUSize = uint32(1 << 20)
 
 func runOneStep(sm *stateMachine) {
 	event := getNextEvent(sm)
-	log.Printf("%s: Current state: %v, Event %v", sm.name, sm.currentState, event)
+	glog.V(1).Infof("%s: Current state: %v, Event %v", sm.name, sm.currentState, event)
 	action := findAction(sm.currentState, &event, sm.name)
 	if action == nil {
 		msg := fmt.Sprintf("%s: No action found for state %v, event %v", sm.name, sm.currentState, event.String())
 		if sm.faults != nil {
 			msg += " FIhistory: " + sm.faults.String()
 		}
-		log.Printf("Unknown state transition:")
+		glog.Infof("Unknown state transition:")
 		for _, s := range strings.Split(msg, "\n") {
-			log.Printf(s)
+			glog.Infof(s)
 		}
-		log.Panicf(msg)
+		glog.Fatalf(msg)
 	}
 	if sm.faults != nil {
 		sm.faults.onStateTransition(sm.currentState, &event, action)
 	}
-	log.Printf("%s: Running action %v", sm.name, action)
+	glog.V(1).Infof("%s: Running action %v", sm.name, action)
 	sm.currentState = action.Callback(sm, event)
-	log.Printf("Next state: %v", sm.currentState)
+	glog.V(1).Infof("Next state: %v", sm.currentState)
 }
 
 func runStateMachineForServiceUser(
@@ -891,7 +891,7 @@ func runStateMachineForServiceUser(
 	for sm.currentState != sta01 {
 		runOneStep(sm)
 	}
-	log.Print("Connection shutdown")
+	glog.V(1).Info("Connection shutdown")
 }
 
 func runStateMachineForServiceProvider(
@@ -917,5 +917,5 @@ func runStateMachineForServiceProvider(
 	for sm.currentState != sta01 {
 		runOneStep(sm)
 	}
-	log.Print("Connection shutdown")
+	glog.V(1).Info("Connection shutdown")
 }

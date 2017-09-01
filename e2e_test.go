@@ -5,7 +5,7 @@ import (
 	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-netdicom"
 	"io/ioutil"
-	"log"
+	"github.com/golang/glog"
 	"net"
 	"testing"
 )
@@ -18,7 +18,7 @@ func onCStoreRequest(
 	sopClassUID string,
 	sopInstanceUID string,
 	data []byte) uint16 {
-	log.Printf("Start C-STORE handler, transfersyntax=%s, sopclass=%s, sopinstance=%s",
+	glog.Infof("Start C-STORE handler, transfersyntax=%s, sopclass=%s, sopinstance=%s",
 		dicom.UIDString(transferSyntaxUID),
 		dicom.UIDString(sopClassUID),
 		dicom.UIDString(sopInstanceUID))
@@ -34,14 +34,14 @@ func onCStoreRequest(
 	e.WriteBytes(data)
 
 	if cstoreData != nil {
-		log.Panic("Received C-STORE data twice")
+		glog.Fatal("Received C-STORE data twice")
 	}
 	var err error
 	cstoreData, err = e.Finish()
 	if err != nil {
-		log.Panic(err)
+		glog.Fatal(err)
 	}
-	log.Print("Received C-STORE requset")
+	glog.Infof("Received C-STORE requset")
 	return 0 // Success
 }
 
@@ -84,7 +84,7 @@ func getCStoreData() (*dicom.DicomFile, error) {
 func init() {
 	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
-		log.Panic(err)
+		glog.Fatal(err)
 	}
 	go func() {
 		// TODO(saito) test w/ small PDU.
@@ -93,10 +93,10 @@ func init() {
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
-				log.Printf("Accept error: %v", err)
+				glog.Infof("Accept error: %v", err)
 				continue
 			}
-			log.Printf("Accepted connection %v", conn)
+			glog.Infof("Accepted connection %v", conn)
 			netdicom.RunProviderForConn(conn, params, callbacks)
 		}
 	}()
@@ -106,11 +106,11 @@ func init() {
 func TestStoreSingleFile(t *testing.T) {
 	data, err := ioutil.ReadFile("testdata/IM-0001-0003.dcm")
 	if err != nil {
-		log.Fatal(err)
+		glog.Fatal(err)
 	}
 	transferSyntaxUID, err := netdicom.GetTransferSyntaxUIDInBytes(data)
 	if err != nil {
-		log.Fatal(err)
+		glog.Fatal(err)
 	}
 	params := netdicom.NewServiceUserParams(
 		"dontcare", "testclient", netdicom.StorageClasses,
@@ -118,18 +118,18 @@ func TestStoreSingleFile(t *testing.T) {
 	su := netdicom.NewServiceUser(serverAddr, params)
 	err = su.CStore(data)
 	if err != nil {
-		log.Fatal(err)
+		glog.Fatal(err)
 	}
-	log.Printf("Store done!!")
+	glog.Infof("Store done!!")
 	su.Release()
 
 	out, err := getCStoreData()
 	if err != nil {
-		log.Fatal(err)
+		glog.Fatal(err)
 	}
 	in, err := dicom.ParseBytes(data)
 	if err != nil {
-		log.Fatal(err)
+		glog.Fatal(err)
 	}
 	checkFileBodiesEqual(t, in, out)
 }

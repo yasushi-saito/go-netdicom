@@ -2,8 +2,8 @@ package netdicom
 
 import (
 	"fmt"
+	"github.com/golang/glog"
 	"github.com/yasushi-saito/go-dicom"
-	"log"
 )
 
 type contextManagerEntry struct {
@@ -40,7 +40,6 @@ func newContextManager() *contextManager {
 		abstractSyntaxNameToContextIDMap: make(map[string]*contextManagerEntry),
 		tmpRequests:                      make(map[byte]*PresentationContextItem),
 	}
-	log.Printf("new context manager(%p)", c)
 	return c
 }
 
@@ -81,7 +80,7 @@ func (m *contextManager) onAssociateRequest(requests []*PresentationContextItem)
 			switch c := subItem.(type) {
 			case *AbstractSyntaxSubItem:
 				if sopUID != "" {
-					log.Fatalf("Multiple AbstractSyntaxSubItem found in %v", contextItem.String())
+					glog.Fatalf("Multiple AbstractSyntaxSubItem found in %v", contextItem.String())
 				}
 				sopUID = c.Name
 			case *TransferSyntaxSubItem:
@@ -94,14 +93,14 @@ func (m *contextManager) onAssociateRequest(requests []*PresentationContextItem)
 			}
 		}
 		if sopUID == "" || pickedTransferSyntaxUID == "" {
-			log.Fatalf("SOP or transfersyntax not found in PresentationContext: %v", contextItem.String())
+			glog.Fatalf("SOP or transfersyntax not found in PresentationContext: %v", contextItem.String())
 		}
 		responses = append(responses, &PresentationContextItem{
 			Type:      ItemTypePresentationContextResponse,
 			ContextID: contextItem.ContextID,
 			Result:    0, // accepted
 			Items:     []SubItem{&TransferSyntaxSubItem{Name: pickedTransferSyntaxUID}}})
-		log.Printf("Provider(%p): addmapping %v %v %v", m, sopUID, pickedTransferSyntaxUID, contextItem.ContextID)
+		glog.V(1).Infof("Provider(%p): addmapping %v %v %v", m, sopUID, pickedTransferSyntaxUID, contextItem.ContextID)
 		addContextMapping(m, sopUID, pickedTransferSyntaxUID, contextItem.ContextID)
 	}
 	return responses, nil
@@ -157,7 +156,7 @@ func addContextMapping(
 	abstractSyntaxUID string,
 	transferSyntaxUID string,
 	contextID byte) {
-	log.Printf("Map context %d -> %s, %s",
+	glog.V(1).Infof("Map context %d -> %s, %s",
 		contextID, dicom.UIDString(abstractSyntaxUID),
 		dicom.UIDString(transferSyntaxUID))
 	doassert(abstractSyntaxUID != "")

@@ -7,9 +7,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/golang/glog"
 	"github.com/yasushi-saito/go-dicom"
 	"io"
-	"log"
 )
 
 type PDU interface {
@@ -418,7 +418,7 @@ func EncodePDU(pdu PDU) ([]byte, error) {
 	} else if _, ok := pdu.(*A_ABORT); ok {
 		pduType = PDUTypeA_ABORT
 	} else {
-		log.Panicf("Unknown PDU %v", pdu)
+		glog.Fatalf("Unknown PDU %v", pdu)
 	}
 
 	e := dicom.NewEncoder(binary.BigEndian, dicom.UnknownVR)
