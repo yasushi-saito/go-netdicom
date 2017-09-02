@@ -42,7 +42,7 @@ func (d *dimseDecoder) setError(err error) {
 func (d *dimseDecoder) findElement(tag dicom.Tag, optional isOptionalElement) *dicom.DicomElement {
 	for _, elem := range d.elems {
 		if elem.Tag == tag {
-			vlog.VI(1).Infof("Return %v for %s", elem, tag.String())
+			vlog.VI(2).Infof("Return %v for %s", elem, tag.String())
 			return elem
 		}
 	}

@@ -86,33 +86,34 @@ var actionAe1 = &stateAction{"AE-1",
 		return sta04
 	}}
 
-// Generate an item list to be embedded in an A_REQUEST_RQ PDU. The PDU is sent
-// when running as a service user.
-func buildAssociateRequestItems(m *contextManager, params ServiceUserParams) []SubItem {
-	items := []SubItem{
-		&ApplicationContextItem{
-			Name: DefaultApplicationContextItemName,
-		}}
-	for _, item := range m.generateAssociateRequest(
-		params.RequiredServices,
-		params.SupportedTransferSyntaxes) {
-		items = append(items, item)
-	}
-	items = append(items,
-		&UserInformationItem{
-			Items: []SubItem{
-				&UserInformationMaximumLengthItem{uint32(params.MaxPDUSize)},
-				&ImplementationClassUIDSubItem{dicom.DefaultImplementationClassUID},
-				&ImplementationVersionNameSubItem{dicom.DefaultImplementationVersionName}}})
-	return items
-}
+// func buildAssociateRequestItems(m *contextManager, params ServiceUserParams) []SubItem {
+// 	items := []SubItem{
+// 		&ApplicationContextItem{
+// 			Name: DefaultApplicationContextItemName,
+// 		}}
+// 	for _, item := range m.generateAssociateRequest(
+// 		params.RequiredServices,
+// 		params.SupportedTransferSyntaxes) {
+// 		items = append(items, item)
+// 	}
+// 	items = append(items,
+// 		&UserInformationItem{
+// 			Items: []SubItem{
+// 				&UserInformationMaximumLengthItem{uint32(params.MaxPDUSize)},
+// 				&ImplementationClassUIDSubItem{dicom.DefaultImplementationClassUID},
+// 				&ImplementationVersionNameSubItem{dicom.DefaultImplementationVersionName}}})
+// 	return items
+// }
 
 var actionAe2 = &stateAction{"AE-2", "Connection established on the user side. Send A-ASSOCIATE-RQ-PDU",
 	func(sm *stateMachine, event stateEvent) *stateType {
 		doassert(event.conn != nil)
 		sm.conn = event.conn
 		go networkReaderThread(sm.netCh, event.conn, sm.userParams.MaxPDUSize, sm.name)
-		items := buildAssociateRequestItems(sm.contextManager, sm.userParams)
+		items := sm.contextManager.generateAssociateRequest(
+			sm.userParams.RequiredServices,
+			sm.userParams.SupportedTransferSyntaxes,
+			sm.userParams.MaxPDUSize)
 		pdu := &A_ASSOCIATE{
 			Type:            PDUTypeA_ASSOCIATE_RQ,
 			ProtocolVersion: CurrentProtocolVersion,
@@ -187,12 +188,7 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 			startTimer(sm)
 			return sta13
 		}
-		responses := []SubItem{
-			&ApplicationContextItem{
-				Name: DefaultApplicationContextItemName,
-			},
-		}
-		items, err := sm.contextManager.onAssociateRequest(extractPresentationContextItems(pdu.Items))
+		responses, err := sm.contextManager.onAssociateRequest(pdu.Items, sm.providerParams.MaxPDUSize)
 		if err != nil {
 			// TODO(saito) set proper error code.
 			sm.downcallCh <- stateEvent{
@@ -204,14 +200,6 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 				},
 			}
 		} else {
-			for _, item := range items {
-				responses = append(responses, item)
-			}
-			// TODO(saito) Set the PDU size more properly.
-			responses = append(responses,
-				&UserInformationItem{
-					Items: []SubItem{&UserInformationMaximumLengthItem{MaximumLengthReceived: uint32(sm.providerParams.MaxPDUSize)}}})
-			// TODO(saito) extract the user params.
 			sm.maxPDUSize = sm.providerParams.MaxPDUSize
 			doassert(sm.maxPDUSize > 0)
 			doassert(len(responses) > 0)
@@ -749,6 +737,7 @@ func networkReaderThread(ch chan stateEvent, conn net.Conn, maxPDUSize int, smNa
 			break
 		}
 		doassert(pdu != nil)
+		vlog.VI(2).Infof("%v: read PDU: %v", smName, pdu.String())
 		switch n := pdu.(type) {
 		case *A_ASSOCIATE:
 			if n.Type == PDUTypeA_ASSOCIATE_RQ {
@@ -780,7 +769,7 @@ func networkReaderThread(ch chan stateEvent, conn net.Conn, maxPDUSize int, smNa
 			continue
 		}
 	}
-	vlog.VI(1).Infof("%s: Exiting network reader for %v", conn, smName)
+	vlog.VI(1).Infof("%s: Exiting network reader", smName)
 }
 
 func getNextEvent(sm *stateMachine) stateEvent {
@@ -882,7 +871,7 @@ func runStateMachineForServiceUser(
 	for sm.currentState != sta01 {
 		runOneStep(sm)
 	}
-	vlog.VI(1).Info("Connection shutdown")
+	vlog.VI(1).Infof("%s: statemachine finished", sm.name)
 }
 
 func runStateMachineForServiceProvider(
@@ -908,5 +897,5 @@ func runStateMachineForServiceProvider(
 	for sm.currentState != sta01 {
 		runOneStep(sm)
 	}
-	vlog.VI(1).Info("Connection shutdown")
+	vlog.VI(1).Infof("%s: statemachine finished", sm.name)
 }

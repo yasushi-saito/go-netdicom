@@ -78,7 +78,7 @@ func NewServiceUserParams(
 
 func NewServiceUser(params ServiceUserParams) *ServiceUser {
 	su := &ServiceUser{
-		status:     serviceUserInitial,
+		status: serviceUserInitial,
 		// sm: NewStateMachineForServiceUser(params, nil, nil),
 		downcallCh:    make(chan stateEvent, 128),
 		upcallCh:      make(chan upcallEvent, 128),
@@ -89,7 +89,7 @@ func NewServiceUser(params ServiceUserParams) *ServiceUser {
 }
 
 func waitAssociationEstablishment(su *ServiceUser) error {
-	if (su.status < serviceUserHandshaking) {
+	if su.status < serviceUserHandshaking {
 		vlog.Fatal("ServiceUser.Start() not yet called")
 	}
 	for su.status < serviceUserAssociationActive {
@@ -110,8 +110,8 @@ func waitAssociationEstablishment(su *ServiceUser) error {
 	return nil
 }
 
-// Connect to the server at the given "host:port". This method must be called
-// before calling CStore, etc.
+// Connect to the server at the given "host:port". Either Connect or SetConn
+// must be before calling CStore, etc.
 func (su *ServiceUser) Connect(serverAddr string) {
 	doassert(su.status == serviceUserInitial)
 	conn, err := net.Dial("tcp", serverAddr)
@@ -122,6 +122,14 @@ func (su *ServiceUser) Connect(serverAddr string) {
 	} else {
 		su.downcallCh <- stateEvent{event: evt02, pdu: nil, err: nil, conn: conn}
 	}
+	su.status = serviceUserHandshaking
+}
+
+// Use the given connection to talk to the server. Either Connect or SetConn
+// must be before calling CStore, etc.
+func (su *ServiceUser) SetConn(conn net.Conn) {
+	doassert(su.status == serviceUserInitial)
+	su.downcallCh <- stateEvent{event: evt02, pdu: nil, err: nil, conn: conn}
 	su.status = serviceUserHandshaking
 }
 

@@ -257,7 +257,8 @@ func decodeSubItemWithName(d *dicom.Decoder, length uint16) string {
 
 type ApplicationContextItem subItemWithName
 
-const DefaultApplicationContextItemName = "1.2.840.10008.3.1.1.1"
+// The app context for DICOM. The first item in the A-ASSOCIATE-RQ
+const dicomApplicationContextItemName = "1.2.840.10008.3.1.1.1"
 
 func decodeApplicationContextItem(d *dicom.Decoder, length uint16) *ApplicationContextItem {
 	return &ApplicationContextItem{Name: decodeSubItemWithName(d, length)}
