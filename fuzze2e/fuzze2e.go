@@ -53,7 +53,8 @@ func runClient(serverAddr string, faults *netdicom.FaultInjector) {
 	params := netdicom.NewServiceUserParams(
 		"dontcare", "testclient", netdicom.StorageClasses,
 		[]string{transferSyntaxUID})
-	su := netdicom.NewServiceUser(serverAddr, params)
+	su := netdicom.NewServiceUser(params)
+	su.Connect(serverAddr)
 	err = su.CStore(data)
 	log.Printf("Store done with status: %v", err)
 	su.Release()

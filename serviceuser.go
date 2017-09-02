@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/yasushi-saito/go-dicom"
+	"net"
 	"sync/atomic"
 	"v.io/x/lib/vlog"
 )
@@ -13,14 +14,13 @@ type serviceUserStatus int
 
 const (
 	serviceUserInitial = iota
+	serviceUserHandshaking
 	serviceUserAssociationActive
 	serviceUserClosed
 )
 
 type ServiceUser struct {
-	status serviceUserStatus
-	// sm *StateMachine
-	// associationActive bool
+	status        serviceUserStatus
 	downcallCh    chan stateEvent
 	upcallCh      chan upcallEvent
 	nextMessageID int32
@@ -76,19 +76,22 @@ func NewServiceUserParams(
 	}
 }
 
-func NewServiceUser(serverAddr string, params ServiceUserParams) *ServiceUser {
+func NewServiceUser(params ServiceUserParams) *ServiceUser {
 	su := &ServiceUser{
-		status: serviceUserInitial,
+		status:     serviceUserInitial,
 		// sm: NewStateMachineForServiceUser(params, nil, nil),
 		downcallCh:    make(chan stateEvent, 128),
 		upcallCh:      make(chan upcallEvent, 128),
 		nextMessageID: 123, // any value != 0 suffices.
 	}
-	go runStateMachineForServiceUser(serverAddr, params, su.upcallCh, su.downcallCh)
+	go runStateMachineForServiceUser(params, su.upcallCh, su.downcallCh)
 	return su
 }
 
 func waitAssociationEstablishment(su *ServiceUser) error {
+	if (su.status < serviceUserHandshaking) {
+		vlog.Fatal("ServiceUser.Start() not yet called")
+	}
 	for su.status < serviceUserAssociationActive {
 		event, ok := <-su.upcallCh
 		if !ok {
@@ -105,6 +108,21 @@ func waitAssociationEstablishment(su *ServiceUser) error {
 		return fmt.Errorf("Connection failed")
 	}
 	return nil
+}
+
+// Connect to the server at the given "host:port". This method must be called
+// before calling CStore, etc.
+func (su *ServiceUser) Connect(serverAddr string) {
+	doassert(su.status == serviceUserInitial)
+	conn, err := net.Dial("tcp", serverAddr)
+	if err != nil {
+		vlog.Infof("Failed to connect to %s: %v", serverAddr, err)
+		su.downcallCh <- stateEvent{event: evt17, pdu: nil, err: err}
+		close(su.downcallCh)
+	} else {
+		su.downcallCh <- stateEvent{event: evt02, pdu: nil, err: nil, conn: conn}
+	}
+	su.status = serviceUserHandshaking
 }
 
 // Generate a new message ID that's unique within the "su".

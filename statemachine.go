@@ -81,20 +81,8 @@ func (s *stateAction) String() string {
 var actionAe1 = &stateAction{"AE-1",
 	"Issue TRANSPORT CONNECT request primitive to local transport service",
 	func(sm *stateMachine, event stateEvent) *stateType {
-		if event.conn == nil && event.serverAddr == "" {
-			vlog.Fatalf("%s: illegal event %v", sm.name, event)
-		}
-		go func(ch chan stateEvent, serverHostPort string) {
-			conn, err := net.Dial("tcp", serverHostPort)
-			if err != nil {
-				vlog.Infof("%s: Failed to connect to %s: %v", sm.name, serverHostPort, err)
-				ch <- stateEvent{event: evt17, pdu: nil, err: err}
-				close(ch)
-				return
-			}
-			ch <- stateEvent{event: evt02, pdu: nil, err: nil, conn: conn}
-			networkReaderThread(ch, conn, sm.userParams.MaxPDUSize, sm.name)
-		}(sm.netCh, event.serverAddr)
+		// Nothing to do now. We expect ServiceUser to dial a connection and emit either
+		// evt02 (on success) or evt17 (on failure)
 		return sta04
 	}}
 
@@ -119,8 +107,11 @@ func buildAssociateRequestItems(m *contextManager, params ServiceUserParams) []S
 	return items
 }
 
-var actionAe2 = &stateAction{"AE-2", "Send A-ASSOCIATE-RQ-PDU",
+var actionAe2 = &stateAction{"AE-2", "Connection established on the user side. Send A-ASSOCIATE-RQ-PDU",
 	func(sm *stateMachine, event stateEvent) *stateType {
+		doassert(event.conn != nil)
+		sm.conn = event.conn
+		go networkReaderThread(sm.netCh, event.conn, sm.userParams.MaxPDUSize, sm.name)
 		items := buildAssociateRequestItems(sm.contextManager, sm.userParams)
 		pdu := &A_ASSOCIATE{
 			Type:            PDUTypeA_ASSOCIATE_RQ,
@@ -485,7 +476,6 @@ type stateEvent struct {
 	err   error
 	conn  net.Conn
 
-	serverAddr  string                 // host:port to connect to. Set only for evt01
 	dataPayload *stateEventDataPayload // set iff event==evt09.
 	debug       *stateEventDebugInfo
 }
@@ -721,7 +711,7 @@ func sendPDU(sm *stateMachine, pdu PDU) {
 		sm.errorCh <- stateEvent{event: evt17, err: err}
 		return
 	}
-	// vlog.Infof("%s: sendPDU: %v", sm.name, pdu.String())
+	vlog.VI(2).Infof("%s: sendPDU: %v", sm.name, pdu.String())
 }
 
 func startTimer(sm *stateMachine) {
@@ -744,7 +734,7 @@ func stopTimer(sm *stateMachine) {
 }
 
 func networkReaderThread(ch chan stateEvent, conn net.Conn, maxPDUSize int, smName string) {
-	vlog.VI(1).Infof("%s: Starting network reader for %v, maxPDU %d", smName, conn, maxPDUSize)
+	vlog.VI(1).Infof("%s: Starting network reader, maxPDU %d", smName, maxPDUSize)
 	doassert(maxPDUSize > 16*1024)
 	for {
 		pdu, err := ReadPDU(conn, maxPDUSize)
@@ -869,11 +859,9 @@ func runOneStep(sm *stateMachine) {
 }
 
 func runStateMachineForServiceUser(
-	serverAddr string,
 	params ServiceUserParams,
 	upcallCh chan upcallEvent,
 	downcallCh chan stateEvent) {
-	doassert(serverAddr != "")
 	doassert(params.CallingAETitle != "")
 	doassert(len(params.RequiredServices) > 0)
 	doassert(len(params.SupportedTransferSyntaxes) > 0)
@@ -888,7 +876,7 @@ func runStateMachineForServiceUser(
 		upcallCh:       upcallCh,
 		faults:         GetUserFaultInjector(),
 	}
-	event := stateEvent{event: evt01, serverAddr: serverAddr}
+	event := stateEvent{event: evt01}
 	action := findAction(sta01, &event, sm.name)
 	sm.currentState = action.Callback(sm, event)
 	for sm.currentState != sta01 {

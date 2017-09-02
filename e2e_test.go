@@ -2,16 +2,46 @@ package netdicom_test
 
 import (
 	"errors"
+	"flag"
 	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-netdicom"
 	"io/ioutil"
 	"net"
+	"sync"
 	"testing"
 	"v.io/x/lib/vlog"
 )
 
 var serverAddr string
 var cstoreData []byte
+
+var once sync.Once
+
+func initTest() {
+	once.Do(func() {
+		flag.Parse()
+		vlog.ConfigureLibraryLoggerFromFlags()
+	listener, err := net.Listen("tcp", ":0")
+	if err != nil {
+		vlog.Fatal(err)
+	}
+	go func() {
+		// TODO(saito) test w/ small PDU.
+		params := netdicom.ServiceProviderParams{MaxPDUSize: 4096000}
+		callbacks := netdicom.ServiceProviderCallbacks{CStore: onCStoreRequest}
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				vlog.Infof("Accept error: %v", err)
+				continue
+			}
+			vlog.Infof("Accepted connection %v", conn)
+			netdicom.RunProviderForConn(conn, params, callbacks)
+		}
+	}()
+	serverAddr = listener.Addr().String()
+	})
+}
 
 func onCStoreRequest(
 	transferSyntaxUID string,
@@ -74,30 +104,8 @@ func getCStoreData() (*dicom.DicomFile, error) {
 	return f, nil
 }
 
-func init() {
-	listener, err := net.Listen("tcp", ":0")
-	if err != nil {
-		vlog.Fatal(err)
-	}
-	go func() {
-		// TODO(saito) test w/ small PDU.
-		params := netdicom.ServiceProviderParams{MaxPDUSize: 4096000}
-		callbacks := netdicom.ServiceProviderCallbacks{CStore: onCStoreRequest}
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				vlog.Infof("Accept error: %v", err)
-				continue
-			}
-			vlog.Infof("Accepted connection %v", conn)
-			netdicom.RunProviderForConn(conn, params, callbacks)
-		}
-	}()
-	serverAddr = listener.Addr().String()
-}
-
-func TestStoreSingleFile(t *testing.T) {
-	data, err := ioutil.ReadFile("testdata/IM-0001-0003.dcm")
+func readDICOMFile(path string) ([]byte, string) {
+	data, err := ioutil.ReadFile(path)
 	if err != nil {
 		vlog.Fatal(err)
 	}
@@ -105,11 +113,18 @@ func TestStoreSingleFile(t *testing.T) {
 	if err != nil {
 		vlog.Fatal(err)
 	}
+	return data, transferSyntaxUID
+}
+
+func TestStoreSingleFile(t *testing.T) {
+	initTest()
+	data, transferSyntaxUID := readDICOMFile("testdata/IM-0001-0003.dcm")
 	params := netdicom.NewServiceUserParams(
 		"dontcare", "testclient", netdicom.StorageClasses,
 		[]string{transferSyntaxUID})
-	su := netdicom.NewServiceUser(serverAddr, params)
-	err = su.CStore(data)
+	su := netdicom.NewServiceUser(params)
+	su.Connect(serverAddr)
+	err := su.CStore(data)
 	if err != nil {
 		vlog.Fatal(err)
 	}
@@ -126,3 +141,20 @@ func TestStoreSingleFile(t *testing.T) {
 	}
 	checkFileBodiesEqual(t, in, out)
 }
+
+func TestNonexistentServer(t *testing.T) {
+	initTest()
+	data, transferSyntaxUID := readDICOMFile("testdata/IM-0001-0003.dcm")
+	params := netdicom.NewServiceUserParams(
+		"dontcare", "testclient", netdicom.StorageClasses,
+		[]string{transferSyntaxUID})
+	su := netdicom.NewServiceUser(params)
+	su.Connect(":99999")
+	err := su.CStore(data)
+	if err == nil || err.Error() != "Connection failed" {
+		vlog.Fatalf("Expect CStore to fail: %v", err)
+	}
+	su.Release()
+}
+
+// TODO(saito) Test that the state machine shuts down propelry.

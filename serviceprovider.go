@@ -39,7 +39,7 @@ type ServiceProviderCallbacks struct {
 	// or one of CStoreStatus* error codes.
 	CStore CStoreCallback
 
-	// Called on C_ECHO request.
+	// Called on C_ECHO request. It should return 0 on success
 	CEcho CEchoCallback
 }
 
