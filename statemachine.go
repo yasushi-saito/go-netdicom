@@ -14,64 +14,134 @@ import (
 	"v.io/x/lib/vlog"
 )
 
-type stateType struct {
-	Name        string
-	Description string
-}
+type stateType int
+
+const (
+	sta01 = stateType(1)
+	sta02 = stateType(2)
+	sta03 = stateType(3)
+	sta04 = stateType(4)
+	sta05 = stateType(5)
+	sta06 = stateType(6)
+	sta07 = stateType(7)
+	sta08 = stateType(8)
+	sta09 = stateType(9)
+	sta10 = stateType(10)
+	sta11 = stateType(11)
+	sta12 = stateType(12)
+	sta13 = stateType(13)
+)
 
 func (s *stateType) String() string {
-	return fmt.Sprintf("%s(%s)", s.Name, s.Description)
+	var description string
+	switch *s {
+	case sta01:
+		description = "Idle"
+	case sta02:
+		description = "Transport connection open (Awaiting A-ASSOCIATE-RQ PDU)"
+	case sta03:
+		description = "Awaiting local A-ASSOCIATE response primitive (from local user)"
+	case sta04:
+		description = "Awaiting transport connection opening to complete (from local transport service)"
+	case sta05:
+		description = "Awaiting A-ASSOCIATE-AC or A-ASSOCIATE-RJ PDU"
+	case sta06:
+		description = "Association established and ready for data transfer"
+	case sta07:
+		description = "Awaiting A-RELEASE-RP PDU"
+	case sta08:
+		description = "Awaiting local A-RELEASE response primitive (from local user)"
+	case sta09:
+		description = "Release collision requestor side; awaiting A-RELEASE response (from local user)"
+	case sta10:
+		description = "Release collision acceptor side; awaiting A-RELEASE-RP PDU"
+	case sta11:
+		description = "Release collision requestor side; awaiting A-RELEASE-RP PDU"
+	case sta12:
+		description = "Release collision acceptor side; awaiting A-RELEASE response primitive (from local user)"
+	case sta13:
+		description = "Awaiting Transport Connection Close Indication (Association no longer exists)"
+	}
+	return fmt.Sprintf("sta%02d(%s)", *s, description)
 }
 
 var smSeq int32 = 32 // for assignign unique stateMachine.name
 
-var (
-	sta01 = &stateType{"Sta01", "Idle"}
-	sta02 = &stateType{"Sta02", "Transport connection open (Awaiting A-ASSOCIATE-RQ PDU)"}
-	sta03 = &stateType{"Sta03", "Awaiting local A-ASSOCIATE response primitive (from local user)"}
-	sta04 = &stateType{"Sta04", "Awaiting transport connection opening to complete (from local transport service)"}
-	sta05 = &stateType{"Sta05", "Awaiting A-ASSOCIATE-AC or A-ASSOCIATE-RJ PDU"}
-	sta06 = &stateType{"Sta06", "Association established and ready for data transfer"}
-	sta07 = &stateType{"Sta07", "Awaiting A-RELEASE-RP PDU"}
-	sta08 = &stateType{"Sta08", "Awaiting local A-RELEASE response primitive (from local user)"}
-	sta09 = &stateType{"Sta09", "Release collision requestor side; awaiting A-RELEASE response (from local user)"}
-	sta10 = &stateType{"Sta10", "Release collision acceptor side; awaiting A-RELEASE-RP PDU"}
-	sta11 = &stateType{"Sta11", "Release collision requestor side; awaiting A-RELEASE-RP PDU"}
-	sta12 = &stateType{"Sta12", "Release collision acceptor side; awaiting A-RELEASE response primitive (from local user)"}
-	sta13 = &stateType{"Sta13", "Awaiting Transport Connection Close Indication (Association no longer exists)"}
+type eventType int
+
+const (
+	evt01 = eventType(1)
+	evt02 = eventType(2)
+	evt03 = eventType(3)
+	evt04 = eventType(4)
+	evt05 = eventType(5)
+	evt06 = eventType(6)
+	evt07 = eventType(7)
+	evt08 = eventType(8)
+	evt09 = eventType(9)
+	evt10 = eventType(10)
+	evt11 = eventType(11)
+	evt12 = eventType(12)
+	evt13 = eventType(13)
+	evt14 = eventType(14)
+	evt15 = eventType(15)
+	evt16 = eventType(16)
+	evt17 = eventType(17)
+	evt18 = eventType(18)
+	evt19 = eventType(19)
 )
 
-type eventType struct {
-	Event       int
-	Description string
+func (e *eventType) String() string {
+	var description string
+	switch *e {
+	case evt01:
+		description = "A-ASSOCIATE request (local user)"
+	case evt02:
+		description = "Connection established (for service user)"
+	case evt03:
+		description = "A-ASSOCIATE-AC PDU (received on transport connection)"
+	case evt04:
+		description = "A-ASSOCIATE-RJ PDU (received on transport connection)"
+	case evt05:
+		description = "Connection accepted (for service provider)"
+	case evt06:
+		description = "A-ASSOCIATE-RQ PDU (on tranport connection)"
+	case evt07:
+		description = "A-ASSOCIATE response primitive (accept)"
+	case evt08:
+		description = "A-ASSOCIATE response primitive (reject)"
+	case evt09:
+		description = "P-DATA request primitive"
+	case evt10:
+		description = "P-DATA-TF PDU (on transport connection)"
+	case evt11:
+		description = "A-RELEASE request primitive"
+	case evt12:
+		description = "A-RELEASE-RQ PDU (on transport)"
+	case evt13:
+		description = "A-RELEASE-RP PDU (on transport)"
+	case evt14:
+		description = "A-RELEASE response primitive"
+	case evt15:
+		description = "A-ABORT request primitive"
+	case evt16:
+		description = "A-ABORT PDU (on transport)"
+	case evt17:
+		description = "Transport connection closed indication (local transport service)"
+	case evt18:
+		description = "ARTIM timer expired (Association reject/release timer)"
+	case evt19:
+		description = "Unrecognized or invalid PDU received"
+	default:
+		vlog.Fatalf("Unknown event type %v", e)
+	}
+	return fmt.Sprintf("evt%02d(%s)", *e, description)
 }
-
-var (
-	evt01 = eventType{1, "A-ASSOCIATE request (local user)"}
-	evt02 = eventType{2, "Connection established (for service user)"}
-	evt03 = eventType{3, "A-ASSOCIATE-AC PDU (received on transport connection)"}
-	evt04 = eventType{4, "A-ASSOCIATE-RJ PDU (received on transport connection)"}
-	evt05 = eventType{5, "Connection accepted (for service provider)"}
-	evt06 = eventType{6, "A-ASSOCIATE-RQ PDU (on tranport connection)"}
-	evt07 = eventType{7, "A-ASSOCIATE response primitive (accept)"}
-	evt08 = eventType{8, "A-ASSOCIATE response primitive (reject)"}
-	evt09 = eventType{9, "P-DATA request primitive"}
-	evt10 = eventType{10, "P-DATA-TF PDU (on transport connection)"}
-	evt11 = eventType{11, "A-RELEASE request primitive"}
-	evt12 = eventType{12, "A-RELEASE-RQ PDU (on transport)"}
-	evt13 = eventType{13, "A-RELEASE-RP PDU (on transport)"}
-	evt14 = eventType{14, "A-RELEASE response primitive"}
-	evt15 = eventType{15, "A-ABORT request primitive"}
-	evt16 = eventType{16, "A-ABORT PDU (on transport)"}
-	evt17 = eventType{17, "Transport connection closed indication (local transport service)"}
-	evt18 = eventType{18, "ARTIM timer expired (Association reject/release timer)"}
-	evt19 = eventType{19, "Unrecognized or invalid PDU received"}
-)
 
 type stateAction struct {
 	Name        string
 	Description string
-	Callback    func(sm *stateMachine, event stateEvent) *stateType
+	Callback    func(sm *stateMachine, event stateEvent) stateType
 }
 
 func (s *stateAction) String() string {
@@ -80,14 +150,14 @@ func (s *stateAction) String() string {
 
 var actionAe1 = &stateAction{"AE-1",
 	"Issue TRANSPORT CONNECT request primitive to local transport service",
-	func(sm *stateMachine, event stateEvent) *stateType {
+	func(sm *stateMachine, event stateEvent) stateType {
 		// Nothing to do now. We expect ServiceUser to dial a connection and emit either
 		// evt02 (on success) or evt17 (on failure)
 		return sta04
 	}}
 
 var actionAe2 = &stateAction{"AE-2", "Connection established on the user side. Send A-ASSOCIATE-RQ-PDU",
-	func(sm *stateMachine, event stateEvent) *stateType {
+	func(sm *stateMachine, event stateEvent) stateType {
 		doassert(event.conn != nil)
 		sm.conn = event.conn
 		go networkReaderThread(sm.netCh, event.conn, sm.userParams.MaxPDUSize, sm.name)
@@ -108,7 +178,7 @@ var actionAe2 = &stateAction{"AE-2", "Connection established on the user side. S
 	}}
 
 var actionAe3 = &stateAction{"AE-3", "Issue A-ASSOCIATE confirmation (accept) primitive",
-	func(sm *stateMachine, event stateEvent) *stateType {
+	func(sm *stateMachine, event stateEvent) stateType {
 		stopTimer(sm)
 		pdu := event.pdu.(*A_ASSOCIATE)
 		doassert(pdu.Type == PDUTypeA_ASSOCIATE_AC)
@@ -123,13 +193,13 @@ var actionAe3 = &stateAction{"AE-3", "Issue A-ASSOCIATE confirmation (accept) pr
 	}}
 
 var actionAe4 = &stateAction{"AE-4", "Issue A-ASSOCIATE confirmation (reject) primitive and close transport connection",
-	func(sm *stateMachine, event stateEvent) *stateType {
+	func(sm *stateMachine, event stateEvent) stateType {
 		closeConnection(sm)
 		return sta01
 	}}
 
 var actionAe5 = &stateAction{"AE-5", "Issue Transport connection response primitive; start ARTIM timer",
-	func(sm *stateMachine, event stateEvent) *stateType {
+	func(sm *stateMachine, event stateEvent) stateType {
 		doassert(event.conn != nil)
 		startTimer(sm)
 		go func(ch chan stateEvent, conn net.Conn) {
@@ -151,7 +221,7 @@ func extractPresentationContextItems(items []SubItem) []*PresentationContextItem
 var actionAe6 = &stateAction{"AE-6", `Stop ARTIM timer and if A-ASSOCIATE-RQ acceptable by "
 service-dul: issue A-ASSOCIATE indication primitive
 otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
-	func(sm *stateMachine, event stateEvent) *stateType {
+	func(sm *stateMachine, event stateEvent) stateType {
 		stopTimer(sm)
 		pdu := event.pdu.(*A_ASSOCIATE)
 		if pdu.ProtocolVersion != 0x0001 {
@@ -190,14 +260,14 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 		return sta03
 	}}
 var actionAe7 = &stateAction{"AE-7", "Send A-ASSOCIATE-AC PDU",
-	func(sm *stateMachine, event stateEvent) *stateType {
+	func(sm *stateMachine, event stateEvent) stateType {
 		sendPDU(sm, event.pdu.(*A_ASSOCIATE))
 		sm.upcallCh <- upcallEvent{eventType: upcallEventHandshakeCompleted}
 		return sta06
 	}}
 
 var actionAe8 = &stateAction{"AE-8", "Send A-ASSOCIATE-RJ PDU and start ARTIM timer",
-	func(sm *stateMachine, event stateEvent) *stateType {
+	func(sm *stateMachine, event stateEvent) stateType {
 		sendPDU(sm, event.pdu.(*A_ASSOCIATE_RJ))
 		startTimer(sm)
 		return sta13
@@ -239,7 +309,7 @@ func splitDataIntoPDUs(sm *stateMachine, abstractSyntaxName string, command bool
 
 // Data transfer related actions
 var actionDt1 = &stateAction{"DT-1", "Send P-DATA-TF PDU",
-	func(sm *stateMachine, event stateEvent) *stateType {
+	func(sm *stateMachine, event stateEvent) stateType {
 		doassert(event.dataPayload != nil)
 		pdus := splitDataIntoPDUs(sm, event.dataPayload.abstractSyntaxName, event.dataPayload.command, event.dataPayload.data)
 		for _, pdu := range pdus {
@@ -249,7 +319,7 @@ var actionDt1 = &stateAction{"DT-1", "Send P-DATA-TF PDU",
 	}}
 
 var actionDt2 = &stateAction{"DT-2", "Send P-DATA indication primitive",
-	func(sm *stateMachine, event stateEvent) *stateType {
+	func(sm *stateMachine, event stateEvent) stateType {
 		abstractSyntaxUID, transferSyntaxUID, command, data, err := addPDataTF(&sm.commandAssembler, event.pdu.(*P_DATA_TF), sm.contextManager)
 		if err == nil {
 			if command != nil {
@@ -271,43 +341,43 @@ var actionDt2 = &stateAction{"DT-2", "Send P-DATA indication primitive",
 
 // Assocation Release related actions
 var actionAr1 = &stateAction{"AR-1", "Send A-RELEASE-RQ PDU",
-	func(sm *stateMachine, event stateEvent) *stateType {
+	func(sm *stateMachine, event stateEvent) stateType {
 		sendPDU(sm, &A_RELEASE_RQ{})
 		return sta07
 	}}
 var actionAr2 = &stateAction{"AR-2", "Issue A-RELEASE indication primitive",
-	func(sm *stateMachine, event stateEvent) *stateType {
+	func(sm *stateMachine, event stateEvent) stateType {
 		// TODO(saito) Do RELEASE callback here.
 		sm.downcallCh <- stateEvent{event: evt14}
 		return sta08
 	}}
 
 var actionAr3 = &stateAction{"AR-3", "Issue A-RELEASE confirmation primitive and close transport connection",
-	func(sm *stateMachine, event stateEvent) *stateType {
+	func(sm *stateMachine, event stateEvent) stateType {
 		sendPDU(sm, &A_RELEASE_RP{})
 		closeConnection(sm)
 		return sta01
 	}}
 var actionAr4 = &stateAction{"AR-4", "Issue A-RELEASE-RP PDU and start ARTIM timer",
-	func(sm *stateMachine, event stateEvent) *stateType {
+	func(sm *stateMachine, event stateEvent) stateType {
 		sendPDU(sm, &A_RELEASE_RP{})
 		startTimer(sm)
 		return sta13
 	}}
 
 var actionAr5 = &stateAction{"AR-5", "Stop ARTIM timer",
-	func(sm *stateMachine, event stateEvent) *stateType {
+	func(sm *stateMachine, event stateEvent) stateType {
 		stopTimer(sm)
 		return sta01
 	}}
 
 var actionAr6 = &stateAction{"AR-6", "Issue P-DATA indication",
-	func(sm *stateMachine, event stateEvent) *stateType {
+	func(sm *stateMachine, event stateEvent) stateType {
 		return sta07
 	}}
 
 var actionAr7 = &stateAction{"AR-7", "Issue P-DATA-TF PDU",
-	func(sm *stateMachine, event stateEvent) *stateType {
+	func(sm *stateMachine, event stateEvent) stateType {
 		doassert(event.dataPayload != nil)
 		pdus := splitDataIntoPDUs(sm, event.dataPayload.abstractSyntaxName, event.dataPayload.command, event.dataPayload.data)
 		for _, pdu := range pdus {
@@ -318,7 +388,7 @@ var actionAr7 = &stateAction{"AR-7", "Issue P-DATA-TF PDU",
 	}}
 
 var actionAr8 = &stateAction{"AR-8", "Issue A-RELEASE indication (release collision): if association-requestor, next state is Sta09, if not next state is Sta10",
-	func(sm *stateMachine, event stateEvent) *stateType {
+	func(sm *stateMachine, event stateEvent) stateType {
 		if sm.isUser {
 			return sta09
 		} else {
@@ -327,19 +397,19 @@ var actionAr8 = &stateAction{"AR-8", "Issue A-RELEASE indication (release collis
 	}}
 
 var actionAr9 = &stateAction{"AR-9", "Send A-RELEASE-RP PDU",
-	func(sm *stateMachine, event stateEvent) *stateType {
+	func(sm *stateMachine, event stateEvent) stateType {
 		sendPDU(sm, &A_RELEASE_RP{})
 		return sta11
 	}}
 
 var actionAr10 = &stateAction{"AR-10", "Issue A-RELEASE confimation primitive",
-	func(sm *stateMachine, event stateEvent) *stateType {
+	func(sm *stateMachine, event stateEvent) stateType {
 		return sta12
 	}}
 
 // Association abort related actions
 var actionAa1 = &stateAction{"AA-1", "Send A-ABORT PDU (service-user source) and start (or restart if already started) ARTIM timer",
-	func(sm *stateMachine, event stateEvent) *stateType {
+	func(sm *stateMachine, event stateEvent) stateType {
 		diagnostic := byte(0)
 		if sm.currentState == sta02 {
 			diagnostic = 2
@@ -350,56 +420,71 @@ var actionAa1 = &stateAction{"AA-1", "Send A-ABORT PDU (service-user source) and
 	}}
 
 var actionAa2 = &stateAction{"AA-2", "Stop ARTIM timer if running. Close transport connection",
-	func(sm *stateMachine, event stateEvent) *stateType {
+	func(sm *stateMachine, event stateEvent) stateType {
 		stopTimer(sm)
 		closeConnection(sm)
 		return sta01
 	}}
 
 var actionAa3 = &stateAction{"AA-3", "If (service-user initiated abort): issue A-ABORT indication and close transport connection, otherwise (service-dul initiated abort): issue A-P-ABORT indication and close transport connection",
-	func(sm *stateMachine, event stateEvent) *stateType {
+	func(sm *stateMachine, event stateEvent) stateType {
 		closeConnection(sm)
 		return sta01
 	}}
 
 var actionAa4 = &stateAction{"AA-4", "Issue A-P-ABORT indication primitive",
-	func(sm *stateMachine, event stateEvent) *stateType {
+	func(sm *stateMachine, event stateEvent) stateType {
 		return sta01
 	}}
 
 var actionAa5 = &stateAction{"AA-5", "Stop ARTIM timer",
-	func(sm *stateMachine, event stateEvent) *stateType {
+	func(sm *stateMachine, event stateEvent) stateType {
 		stopTimer(sm)
 		return sta01
 	}}
 
 var actionAa6 = &stateAction{"AA-6", "Ignore PDU",
-	func(sm *stateMachine, event stateEvent) *stateType {
+	func(sm *stateMachine, event stateEvent) stateType {
 		return sta13
 	}}
 
 var actionAa7 = &stateAction{"AA-7", "Send A-ABORT PDU",
-	func(sm *stateMachine, event stateEvent) *stateType {
+	func(sm *stateMachine, event stateEvent) stateType {
 		sendPDU(sm, &A_ABORT{Source: 0, Reason: 0})
 		return sta13
 	}}
 
 var actionAa8 = &stateAction{"AA-8", "Send A-ABORT PDU (service-dul source), issue an A-P-ABORT indication and start ARTIM timer",
-	func(sm *stateMachine, event stateEvent) *stateType {
+	func(sm *stateMachine, event stateEvent) stateType {
 		sendPDU(sm, &A_ABORT{Source: 2, Reason: 0})
 		startTimer(sm)
 		return sta13
 	}}
 
-var (
-	upcallEventHandshakeCompleted = eventType{100, "Handshake completed"}
-	upcallEventData               = eventType{101, "P_DATA_TF PDU received"}
+type upcallEventType int
+
+const (
+	upcallEventHandshakeCompleted = upcallEventType(100)
+	upcallEventData               = upcallEventType(101)
 	// Note: connection shutdown and any error will result in channel
 	// closure, so they don't have event types.
 )
 
+func (e *upcallEventType) String() string {
+	var description string
+	switch *e {
+	case upcallEventHandshakeCompleted:
+		description = "Handshake completed"
+	case upcallEventData:
+		description = "P_DATA_TF PDU received"
+	default:
+		vlog.Fatalf("Unknown event type %v", e)
+	}
+	return fmt.Sprintf("upcall%02d(%s)", *e, description)
+}
+
 type upcallEvent struct {
-	eventType eventType // upcallEvent*
+	eventType upcallEventType
 
 	// abstractSyntaxUID is extracted from the P_DATA_TF packet.
 	// transferSyntaxUID is the value agreed on for the abstractSyntaxUID
@@ -425,7 +510,7 @@ type stateEventDataPayload struct {
 }
 
 type stateEventDebugInfo struct {
-	state *stateType // the state the system was in when timer was created.
+	state stateType // the state the system was in when timer was created.
 }
 
 type stateEvent struct {
@@ -443,11 +528,12 @@ func (e *stateEvent) String() string {
 	if e.debug != nil {
 		debug = e.debug.state.String()
 	}
-	return fmt.Sprintf("type:%d(%s) err:%v debug:%v pdu:%v", e.event.Event, e.event.Description, e.err, debug, e.pdu)
+	return fmt.Sprintf("type:%s err:%v debug:%v pdu:%v",
+		e.event.String(), e.err, debug, e.pdu)
 }
 
 type stateTransition struct {
-	current *stateType
+	current stateType
 	event   eventType
 	action  *stateAction
 }
@@ -628,7 +714,7 @@ type stateMachine struct {
 
 	// The socket to the remote peer.
 	conn         net.Conn
-	currentState *stateType
+	currentState stateType
 
 	// For assembling DIMSE command from multiple P_DATA_TF fragments.
 	commandAssembler dimseCommandAssembler
@@ -742,32 +828,23 @@ func networkReaderThread(ch chan stateEvent, conn net.Conn, maxPDUSize int, smNa
 func getNextEvent(sm *stateMachine) stateEvent {
 	var ok bool
 	var event stateEvent
-	var channel string
-	for event.event.Event == 0 {
+	for event.event == 0 {
 		select {
 		case event, ok = <-sm.netCh:
-			channel = "net"
 			if !ok {
 				sm.netCh = nil
 			}
 		case event = <-sm.errorCh:
-			channel = "error"
 			// this channel shall never close.
 		case event, ok = <-sm.timerCh:
-			channel = "timer"
 			if !ok {
 				sm.timerCh = nil
 			}
 		case event, ok = <-sm.downcallCh:
-			channel = "downcall"
 			if !ok {
 				sm.downcallCh = nil
 			}
 		}
-	}
-	if event.event.Event == 0 {
-		vlog.Fatalf("%s: received null event from channel '%s', sm: %v",
-			sm.name, channel, sm)
 	}
 	switch event.event {
 	case evt02:
@@ -780,7 +857,7 @@ func getNextEvent(sm *stateMachine) stateEvent {
 	return event
 }
 
-func findAction(currentState *stateType, event *stateEvent, smName string) *stateAction {
+func findAction(currentState stateType, event *stateEvent, smName string) *stateAction {
 	for _, t := range stateTransitions {
 		if t.current == currentState && t.event == event.event {
 			return t.action
@@ -793,10 +870,10 @@ const DefaultMaximiumPDUSize = uint32(1 << 20)
 
 func runOneStep(sm *stateMachine) {
 	event := getNextEvent(sm)
-	vlog.VI(1).Infof("%s: Current state: %v, Event %v", sm.name, sm.currentState, event)
+	vlog.VI(1).Infof("%s: Current state: %v, Event %v", sm.name, sm.currentState.String(), event)
 	action := findAction(sm.currentState, &event, sm.name)
 	if action == nil {
-		msg := fmt.Sprintf("%s: No action found for state %v, event %v", sm.name, sm.currentState, event.String())
+		msg := fmt.Sprintf("%s: No action found for state %v, event %v", sm.name, sm.currentState.String(), event.String())
 		if sm.faults != nil {
 			msg += " FIhistory: " + sm.faults.String()
 		}
@@ -811,7 +888,7 @@ func runOneStep(sm *stateMachine) {
 	}
 	vlog.VI(1).Infof("%s: Running action %v", sm.name, action)
 	sm.currentState = action.Callback(sm, event)
-	vlog.VI(1).Infof("Next state: %v", sm.currentState)
+	vlog.VI(1).Infof("Next state: %v", sm.currentState.String())
 }
 
 func runStateMachineForServiceUser(
