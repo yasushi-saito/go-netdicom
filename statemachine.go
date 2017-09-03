@@ -86,25 +86,6 @@ var actionAe1 = &stateAction{"AE-1",
 		return sta04
 	}}
 
-// func buildAssociateRequestItems(m *contextManager, params ServiceUserParams) []SubItem {
-// 	items := []SubItem{
-// 		&ApplicationContextItem{
-// 			Name: DefaultApplicationContextItemName,
-// 		}}
-// 	for _, item := range m.generateAssociateRequest(
-// 		params.RequiredServices,
-// 		params.SupportedTransferSyntaxes) {
-// 		items = append(items, item)
-// 	}
-// 	items = append(items,
-// 		&UserInformationItem{
-// 			Items: []SubItem{
-// 				&UserInformationMaximumLengthItem{uint32(params.MaxPDUSize)},
-// 				&ImplementationClassUIDSubItem{dicom.DefaultImplementationClassUID},
-// 				&ImplementationVersionNameSubItem{dicom.DefaultImplementationVersionName}}})
-// 	return items
-// }
-
 var actionAe2 = &stateAction{"AE-2", "Connection established on the user side. Send A-ASSOCIATE-RQ-PDU",
 	func(sm *stateMachine, event stateEvent) *stateType {
 		doassert(event.conn != nil)
@@ -131,17 +112,9 @@ var actionAe3 = &stateAction{"AE-3", "Issue A-ASSOCIATE confirmation (accept) pr
 		stopTimer(sm)
 		pdu := event.pdu.(*A_ASSOCIATE)
 		doassert(pdu.Type == PDUTypeA_ASSOCIATE_AC)
-		var items []*PresentationContextItem
-		for _, item := range pdu.Items {
-			if n, ok := item.(*PresentationContextItem); ok {
-				items = append(items, n)
-			}
-		}
-		err := sm.contextManager.onAssociateResponse(items)
+		err := sm.contextManager.onAssociateResponse(pdu.Items)
 		if err == nil {
 			sm.upcallCh <- upcallEvent{eventType: upcallEventHandshakeCompleted}
-			sm.maxPDUSize = sm.userParams.MaxPDUSize // TODO(saito) Extract from response!
-			doassert(sm.maxPDUSize > 0)
 			return sta06
 		} else {
 			vlog.Error(err)
@@ -200,8 +173,6 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 				},
 			}
 		} else {
-			sm.maxPDUSize = sm.providerParams.MaxPDUSize
-			doassert(sm.maxPDUSize > 0)
 			doassert(len(responses) > 0)
 			doassert(pdu.CalledAETitle != "")
 			doassert(pdu.CallingAETitle != "")
@@ -234,7 +205,6 @@ var actionAe8 = &stateAction{"AE-8", "Send A-ASSOCIATE-RJ PDU and start ARTIM ti
 
 // Produce a list of P_DATA_TF PDUs that collective store "data".
 func splitDataIntoPDUs(sm *stateMachine, abstractSyntaxName string, command bool, data []byte) []P_DATA_TF {
-	doassert(sm.maxPDUSize > 0)
 	doassert(len(data) > 0)
 	context, err := sm.contextManager.lookupByAbstractSyntaxUID(abstractSyntaxName)
 	if err != nil {
@@ -245,11 +215,11 @@ func splitDataIntoPDUs(sm *stateMachine, abstractSyntaxName string, command bool
 	// two byte header overhead.
 	//
 	// TODO(saito) move the magic number elsewhere.
-	var maxChunkSize = sm.maxPDUSize - 2
+	var maxChunkSize = sm.contextManager.peerMaxPDUSize - 2
 	for len(data) > 0 {
 		chunkSize := len(data)
 		if chunkSize > maxChunkSize {
-			chunkSize = sm.maxPDUSize
+			chunkSize = maxChunkSize
 		}
 		chunk := data[0:chunkSize]
 		data = data[chunkSize:]
@@ -659,9 +629,6 @@ type stateMachine struct {
 	// The socket to the remote peer.
 	conn         net.Conn
 	currentState *stateType
-
-	// The negotiated PDU size.
-	maxPDUSize int
 
 	// For assembling DIMSE command from multiple P_DATA_TF fragments.
 	commandAssembler dimseCommandAssembler

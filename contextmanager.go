@@ -46,6 +46,7 @@ func newContextManager() *contextManager {
 	c := &contextManager{
 		contextIDToAbstractSyntaxNameMap: make(map[byte]*contextManagerEntry),
 		abstractSyntaxNameToContextIDMap: make(map[string]*contextManagerEntry),
+		peerMaxPDUSize:                   16384, // The default value used by Osirix & pynetdicom.
 		tmpRequests:                      make(map[byte]*PresentationContextItem),
 	}
 	return c
@@ -156,50 +157,71 @@ func (m *contextManager) onAssociateRequest(requestItems []SubItem, maxPDUSize i
 	responses = append(responses,
 		&UserInformationItem{
 			Items: []SubItem{&UserInformationMaximumLengthItem{MaximumLengthReceived: uint32(maxPDUSize)}}})
+	vlog.VI(1).Infof("Received associate request, #contexts:%v, maxPDU:%v, implclass:%v, version:%v",
+		len(m.contextIDToAbstractSyntaxNameMap),
+		m.peerMaxPDUSize, m.peerImplementationClassUID, m.peerImplementationVersionName)
 	return responses, nil
 }
 
 // Called by the user (client) to when A_ASSOCIATE_AC PDU arrives from the provider.
-func (m *contextManager) onAssociateResponse(responses []*PresentationContextItem) error {
-	for _, contextItem := range responses {
-		var pickedTransferSyntaxUID string
-		for _, subItem := range contextItem.Items {
-			switch c := subItem.(type) {
-			case *TransferSyntaxSubItem:
-				// Just pick the first syntax UID proposed by the client.
-				if pickedTransferSyntaxUID == "" {
-					pickedTransferSyntaxUID = c.Name
-				} else {
-					return fmt.Errorf("Multiple syntax UIDs returned in A_ASSOCIATE_AC: %v", contextItem.String())
-				}
-			default:
-				return fmt.Errorf("Unknown subitem %s in PresentationContext: %s", subItem.String(), contextItem.String())
-			}
-		}
-		request, ok := m.tmpRequests[contextItem.ContextID]
-		if !ok {
-			return fmt.Errorf("Unknown context ID %d for A_ASSOCIATE_AC: %v",
-				contextItem.ContextID,
-				contextItem.String())
-		}
-		found := false
-		var sopUID string
-		for _, subItem := range request.Items {
-			switch c := subItem.(type) {
-			case *AbstractSyntaxSubItem:
-				sopUID = c.Name
-			case *TransferSyntaxSubItem:
-				if c.Name == pickedTransferSyntaxUID {
-					found = true
-					break
+func (m *contextManager) onAssociateResponse(responses []SubItem) error {
+	for _, responseItem := range responses {
+		switch ri := responseItem.(type) {
+		case *PresentationContextItem:
+			var pickedTransferSyntaxUID string
+			for _, subItem := range ri.Items {
+				switch c := subItem.(type) {
+				case *TransferSyntaxSubItem:
+					// Just pick the first syntax UID proposed by the client.
+					if pickedTransferSyntaxUID == "" {
+						pickedTransferSyntaxUID = c.Name
+					} else {
+						return fmt.Errorf("Multiple syntax UIDs returned in A_ASSOCIATE_AC: %v", ri.String())
+					}
+				default:
+					return fmt.Errorf("Unknown subitem %s in PresentationContext: %s", subItem.String(), ri.String())
 				}
 			}
+			request, ok := m.tmpRequests[ri.ContextID]
+			if !ok {
+				return fmt.Errorf("Unknown context ID %d for A_ASSOCIATE_AC: %v",
+					ri.ContextID,
+					ri.String())
+			}
+			found := false
+			var sopUID string
+			for _, subItem := range request.Items {
+				switch c := subItem.(type) {
+				case *AbstractSyntaxSubItem:
+					sopUID = c.Name
+				case *TransferSyntaxSubItem:
+					if c.Name == pickedTransferSyntaxUID {
+						found = true
+						break
+					}
+				}
+			}
+			if !found || sopUID == "" {
+				return fmt.Errorf("TransferSyntaxUID or AbstractSyntaxSubItem not found in %v", ri.String())
+			}
+			addContextMapping(m, sopUID, pickedTransferSyntaxUID, ri.ContextID)
+		case *UserInformationItem:
+			for _, subItem := range ri.Items {
+				switch c := subItem.(type) {
+				case *UserInformationMaximumLengthItem:
+					m.peerMaxPDUSize = int(c.MaximumLengthReceived)
+				case *ImplementationClassUIDSubItem:
+					m.peerImplementationClassUID = c.Name
+				case *ImplementationVersionNameSubItem:
+					m.peerImplementationVersionName = c.Name
+
+				}
+			}
 		}
-		if !found || sopUID == "" {
-			return fmt.Errorf("TransferSyntaxUID or AbstractSyntaxSubItem not found in %v", contextItem.String())
-		}
-		addContextMapping(m, sopUID, pickedTransferSyntaxUID, contextItem.ContextID)
 	}
+	vlog.VI(1).Infof("Received associate response, #contexts:%v, maxPDU:%v, implclass:%v, version:%v",
+		len(m.contextIDToAbstractSyntaxNameMap),
+		m.peerMaxPDUSize, m.peerImplementationClassUID, m.peerImplementationVersionName)
 	return nil
 }
 
@@ -209,7 +231,7 @@ func addContextMapping(
 	abstractSyntaxUID string,
 	transferSyntaxUID string,
 	contextID byte) {
-	vlog.VI(1).Infof("Map context %d -> %s, %s",
+	vlog.VI(2).Infof("Map context %d -> %s, %s",
 		contextID, dicom.UIDString(abstractSyntaxUID),
 		dicom.UIDString(transferSyntaxUID))
 	doassert(abstractSyntaxUID != "")

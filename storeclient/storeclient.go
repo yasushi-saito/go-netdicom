@@ -8,6 +8,7 @@ import (
 	"github.com/yasushi-saito/go-netdicom"
 	"io/ioutil"
 	"log"
+	"v.io/x/lib/vlog"
 )
 
 func main() {
@@ -34,7 +35,8 @@ func main() {
 	params := netdicom.NewServiceUserParams(
 		"dontcare", "testclient", netdicom.StorageClasses,
 		[]string{transferSyntaxUID.MustGetString()})
-	su := netdicom.NewServiceUser(server, params)
+	su := netdicom.NewServiceUser(params)
+	su.Connect(server)
 
 	err = su.CStore(data)
 	if err != nil {
