@@ -21,25 +21,25 @@ func initTest() {
 	once.Do(func() {
 		flag.Parse()
 		vlog.ConfigureLibraryLoggerFromFlags()
-	listener, err := net.Listen("tcp", ":0")
-	if err != nil {
-		vlog.Fatal(err)
-	}
-	go func() {
-		// TODO(saito) test w/ small PDU.
-		params := netdicom.ServiceProviderParams{MaxPDUSize: 4096000}
-		callbacks := netdicom.ServiceProviderCallbacks{CStore: onCStoreRequest}
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				vlog.Infof("Accept error: %v", err)
-				continue
-			}
-			vlog.Infof("Accepted connection %v", conn)
-			netdicom.RunProviderForConn(conn, params, callbacks)
+		listener, err := net.Listen("tcp", ":0")
+		if err != nil {
+			vlog.Fatal(err)
 		}
-	}()
-	serverAddr = listener.Addr().String()
+		go func() {
+			// TODO(saito) test w/ small PDU.
+			params := netdicom.ServiceProviderParams{MaxPDUSize: 4096000}
+			callbacks := netdicom.ServiceProviderCallbacks{CStore: onCStoreRequest}
+			for {
+				conn, err := listener.Accept()
+				if err != nil {
+					vlog.Infof("Accept error: %v", err)
+					continue
+				}
+				vlog.Infof("Accepted connection %v", conn)
+				netdicom.RunProviderForConn(conn, params, callbacks)
+			}
+		}()
+		serverAddr = listener.Addr().String()
 	})
 }
 

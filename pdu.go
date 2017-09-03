@@ -12,12 +12,12 @@ import (
 	"v.io/x/lib/vlog"
 )
 
+// Interface for DUL messages like A-ASSOCIATE-AC, P-DATA-TF.
 type PDU interface {
+	fmt.Stringer // Print human-readable description for debugging.
 	// Encode the PDU payload. The "payload" here excludes the first 6 bytes
 	// that are common to all PDU types - they are encoded in EncodePDU separately.
 	WritePayload(*dicom.Encoder)
-	// Print human-readable description for debugging.
-	String() string
 }
 
 // Possible Type field for PDUs.
@@ -33,9 +33,11 @@ const (
 	PDUTypeA_ABORT                = 7
 )
 
+// Interface for DUL items, such as ApplicationContextItem,
+// TransferSyntaxSubItem.
 type SubItem interface {
-	Write(*dicom.Encoder)
-	String() string
+	fmt.Stringer          // Print human-readable description for debugging.
+	Write(*dicom.Encoder) // Serialize the item.
 }
 
 // Possible Type field values for SubItem.
@@ -56,38 +58,31 @@ func decodeSubItem(d *dicom.Decoder) SubItem {
 	itemType := d.ReadByte()
 	d.Skip(1)
 	length := d.ReadUInt16()
-	if itemType == ItemTypeApplicationContext {
+	switch itemType {
+	case ItemTypeApplicationContext:
 		return decodeApplicationContextItem(d, length)
-	}
-	if itemType == ItemTypeAbstractSyntax {
+	case ItemTypeAbstractSyntax:
 		return decodeAbstractSyntaxSubItem(d, length)
-	}
-	if itemType == ItemTypeTransferSyntax {
+	case ItemTypeTransferSyntax:
 		return decodeTransferSyntaxSubItem(d, length)
-	}
-	if itemType == ItemTypePresentationContextRequest {
+	case ItemTypePresentationContextRequest:
 		return decodePresentationContextItem(d, itemType, length)
-	}
-	if itemType == ItemTypePresentationContextResponse {
+	case ItemTypePresentationContextResponse:
 		return decodePresentationContextItem(d, itemType, length)
-	}
-	if itemType == ItemTypeUserInformation {
+	case ItemTypeUserInformation:
 		return decodeUserInformationItem(d, length)
-	}
-	if itemType == ItemTypeUserInformationMaximumLength {
+	case ItemTypeUserInformationMaximumLength:
 		return decodeUserInformationMaximumLengthItem(d, length)
-	}
-	if itemType == ItemTypeImplementationClassUID {
+	case ItemTypeImplementationClassUID:
 		return decodeImplementationClassUIDSubItem(d, length)
-	}
-	if itemType == ItemTypeAsynchronousOperationsWindow {
+	case ItemTypeAsynchronousOperationsWindow:
 		return decodeAsynchronousOperationsWindowSubItem(d, length)
-	}
-	if itemType == ItemTypeImplementationVersionName {
+	case ItemTypeImplementationVersionName:
 		return decodeImplementationVersionNameSubItem(d, length)
+	default:
+		d.SetError(fmt.Errorf("Unknown item type: 0x%x", itemType))
+		return nil
 	}
-	d.SetError(fmt.Errorf("Unknown item type: 0x%x", itemType))
-	return nil
 }
 
 func encodeSubItemHeader(e *dicom.Encoder, itemType byte, length uint16) {
@@ -406,22 +401,22 @@ func (v *PresentationDataValueItem) String() string {
 
 func EncodePDU(pdu PDU) ([]byte, error) {
 	var pduType PDUType
-	if n, ok := pdu.(*A_ASSOCIATE); ok {
+	switch n := pdu.(type) {
+	case *A_ASSOCIATE:
 		pduType = n.Type
-	} else if _, ok := pdu.(*A_ASSOCIATE_RJ); ok {
+	case *A_ASSOCIATE_RJ:
 		pduType = PDUTypeA_ASSOCIATE_RJ
-	} else if _, ok := pdu.(*P_DATA_TF); ok {
+	case *P_DATA_TF:
 		pduType = PDUTypeP_DATA_TF
-	} else if _, ok := pdu.(*A_RELEASE_RQ); ok {
+	case *A_RELEASE_RQ:
 		pduType = PDUTypeA_RELEASE_RQ
-	} else if _, ok := pdu.(*A_RELEASE_RP); ok {
+	case *A_RELEASE_RP:
 		pduType = PDUTypeA_RELEASE_RP
-	} else if _, ok := pdu.(*A_ABORT); ok {
+	case *A_ABORT:
 		pduType = PDUTypeA_ABORT
-	} else {
+	default:
 		vlog.Fatalf("Unknown PDU %v", pdu)
 	}
-
 	e := dicom.NewEncoder(binary.BigEndian, dicom.UnknownVR)
 	pdu.WritePayload(e)
 	payload, err := e.Finish()
@@ -430,11 +425,11 @@ func EncodePDU(pdu PDU) ([]byte, error) {
 	}
 
 	// Reserve the header bytes. It will be filled in Finish.
-	header := make([]byte, 6) // First 6 bytes of buf.
+	var header [6]byte // First 6 bytes of buf.
 	header[0] = byte(pduType)
 	header[1] = 0 // Reserved.
 	binary.BigEndian.PutUint32(header[2:6], uint32(len(payload)))
-	return append(header, payload...), nil
+	return append(header[:], payload...), nil
 }
 
 func ReadPDU(in io.Reader, maxPDUSize int) (PDU, error) {

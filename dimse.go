@@ -13,9 +13,9 @@ import (
 
 // Common interface for all C-XXX message types.
 type DIMSEMessage interface {
+	fmt.Stringer // Print human-readable description for debugging.
 	Encode(*dicom.Encoder)
-	HasData() bool  // Do we expact data P_DATA_TF packets after the command packets?
-	String() string // Produce human-readable description.
+	HasData() bool // Do we expact data P_DATA_TF packets after the command packets?
 }
 
 // Helper class for extracting values from a list of DicomElement.
