@@ -865,8 +865,6 @@ func findAction(currentState stateType, event *stateEvent, smName string) *state
 	return nil
 }
 
-const DefaultMaximiumPDUSize = uint32(1 << 20)
-
 func runOneStep(sm *stateMachine) {
 	event := getNextEvent(sm)
 	vlog.VI(1).Infof("%s: Current state: %v, Event %v", sm.name, sm.currentState.String(), event)
@@ -906,7 +904,7 @@ func runStateMachineForServiceUser(
 		errorCh:        make(chan stateEvent, 128),
 		downcallCh:     downcallCh,
 		upcallCh:       upcallCh,
-		faults:         GetUserFaultInjector(),
+		faults:         getUserFaultInjector(),
 	}
 	event := stateEvent{event: evt01}
 	action := findAction(sta01, &event, sm.name)
@@ -932,7 +930,7 @@ func runStateMachineForServiceProvider(
 		errorCh:        make(chan stateEvent, 128),
 		downcallCh:     downcallCh,
 		upcallCh:       upcallCh,
-		faults:         GetProviderFaultInjector(),
+		faults:         getProviderFaultInjector(),
 	}
 	event := stateEvent{event: evt05, conn: conn}
 	action := findAction(sta01, &event, sm.name)

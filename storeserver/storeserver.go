@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/yasushi-saito/go-dicom"
+	"github.com/yasushi-saito/go-dicom/dicomio"
 	"github.com/yasushi-saito/go-netdicom"
 	"github.com/yasushi-saito/go-netdicom/dimse"
 	"io/ioutil"
@@ -34,7 +35,7 @@ func onCStoreRequest(
 	path := path.Join(*outputFlag, fmt.Sprintf("image%04d.dcm", atomic.AddInt32(&pathSeq, 1)))
 
 	vlog.Infof("Writing %s", path)
-	e := dicom.NewEncoder(binary.LittleEndian, dicom.ExplicitVR)
+	e := dicomio.NewEncoder(binary.LittleEndian, dicomio.ExplicitVR)
 	dicom.WriteFileHeader(e, transferSyntaxUID, sopClassUID, sopInstanceUID)
 	e.WriteBytes(data)
 	bytes, err := e.Finish()

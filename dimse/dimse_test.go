@@ -2,19 +2,19 @@ package dimse_test
 
 import (
 	"encoding/binary"
-	"github.com/yasushi-saito/go-dicom"
+	"github.com/yasushi-saito/go-dicom/dicomio"
 	"github.com/yasushi-saito/go-netdicom/dimse"
 	"testing"
 )
 
 func testDIMSE(t *testing.T, v dimse.DIMSEMessage) {
-	e := dicom.NewEncoder(binary.LittleEndian, dicom.ImplicitVR)
+	e := dicomio.NewEncoder(binary.LittleEndian, dicomio.ImplicitVR)
 	dimse.EncodeDIMSEMessage(e, v)
 	bytes, err := e.Finish()
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := dicom.NewBytesDecoder(bytes, binary.LittleEndian, dicom.ImplicitVR)
+	d := dicomio.NewBytesDecoder(bytes, binary.LittleEndian, dicomio.ImplicitVR)
 	v2 := dimse.ReadDIMSEMessage(d)
 	err = d.Finish()
 	if err != nil {

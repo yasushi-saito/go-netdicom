@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"flag"
 	"github.com/yasushi-saito/go-dicom"
+	"github.com/yasushi-saito/go-dicom/dicomio"
 	"github.com/yasushi-saito/go-netdicom"
 	"github.com/yasushi-saito/go-netdicom/sopclass"
 	"io/ioutil"
@@ -24,7 +25,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("%s: %v", inPath, err)
 	}
-	decoder := dicom.NewBytesDecoder(data, binary.LittleEndian, dicom.ExplicitVR)
+	decoder := dicomio.NewBytesDecoder(data, binary.LittleEndian, dicomio.ExplicitVR)
 	meta := dicom.ParseFileHeader(decoder)
 	if decoder.Error() != nil {
 		log.Fatalf("%s: failed to parse as DICOM: %v", inPath, decoder.Error())

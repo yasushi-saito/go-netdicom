@@ -2,12 +2,13 @@ package netdicom
 
 import (
 	"github.com/yasushi-saito/go-dicom"
+	"github.com/yasushi-saito/go-dicom/dicomio"
 )
 
 // Parse the beginning of "bytes" as a DICOM file and extract its
 // TransferSyntaxUID.
 func GetTransferSyntaxUIDInBytes(bytes []byte) (string, error) {
-	decoder := dicom.NewBytesDecoder(bytes, nil, dicom.UnknownVR)
+	decoder := dicomio.NewBytesDecoder(bytes, nil, dicomio.UnknownVR)
 	meta := dicom.ParseFileHeader(decoder)
 	if decoder.Error() != nil {
 		return "", decoder.Error()

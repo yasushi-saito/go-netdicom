@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/yasushi-saito/go-dicom"
+	"github.com/yasushi-saito/go-dicom/dicomio"
 	"github.com/yasushi-saito/go-netdicom/dimse"
 	"github.com/yasushi-saito/go-netdicom/sopclass"
 	"net"
@@ -21,6 +22,7 @@ const (
 	serviceUserClosed
 )
 
+// Encapsulates the state for DICOM client (user).
 type ServiceUser struct {
 	status        serviceUserStatus
 	downcallCh    chan stateEvent
@@ -149,11 +151,11 @@ func newMessageID(su *ServiceUser) uint16 {
 func (su *ServiceUser) CStore(data []byte) error {
 	// Parse the beginning of file, extract syntax UIDs to fill in the
 	// C-STORE request.
-	decoder := dicom.NewDecoder(
+	decoder := dicomio.NewDecoder(
 		bytes.NewBuffer(data),
 		int64(len(data)),
 		binary.LittleEndian,
-		dicom.ExplicitVR)
+		dicomio.ExplicitVR)
 	meta := dicom.ParseFileHeader(decoder)
 	if decoder.Error() != nil {
 		return decoder.Error()
@@ -193,7 +195,7 @@ func (su *ServiceUser) CStore(data []byte) error {
 	if err != nil {
 		return err
 	}
-	e := dicom.NewEncoder(nil, dicom.UnknownVR)
+	e := dicomio.NewEncoder(nil, dicomio.UnknownVR)
 	dimse.EncodeDIMSEMessage(e, &dimse.C_STORE_RQ{
 		AffectedSOPClassUID:    sopClassUID,
 		MessageID:              newMessageID(su),

@@ -1,7 +1,7 @@
 package netdicom
 
 import (
-	"github.com/yasushi-saito/go-dicom"
+	"github.com/yasushi-saito/go-dicom/dicomio"
 	"github.com/yasushi-saito/go-netdicom/dimse"
 	"net"
 	"v.io/x/lib/vlog"
@@ -44,6 +44,7 @@ type ServiceProviderCallbacks struct {
 	CEcho CEchoCallback
 }
 
+// Encapsulates the state for DICOM server (provider).
 type ServiceProvider struct {
 	params    ServiceProviderParams
 	callbacks ServiceProviderCallbacks
@@ -70,7 +71,7 @@ func onDIMSECommand(downcallCh chan stateEvent, abstractSyntaxUID string,
 			AffectedSOPInstanceUID:    c.AffectedSOPInstanceUID,
 			Status:                    status,
 		}
-		e := dicom.NewEncoder(nil, dicom.UnknownVR)
+		e := dicomio.NewEncoder(nil, dicomio.UnknownVR)
 		dimse.EncodeDIMSEMessage(e, resp)
 		bytes, err := e.Finish()
 		if err != nil {
@@ -95,7 +96,7 @@ func onDIMSECommand(downcallCh chan stateEvent, abstractSyntaxUID string,
 			CommandDataSetType:        dimse.CommandDataSetTypeNull,
 			Status:                    status,
 		}
-		e := dicom.NewEncoder(nil, dicom.UnknownVR)
+		e := dicomio.NewEncoder(nil, dicomio.UnknownVR)
 		dimse.EncodeDIMSEMessage(e, resp)
 		bytes, err := e.Finish()
 		if err != nil {

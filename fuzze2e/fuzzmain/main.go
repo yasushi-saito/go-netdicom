@@ -12,5 +12,5 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fuzztest.Fuzz(fuzzData)
+	fuzze2e.Fuzz(fuzzData)
 }

@@ -10,6 +10,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/yasushi-saito/go-dicom"
+	"github.com/yasushi-saito/go-dicom/dicomio"
 	"github.com/yasushi-saito/go-netdicom/pdu"
 	"v.io/x/lib/vlog"
 )
@@ -17,7 +18,7 @@ import (
 // Common interface for all C-XXX message types.
 type DIMSEMessage interface {
 	fmt.Stringer // Print human-readable description for debugging.
-	Encode(*dicom.Encoder)
+	Encode(*dicomio.Encoder)
 	HasData() bool // Do we expact data P_DATA_TF packets after the command packets?
 }
 
@@ -95,7 +96,7 @@ func (d *dimseDecoder) getUInt16(tag dicom.Tag, optional isOptionalElement) uint
 }
 
 // Encode a DIMSE field with the given tag, given value "v"
-func encodeField(e *dicom.Encoder, tag dicom.Tag, v interface{}) {
+func encodeField(e *dicomio.Encoder, tag dicom.Tag, v interface{}) {
 	elem := dicom.DicomElement{
 		Tag:   tag,
 		Vr:    "", // autodetect
@@ -105,9 +106,7 @@ func encodeField(e *dicom.Encoder, tag dicom.Tag, v interface{}) {
 	dicom.EncodeDataElement(e, &elem)
 }
 
-
 const CommandDataSetTypeNull uint16 = 0x101
-
 
 // C_STORE_RSP status codes.
 // P3.4 GG4-1
@@ -117,13 +116,13 @@ const (
 	CStoreStatusCannotUnderstand            uint16 = 0xc000
 )
 
-func ReadDIMSEMessage(d *dicom.Decoder) DIMSEMessage {
+func ReadDIMSEMessage(d *dicomio.Decoder) DIMSEMessage {
 	// A DIMSE message is a sequence of DicomElements, encoded in implicit
 	// LE.
 	//
 	// TODO(saito) make sure that's the case. Where the ref?
 	var elems []*dicom.DicomElement
-	d.PushTransferSyntax(binary.LittleEndian, dicom.ImplicitVR)
+	d.PushTransferSyntax(binary.LittleEndian, dicomio.ImplicitVR)
 	defer d.PopTransferSyntax()
 	for d.Len() > 0 {
 		elem := dicom.ReadDataElement(d)
@@ -148,16 +147,16 @@ func ReadDIMSEMessage(d *dicom.Decoder) DIMSEMessage {
 	return v
 }
 
-func EncodeDIMSEMessage(e *dicom.Encoder, v DIMSEMessage) {
+func EncodeDIMSEMessage(e *dicomio.Encoder, v DIMSEMessage) {
 	// DIMSE messages are always encoded Implicit+LE. See P3.7 6.3.1.
-	subEncoder := dicom.NewEncoder(binary.LittleEndian, dicom.ImplicitVR)
+	subEncoder := dicomio.NewEncoder(binary.LittleEndian, dicomio.ImplicitVR)
 	v.Encode(subEncoder)
 	bytes, err := subEncoder.Finish()
 	if err != nil {
 		e.SetError(err)
 		return
 	}
-	e.PushTransferSyntax(binary.LittleEndian, dicom.ImplicitVR)
+	e.PushTransferSyntax(binary.LittleEndian, dicomio.ImplicitVR)
 	defer e.PopTransferSyntax()
 	encodeField(e, dicom.TagCommandGroupLength, uint32(len(bytes)))
 	e.WriteBytes(bytes)
@@ -207,7 +206,7 @@ func (a *CommandAssembler) AddDataPDU(pdu *pdu.P_DATA_TF) (byte, DIMSEMessage, [
 		return 0, nil, nil, nil
 	}
 	if a.command == nil {
-		d := dicom.NewBytesDecoder(a.commandBytes, nil, dicom.UnknownVR)
+		d := dicomio.NewBytesDecoder(a.commandBytes, nil, dicomio.UnknownVR)
 		a.command = ReadDIMSEMessage(d)
 		if err := d.Finish(); err != nil {
 			return 0, nil, nil, err

@@ -53,7 +53,7 @@ def generate_go_definition(m: Message, out: IO[str]):
     print('}', file=out)
 
     print('', file=out)
-    print(f'func (v* {m.name}) Encode(e *dicom.Encoder) {{', file=out)
+    print(f'func (v* {m.name}) Encode(e *dicomio.Encoder) {{', file=out)
     print(f'	encodeField(e, dicom.TagCommandField, uint16({m.command_field}))', file=out)
     for f in m.fields:
         if not f.required:
@@ -117,6 +117,7 @@ def main():
 package dimse
 import (
 	"github.com/yasushi-saito/go-dicom"
+	"github.com/yasushi-saito/go-dicom/dicomio"
         "fmt"
 )
         """, file=out)

@@ -18,6 +18,7 @@ type faultInjectorStateTransition struct {
 	action *stateAction
 }
 
+// Unittest helper.
 type FaultInjector struct {
 	fuzz  []byte
 	steps int
@@ -76,10 +77,10 @@ func SetProviderFaultInjector(f *FaultInjector) {
 	providerFaults = f
 }
 
-func GetUserFaultInjector() *FaultInjector {
+func getUserFaultInjector() *FaultInjector {
 	return userFaults
 }
-func GetProviderFaultInjector() *FaultInjector {
+func getProviderFaultInjector() *FaultInjector {
 	return providerFaults
 }
 

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"github.com/yasushi-saito/go-dicom"
+	"github.com/yasushi-saito/go-dicom/dicomio"
 	"github.com/yasushi-saito/go-netdicom"
 	"github.com/yasushi-saito/go-netdicom/sopclass"
 	"io/ioutil"
@@ -53,7 +54,7 @@ func onCStoreRequest(
 		dicom.UIDString(transferSyntaxUID),
 		dicom.UIDString(sopClassUID),
 		dicom.UIDString(sopInstanceUID))
-	e := dicom.NewEncoder(nil, dicom.UnknownVR)
+	e := dicomio.NewEncoder(nil, dicomio.UnknownVR)
 	dicom.WriteFileHeader(e, transferSyntaxUID, sopClassUID, sopInstanceUID)
 	e.WriteBytes(data)
 
