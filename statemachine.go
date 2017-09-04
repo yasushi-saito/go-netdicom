@@ -6,6 +6,8 @@ package netdicom
 import (
 	"fmt"
 	"github.com/yasushi-saito/go-dicom"
+	"github.com/yasushi-saito/go-netdicom/dimse"
+	"github.com/yasushi-saito/go-netdicom/pdu"
 	"io"
 	"net"
 	"strings"
@@ -165,9 +167,9 @@ var actionAe2 = &stateAction{"AE-2", "Connection established on the user side. S
 			sm.userParams.RequiredServices,
 			sm.userParams.SupportedTransferSyntaxes,
 			sm.userParams.MaxPDUSize)
-		pdu := &A_ASSOCIATE{
-			Type:            PDUTypeA_ASSOCIATE_RQ,
-			ProtocolVersion: CurrentProtocolVersion,
+		pdu := &pdu.A_ASSOCIATE{
+			Type:            pdu.PDUTypeA_ASSOCIATE_RQ,
+			ProtocolVersion: pdu.CurrentProtocolVersion,
 			CalledAETitle:   sm.userParams.CalledAETitle,
 			CallingAETitle:  sm.userParams.CallingAETitle,
 			Items:           items,
@@ -180,9 +182,9 @@ var actionAe2 = &stateAction{"AE-2", "Connection established on the user side. S
 var actionAe3 = &stateAction{"AE-3", "Issue A-ASSOCIATE confirmation (accept) primitive",
 	func(sm *stateMachine, event stateEvent) stateType {
 		stopTimer(sm)
-		pdu := event.pdu.(*A_ASSOCIATE)
-		doassert(pdu.Type == PDUTypeA_ASSOCIATE_AC)
-		err := sm.contextManager.onAssociateResponse(pdu.Items)
+		v := event.pdu.(*pdu.A_ASSOCIATE)
+		doassert(v.Type == pdu.PDUTypeA_ASSOCIATE_AC)
+		err := sm.contextManager.onAssociateResponse(v.Items)
 		if err == nil {
 			sm.upcallCh <- upcallEvent{eventType: upcallEventHandshakeCompleted}
 			return sta06
@@ -208,10 +210,10 @@ var actionAe5 = &stateAction{"AE-5", "Issue Transport connection response primit
 		return sta02
 	}}
 
-func extractPresentationContextItems(items []SubItem) []*PresentationContextItem {
-	var contextItems []*PresentationContextItem
+func extractPresentationContextItems(items []pdu.SubItem) []*pdu.PresentationContextItem {
+	var contextItems []*pdu.PresentationContextItem
 	for _, item := range items {
-		if n, ok := item.(*PresentationContextItem); ok {
+		if n, ok := item.(*pdu.PresentationContextItem); ok {
 			contextItems = append(contextItems, n)
 		}
 	}
@@ -223,36 +225,36 @@ service-dul: issue A-ASSOCIATE indication primitive
 otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 	func(sm *stateMachine, event stateEvent) stateType {
 		stopTimer(sm)
-		pdu := event.pdu.(*A_ASSOCIATE)
-		if pdu.ProtocolVersion != 0x0001 {
-			vlog.Infof("%s: Wrong remote protocol version 0x%x", sm.name, pdu.ProtocolVersion)
-			rj := A_ASSOCIATE_RJ{Result: 1, Source: 2, Reason: 2}
+		v := event.pdu.(*pdu.A_ASSOCIATE)
+		if v.ProtocolVersion != 0x0001 {
+			vlog.Infof("%s: Wrong remote protocol version 0x%x", sm.name, v.ProtocolVersion)
+			rj := pdu.A_ASSOCIATE_RJ{Result: 1, Source: 2, Reason: 2}
 			sendPDU(sm, &rj)
 			startTimer(sm)
 			return sta13
 		}
-		responses, err := sm.contextManager.onAssociateRequest(pdu.Items, sm.providerParams.MaxPDUSize)
+		responses, err := sm.contextManager.onAssociateRequest(v.Items, sm.providerParams.MaxPDUSize)
 		if err != nil {
 			// TODO(saito) set proper error code.
 			sm.downcallCh <- stateEvent{
 				event: evt08,
-				pdu: &A_ASSOCIATE_RJ{
-					Result: ResultRejectedPermanent,
-					Source: SourceULServiceProviderACSE,
+				pdu: &pdu.A_ASSOCIATE_RJ{
+					Result: pdu.ResultRejectedPermanent,
+					Source: pdu.SourceULServiceProviderACSE,
 					Reason: 1,
 				},
 			}
 		} else {
 			doassert(len(responses) > 0)
-			doassert(pdu.CalledAETitle != "")
-			doassert(pdu.CallingAETitle != "")
+			doassert(v.CalledAETitle != "")
+			doassert(v.CallingAETitle != "")
 			sm.downcallCh <- stateEvent{
 				event: evt07,
-				pdu: &A_ASSOCIATE{
-					Type:            PDUTypeA_ASSOCIATE_AC,
-					ProtocolVersion: CurrentProtocolVersion,
-					CalledAETitle:   pdu.CalledAETitle,
-					CallingAETitle:  pdu.CallingAETitle,
+				pdu: &pdu.A_ASSOCIATE{
+					Type:            pdu.PDUTypeA_ASSOCIATE_AC,
+					ProtocolVersion: pdu.CurrentProtocolVersion,
+					CalledAETitle:   v.CalledAETitle,
+					CallingAETitle:  v.CallingAETitle,
 					Items:           responses,
 				},
 			}
@@ -261,27 +263,27 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 	}}
 var actionAe7 = &stateAction{"AE-7", "Send A-ASSOCIATE-AC PDU",
 	func(sm *stateMachine, event stateEvent) stateType {
-		sendPDU(sm, event.pdu.(*A_ASSOCIATE))
+		sendPDU(sm, event.pdu.(*pdu.A_ASSOCIATE))
 		sm.upcallCh <- upcallEvent{eventType: upcallEventHandshakeCompleted}
 		return sta06
 	}}
 
 var actionAe8 = &stateAction{"AE-8", "Send A-ASSOCIATE-RJ PDU and start ARTIM timer",
 	func(sm *stateMachine, event stateEvent) stateType {
-		sendPDU(sm, event.pdu.(*A_ASSOCIATE_RJ))
+		sendPDU(sm, event.pdu.(*pdu.A_ASSOCIATE_RJ))
 		startTimer(sm)
 		return sta13
 	}}
 
 // Produce a list of P_DATA_TF PDUs that collective store "data".
-func splitDataIntoPDUs(sm *stateMachine, abstractSyntaxName string, command bool, data []byte) []P_DATA_TF {
+func splitDataIntoPDUs(sm *stateMachine, abstractSyntaxName string, command bool, data []byte) []pdu.P_DATA_TF {
 	doassert(len(data) > 0)
 	context, err := sm.contextManager.lookupByAbstractSyntaxUID(abstractSyntaxName)
 	if err != nil {
 		// TODO(saito) Don't crash here.
 		vlog.Fatalf("%s: Illegal syntax name %s: %s", sm.name, dicom.UIDString(abstractSyntaxName), err)
 	}
-	var pdus []P_DATA_TF
+	var pdus []pdu.P_DATA_TF
 	// two byte header overhead.
 	//
 	// TODO(saito) move the magic number elsewhere.
@@ -293,8 +295,8 @@ func splitDataIntoPDUs(sm *stateMachine, abstractSyntaxName string, command bool
 		}
 		chunk := data[0:chunkSize]
 		data = data[chunkSize:]
-		pdus = append(pdus, P_DATA_TF{Items: []PresentationDataValueItem{
-			PresentationDataValueItem{
+		pdus = append(pdus, pdu.P_DATA_TF{Items: []pdu.PresentationDataValueItem{
+			pdu.PresentationDataValueItem{
 				ContextID: context.contextID,
 				Command:   command,
 				Last:      false, // Set later.
@@ -320,29 +322,33 @@ var actionDt1 = &stateAction{"DT-1", "Send P-DATA-TF PDU",
 
 var actionDt2 = &stateAction{"DT-2", "Send P-DATA indication primitive",
 	func(sm *stateMachine, event stateEvent) stateType {
-		abstractSyntaxUID, transferSyntaxUID, command, data, err := addPDataTF(&sm.commandAssembler, event.pdu.(*P_DATA_TF), sm.contextManager)
+		contextID, command, data, err := sm.commandAssembler.AddDataPDU(event.pdu.(*pdu.P_DATA_TF))
 		if err == nil {
-			if command != nil {
-				sm.upcallCh <- upcallEvent{
-					eventType:         upcallEventData,
-					abstractSyntaxUID: abstractSyntaxUID,
-					transferSyntaxUID: transferSyntaxUID,
-					command:           command,
-					data:              data}
-			} else {
+			if command == nil {
 				// Not all fragments received yet
+				return sta06
+			} else {
+				var context contextManagerEntry
+				context, err = sm.contextManager.lookupByContextID(contextID)
+				if err == nil {
+					sm.upcallCh <- upcallEvent{
+						eventType:         upcallEventData,
+						abstractSyntaxUID: context.abstractSyntaxUID,
+						transferSyntaxUID: context.transferSyntaxUID,
+						command:           command,
+						data:              data}
+					return sta06
+				}
 			}
-			return sta06
-		} else {
-			vlog.Infof("%s: Failed to assemble data: %v", sm.name, err) // TODO(saito)
-			return actionAa8.Callback(sm, event)
 		}
+		vlog.Infof("%s: Failed to assemble data: %v", sm.name, err) // TODO(saito)
+		return actionAa8.Callback(sm, event)
 	}}
 
 // Assocation Release related actions
 var actionAr1 = &stateAction{"AR-1", "Send A-RELEASE-RQ PDU",
 	func(sm *stateMachine, event stateEvent) stateType {
-		sendPDU(sm, &A_RELEASE_RQ{})
+		sendPDU(sm, &pdu.A_RELEASE_RQ{})
 		return sta07
 	}}
 var actionAr2 = &stateAction{"AR-2", "Issue A-RELEASE indication primitive",
@@ -354,13 +360,13 @@ var actionAr2 = &stateAction{"AR-2", "Issue A-RELEASE indication primitive",
 
 var actionAr3 = &stateAction{"AR-3", "Issue A-RELEASE confirmation primitive and close transport connection",
 	func(sm *stateMachine, event stateEvent) stateType {
-		sendPDU(sm, &A_RELEASE_RP{})
+		sendPDU(sm, &pdu.A_RELEASE_RP{})
 		closeConnection(sm)
 		return sta01
 	}}
 var actionAr4 = &stateAction{"AR-4", "Issue A-RELEASE-RP PDU and start ARTIM timer",
 	func(sm *stateMachine, event stateEvent) stateType {
-		sendPDU(sm, &A_RELEASE_RP{})
+		sendPDU(sm, &pdu.A_RELEASE_RP{})
 		startTimer(sm)
 		return sta13
 	}}
@@ -398,7 +404,7 @@ var actionAr8 = &stateAction{"AR-8", "Issue A-RELEASE indication (release collis
 
 var actionAr9 = &stateAction{"AR-9", "Send A-RELEASE-RP PDU",
 	func(sm *stateMachine, event stateEvent) stateType {
-		sendPDU(sm, &A_RELEASE_RP{})
+		sendPDU(sm, &pdu.A_RELEASE_RP{})
 		return sta11
 	}}
 
@@ -414,7 +420,7 @@ var actionAa1 = &stateAction{"AA-1", "Send A-ABORT PDU (service-user source) and
 		if sm.currentState == sta02 {
 			diagnostic = 2
 		}
-		sendPDU(sm, &A_ABORT{Source: 0, Reason: diagnostic})
+		sendPDU(sm, &pdu.A_ABORT{Source: 0, Reason: diagnostic})
 		restartTimer(sm)
 		return sta13
 	}}
@@ -450,13 +456,13 @@ var actionAa6 = &stateAction{"AA-6", "Ignore PDU",
 
 var actionAa7 = &stateAction{"AA-7", "Send A-ABORT PDU",
 	func(sm *stateMachine, event stateEvent) stateType {
-		sendPDU(sm, &A_ABORT{Source: 0, Reason: 0})
+		sendPDU(sm, &pdu.A_ABORT{Source: 0, Reason: 0})
 		return sta13
 	}}
 
 var actionAa8 = &stateAction{"AA-8", "Send A-ABORT PDU (service-dul source), issue an A-P-ABORT indication and start ARTIM timer",
 	func(sm *stateMachine, event stateEvent) stateType {
-		sendPDU(sm, &A_ABORT{Source: 2, Reason: 0})
+		sendPDU(sm, &pdu.A_ABORT{Source: 2, Reason: 0})
 		startTimer(sm)
 		return sta13
 	}}
@@ -493,7 +499,7 @@ type upcallEvent struct {
 	abstractSyntaxUID string
 	transferSyntaxUID string
 
-	command DIMSEMessage
+	command dimse.DIMSEMessage
 	data    []byte
 }
 
@@ -515,7 +521,7 @@ type stateEventDebugInfo struct {
 
 type stateEvent struct {
 	event eventType
-	pdu   PDU
+	pdu   pdu.PDU
 	err   error
 	conn  net.Conn
 
@@ -717,7 +723,7 @@ type stateMachine struct {
 	currentState stateType
 
 	// For assembling DIMSE command from multiple P_DATA_TF fragments.
-	commandAssembler dimseCommandAssembler
+	commandAssembler dimse.CommandAssembler
 
 	// Only for testing.
 	faults *FaultInjector
@@ -729,9 +735,9 @@ func closeConnection(sm *stateMachine) {
 	sm.conn.Close()
 }
 
-func sendPDU(sm *stateMachine, pdu PDU) {
+func sendPDU(sm *stateMachine, v pdu.PDU) {
 	doassert(sm.conn != nil)
-	data, err := EncodePDU(pdu)
+	data, err := pdu.EncodePDU(v)
 	if err != nil {
 		vlog.Infof("%s: Failed to encode: %v; closing connection %v", sm.name, err, sm.conn)
 		sm.conn.Close()
@@ -752,7 +758,7 @@ func sendPDU(sm *stateMachine, pdu PDU) {
 		sm.errorCh <- stateEvent{event: evt17, err: err}
 		return
 	}
-	vlog.VI(2).Infof("%s: sendPDU: %v", sm.name, pdu.String())
+	vlog.VI(2).Infof("%s: sendPDU: %v", sm.name, v.String())
 }
 
 func startTimer(sm *stateMachine) {
@@ -778,7 +784,7 @@ func networkReaderThread(ch chan stateEvent, conn net.Conn, maxPDUSize int, smNa
 	vlog.VI(1).Infof("%s: Starting network reader, maxPDU %d", smName, maxPDUSize)
 	doassert(maxPDUSize > 16*1024)
 	for {
-		pdu, err := ReadPDU(conn, maxPDUSize)
+		v, err := pdu.ReadPDU(conn, maxPDUSize)
 		if err != nil {
 			vlog.Infof("%s: Failed to read PDU: %v", err, smName)
 			if err == io.EOF {
@@ -789,35 +795,35 @@ func networkReaderThread(ch chan stateEvent, conn net.Conn, maxPDUSize int, smNa
 			close(ch)
 			break
 		}
-		doassert(pdu != nil)
-		vlog.VI(2).Infof("%v: read PDU: %v", smName, pdu.String())
-		switch n := pdu.(type) {
-		case *A_ASSOCIATE:
-			if n.Type == PDUTypeA_ASSOCIATE_RQ {
+		doassert(v != nil)
+		vlog.VI(2).Infof("%v: read PDU: %v", smName, v.String())
+		switch n := v.(type) {
+		case *pdu.A_ASSOCIATE:
+			if n.Type == pdu.PDUTypeA_ASSOCIATE_RQ {
 				ch <- stateEvent{event: evt06, pdu: n, err: nil}
 			} else {
-				doassert(n.Type == PDUTypeA_ASSOCIATE_AC)
+				doassert(n.Type == pdu.PDUTypeA_ASSOCIATE_AC)
 				ch <- stateEvent{event: evt03, pdu: n, err: nil}
 			}
 			continue
-		case *A_ASSOCIATE_RJ:
+		case *pdu.A_ASSOCIATE_RJ:
 			ch <- stateEvent{event: evt04, pdu: n, err: nil}
 			continue
-		case *P_DATA_TF:
+		case *pdu.P_DATA_TF:
 			ch <- stateEvent{event: evt10, pdu: n, err: nil}
 			continue
-		case *A_RELEASE_RQ:
+		case *pdu.A_RELEASE_RQ:
 			ch <- stateEvent{event: evt12, pdu: n, err: nil}
 			continue
-		case *A_RELEASE_RP:
+		case *pdu.A_RELEASE_RP:
 			ch <- stateEvent{event: evt13, pdu: n, err: nil}
 			continue
-		case *A_ABORT:
+		case *pdu.A_ABORT:
 			ch <- stateEvent{event: evt16, pdu: n, err: nil}
 			continue
 		default:
-			err := fmt.Errorf("%s: Unknown PDU type: %v", pdu.String(), smName)
-			ch <- stateEvent{event: evt19, pdu: pdu, err: err}
+			err := fmt.Errorf("%s: Unknown PDU type: %v", v.String(), smName)
+			ch <- stateEvent{event: evt19, pdu: v, err: err}
 			vlog.Error(err)
 			continue
 		}

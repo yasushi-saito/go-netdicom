@@ -1,4 +1,4 @@
-package netdicom
+package pdu
 
 // Implements message types defined in P3.8. It sits below the DIMSE layer.
 //
@@ -252,7 +252,7 @@ func decodeSubItemWithName(d *dicom.Decoder, length uint16) string {
 type ApplicationContextItem subItemWithName
 
 // The app context for DICOM. The first item in the A-ASSOCIATE-RQ
-const dicomApplicationContextItemName = "1.2.840.10008.3.1.1.1"
+const DICOMApplicationContextItemName = "1.2.840.10008.3.1.1.1"
 
 func decodeApplicationContextItem(d *dicom.Decoder, length uint16) *ApplicationContextItem {
 	return &ApplicationContextItem{Name: decodeSubItemWithName(d, length)}
@@ -326,8 +326,10 @@ func decodePresentationContextItem(d *dicom.Decoder, itemType byte, length uint1
 }
 
 func (v *PresentationContextItem) Write(e *dicom.Encoder) {
-	doassert(v.Type == ItemTypePresentationContextRequest ||
-		v.Type == ItemTypePresentationContextResponse)
+	if v.Type != ItemTypePresentationContextRequest &&
+		v.Type != ItemTypePresentationContextResponse {
+		vlog.Fatal(*v)
+	}
 
 	itemEncoder := dicom.NewEncoder(binary.BigEndian, dicom.UnknownVR)
 	for _, s := range v.Items {
@@ -562,9 +564,9 @@ func decodeA_ASSOCIATE(d *dicom.Decoder, pduType PDUType) *A_ASSOCIATE {
 }
 
 func (pdu *A_ASSOCIATE) WritePayload(e *dicom.Encoder) {
-	doassert(pdu.Type != 0)
-	doassert(pdu.CalledAETitle != "")
-	doassert(pdu.CallingAETitle != "")
+	if pdu.Type == 0 || pdu.CalledAETitle == "" || pdu.CallingAETitle == "" {
+		vlog.Fatal(*pdu)
+	}
 	e.WriteUInt16(pdu.ProtocolVersion)
 	e.WriteZeros(2) // Reserved
 	e.WriteString(fillString(pdu.CalledAETitle, 16))

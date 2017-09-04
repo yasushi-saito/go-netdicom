@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-netdicom"
+	"github.com/yasushi-saito/go-netdicom/dimse"
 	"io/ioutil"
 	"path"
 	"strings"
@@ -40,12 +41,12 @@ func onCStoreRequest(
 
 	if err != nil {
 		vlog.Errorf("%s: failed to write: %v", path, err)
-		return netdicom.CStoreStatusOutOfResources
+		return dimse.CStoreStatusOutOfResources
 	}
 	err = ioutil.WriteFile(path, bytes, 0644)
 	if err != nil {
 		vlog.Errorf("%s: %s", path, err)
-		return netdicom.CStoreStatusOutOfResources
+		return dimse.CStoreStatusOutOfResources
 	}
 	return 0 // Success
 }

@@ -2,7 +2,7 @@ package main
 
 import (
 	"flag"
-	"github.com/yasushi-saito/go-netdicom/fuzztest"
+	"github.com/yasushi-saito/go-netdicom/fuzze2e"
 	"io/ioutil"
 )
 

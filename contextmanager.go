@@ -3,6 +3,8 @@ package netdicom
 import (
 	"fmt"
 	"github.com/yasushi-saito/go-dicom"
+	"github.com/yasushi-saito/go-netdicom/pdu"
+	"github.com/yasushi-saito/go-netdicom/sopclass"
 	"v.io/x/lib/vlog"
 )
 
@@ -38,7 +40,7 @@ type contextManager struct {
 	// A_ASSOCIATE_RQ PDU. Once an A_ASSOCIATE_AC PDU arrives, tmpRequests
 	// is matched against the response PDU and
 	// contextid->{abstractsyntax,transfersyntax} mappings are filled.
-	tmpRequests map[byte]*PresentationContextItem
+	tmpRequests map[byte]*pdu.PresentationContextItem
 }
 
 // Create an empty contextManager
@@ -47,7 +49,7 @@ func newContextManager() *contextManager {
 		contextIDToAbstractSyntaxNameMap: make(map[byte]*contextManagerEntry),
 		abstractSyntaxNameToContextIDMap: make(map[string]*contextManagerEntry),
 		peerMaxPDUSize:                   16384, // The default value used by Osirix & pynetdicom.
-		tmpRequests:                      make(map[byte]*PresentationContextItem),
+		tmpRequests:                      make(map[byte]*pdu.PresentationContextItem),
 	}
 	return c
 }
@@ -57,22 +59,22 @@ func newContextManager() *contextManager {
 // maxPDUSize is the maximum PDU size, in bytes, that the clients is willing to
 // receive. maxPDUSize is encoded in one of the items.
 func (m *contextManager) generateAssociateRequest(
-	services []SOPUID, transferSyntaxUIDs []string,
-	maxPDUSize int) []SubItem {
-	items := []SubItem{
-		&ApplicationContextItem{
-			Name: dicomApplicationContextItemName,
+	services []sopclass.SOPUID, transferSyntaxUIDs []string,
+	maxPDUSize int) []pdu.SubItem {
+	items := []pdu.SubItem{
+		&pdu.ApplicationContextItem{
+			Name: pdu.DICOMApplicationContextItemName,
 		}}
 	var contextID byte = 1
 	for _, sop := range services {
-		syntaxItems := []SubItem{
-			&AbstractSyntaxSubItem{Name: sop.UID},
+		syntaxItems := []pdu.SubItem{
+			&pdu.AbstractSyntaxSubItem{Name: sop.UID},
 		}
 		for _, syntaxUID := range transferSyntaxUIDs {
-			syntaxItems = append(syntaxItems, &TransferSyntaxSubItem{Name: syntaxUID})
+			syntaxItems = append(syntaxItems, &pdu.TransferSyntaxSubItem{Name: syntaxUID})
 		}
-		item := &PresentationContextItem{
-			Type:      ItemTypePresentationContextRequest,
+		item := &pdu.PresentationContextItem{
+			Type:      pdu.ItemTypePresentationContextRequest,
 			ContextID: contextID,
 			Result:    0, // must be zero for request
 			Items:     syntaxItems,
@@ -82,43 +84,43 @@ func (m *contextManager) generateAssociateRequest(
 		contextID += 2 // must be odd.
 	}
 	items = append(items,
-		&UserInformationItem{
-			Items: []SubItem{
-				&UserInformationMaximumLengthItem{uint32(maxPDUSize)},
-				&ImplementationClassUIDSubItem{dicom.DefaultImplementationClassUID},
-				&ImplementationVersionNameSubItem{dicom.DefaultImplementationVersionName}}})
+		&pdu.UserInformationItem{
+			Items: []pdu.SubItem{
+				&pdu.UserInformationMaximumLengthItem{uint32(maxPDUSize)},
+				&pdu.ImplementationClassUIDSubItem{dicom.DefaultImplementationClassUID},
+				&pdu.ImplementationVersionNameSubItem{dicom.DefaultImplementationVersionName}}})
 
 	return items
 }
 
 // Called when A_ASSOCIATE_RQ pdu arrives, on the provider side. Returns a list of items to be sent in
 // the A_ASSOCIATE_AC pdu.
-func (m *contextManager) onAssociateRequest(requestItems []SubItem, maxPDUSize int) ([]SubItem, error) {
+func (m *contextManager) onAssociateRequest(requestItems []pdu.SubItem, maxPDUSize int) ([]pdu.SubItem, error) {
 	//var responses []*PresentationContextItem
-	responses := []SubItem{
-		&ApplicationContextItem{
-			Name: dicomApplicationContextItemName,
+	responses := []pdu.SubItem{
+		&pdu.ApplicationContextItem{
+			Name: pdu.DICOMApplicationContextItemName,
 		},
 	}
 	for _, requestItem := range requestItems {
 		switch ri := requestItem.(type) {
-		case *ApplicationContextItem:
-			if ri.Name != dicomApplicationContextItemName {
+		case *pdu.ApplicationContextItem:
+			if ri.Name != pdu.DICOMApplicationContextItemName {
 				vlog.Errorf("Found illegal applicationcontextname. Expect %v, found %v",
-					ri.Name != dicomApplicationContextItemName)
+					ri.Name != pdu.DICOMApplicationContextItemName)
 			}
-		case *PresentationContextItem:
+		case *pdu.PresentationContextItem:
 			var sopUID string
 			var pickedTransferSyntaxUID string
 			for _, subItem := range ri.Items {
 				switch c := subItem.(type) {
-				case *AbstractSyntaxSubItem:
+				case *pdu.AbstractSyntaxSubItem:
 					if sopUID != "" {
 						return nil, fmt.Errorf("Multiple AbstractSyntaxSubItem found in %v",
 							ri.String())
 					}
 					sopUID = c.Name
-				case *TransferSyntaxSubItem:
+				case *pdu.TransferSyntaxSubItem:
 					// Just pick the first syntax UID proposed by the client.
 					if pickedTransferSyntaxUID == "" {
 						pickedTransferSyntaxUID = c.Name
@@ -132,22 +134,22 @@ func (m *contextManager) onAssociateRequest(requestItems []SubItem, maxPDUSize i
 				return nil, fmt.Errorf("SOP or transfersyntax not found in PresentationContext: %v",
 					ri.String())
 			}
-			responses = append(responses, &PresentationContextItem{
-				Type:      ItemTypePresentationContextResponse,
+			responses = append(responses, &pdu.PresentationContextItem{
+				Type:      pdu.ItemTypePresentationContextResponse,
 				ContextID: ri.ContextID,
 				Result:    0, // accepted
-				Items:     []SubItem{&TransferSyntaxSubItem{Name: pickedTransferSyntaxUID}}})
+				Items:     []pdu.SubItem{&pdu.TransferSyntaxSubItem{Name: pickedTransferSyntaxUID}}})
 			vlog.VI(1).Infof("Provider(%p): addmapping %v %v %v",
 				m, sopUID, pickedTransferSyntaxUID, ri.ContextID)
 			addContextMapping(m, sopUID, pickedTransferSyntaxUID, ri.ContextID)
-		case *UserInformationItem:
+		case *pdu.UserInformationItem:
 			for _, subItem := range ri.Items {
 				switch c := subItem.(type) {
-				case *UserInformationMaximumLengthItem:
+				case *pdu.UserInformationMaximumLengthItem:
 					m.peerMaxPDUSize = int(c.MaximumLengthReceived)
-				case *ImplementationClassUIDSubItem:
+				case *pdu.ImplementationClassUIDSubItem:
 					m.peerImplementationClassUID = c.Name
-				case *ImplementationVersionNameSubItem:
+				case *pdu.ImplementationVersionNameSubItem:
 					m.peerImplementationVersionName = c.Name
 
 				}
@@ -155,8 +157,8 @@ func (m *contextManager) onAssociateRequest(requestItems []SubItem, maxPDUSize i
 		}
 	}
 	responses = append(responses,
-		&UserInformationItem{
-			Items: []SubItem{&UserInformationMaximumLengthItem{MaximumLengthReceived: uint32(maxPDUSize)}}})
+		&pdu.UserInformationItem{
+			Items: []pdu.SubItem{&pdu.UserInformationMaximumLengthItem{MaximumLengthReceived: uint32(maxPDUSize)}}})
 	vlog.VI(1).Infof("Received associate request, #contexts:%v, maxPDU:%v, implclass:%v, version:%v",
 		len(m.contextIDToAbstractSyntaxNameMap),
 		m.peerMaxPDUSize, m.peerImplementationClassUID, m.peerImplementationVersionName)
@@ -164,14 +166,14 @@ func (m *contextManager) onAssociateRequest(requestItems []SubItem, maxPDUSize i
 }
 
 // Called by the user (client) to when A_ASSOCIATE_AC PDU arrives from the provider.
-func (m *contextManager) onAssociateResponse(responses []SubItem) error {
+func (m *contextManager) onAssociateResponse(responses []pdu.SubItem) error {
 	for _, responseItem := range responses {
 		switch ri := responseItem.(type) {
-		case *PresentationContextItem:
+		case *pdu.PresentationContextItem:
 			var pickedTransferSyntaxUID string
 			for _, subItem := range ri.Items {
 				switch c := subItem.(type) {
-				case *TransferSyntaxSubItem:
+				case *pdu.TransferSyntaxSubItem:
 					// Just pick the first syntax UID proposed by the client.
 					if pickedTransferSyntaxUID == "" {
 						pickedTransferSyntaxUID = c.Name
@@ -192,9 +194,9 @@ func (m *contextManager) onAssociateResponse(responses []SubItem) error {
 			var sopUID string
 			for _, subItem := range request.Items {
 				switch c := subItem.(type) {
-				case *AbstractSyntaxSubItem:
+				case *pdu.AbstractSyntaxSubItem:
 					sopUID = c.Name
-				case *TransferSyntaxSubItem:
+				case *pdu.TransferSyntaxSubItem:
 					if c.Name == pickedTransferSyntaxUID {
 						found = true
 						break
@@ -205,14 +207,14 @@ func (m *contextManager) onAssociateResponse(responses []SubItem) error {
 				return fmt.Errorf("TransferSyntaxUID or AbstractSyntaxSubItem not found in %v", ri.String())
 			}
 			addContextMapping(m, sopUID, pickedTransferSyntaxUID, ri.ContextID)
-		case *UserInformationItem:
+		case *pdu.UserInformationItem:
 			for _, subItem := range ri.Items {
 				switch c := subItem.(type) {
-				case *UserInformationMaximumLengthItem:
+				case *pdu.UserInformationMaximumLengthItem:
 					m.peerMaxPDUSize = int(c.MaximumLengthReceived)
-				case *ImplementationClassUIDSubItem:
+				case *pdu.ImplementationClassUIDSubItem:
 					m.peerImplementationClassUID = c.Name
-				case *ImplementationVersionNameSubItem:
+				case *pdu.ImplementationVersionNameSubItem:
 					m.peerImplementationVersionName = c.Name
 
 				}

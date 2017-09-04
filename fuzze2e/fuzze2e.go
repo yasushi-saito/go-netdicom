@@ -3,6 +3,7 @@ package fuzze2e
 import (
 	"flag"
 	"github.com/yasushi-saito/go-netdicom"
+	"github.com/yasushi-saito/go-netdicom/sopclass"
 	"io/ioutil"
 	"log"
 	"net"
@@ -51,7 +52,7 @@ func runClient(serverAddr string, faults *netdicom.FaultInjector) {
 	netdicom.SetUserFaultInjector(faults)
 
 	params := netdicom.NewServiceUserParams(
-		"dontcare", "testclient", netdicom.StorageClasses,
+		"dontcare", "testclient", sopclass.StorageClasses,
 		[]string{transferSyntaxUID})
 	su := netdicom.NewServiceUser(params)
 	su.Connect(serverAddr)

@@ -6,6 +6,7 @@ import (
 	"flag"
 	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-netdicom"
+	"github.com/yasushi-saito/go-netdicom/sopclass"
 	"io/ioutil"
 	"log"
 	"v.io/x/lib/vlog"
@@ -33,7 +34,7 @@ func main() {
 		log.Fatal(err)
 	}
 	params := netdicom.NewServiceUserParams(
-		"dontcare", "testclient", netdicom.StorageClasses,
+		"dontcare", "testclient", sopclass.StorageClasses,
 		[]string{transferSyntaxUID.MustGetString()})
 	su := netdicom.NewServiceUser(params)
 	su.Connect(server)

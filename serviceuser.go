@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/yasushi-saito/go-dicom"
+	"github.com/yasushi-saito/go-netdicom/dimse"
+	"github.com/yasushi-saito/go-netdicom/sopclass"
 	"net"
 	"sync/atomic"
 	"v.io/x/lib/vlog"
@@ -31,7 +33,7 @@ type ServiceUserParams struct {
 	CallingAETitle string // Must be nonempty
 
 	// List of SOPUIDs wanted by the user.
-	RequiredServices []SOPUID
+	RequiredServices []sopclass.SOPUID
 
 	// List of Transfer syntaxes supported by the user.  If you know the
 	// transer syntax of the file you are going to copy, set that here.
@@ -52,7 +54,7 @@ type ServiceUserParams struct {
 func NewServiceUserParams(
 	calledAETitle string,
 	callingAETitle string,
-	requiredServices []SOPUID,
+	requiredServices []sopclass.SOPUID,
 	transferSyntaxUIDs []string) ServiceUserParams {
 	if len(transferSyntaxUIDs) == 0 {
 		transferSyntaxUIDs = dicom.StandardTransferSyntaxes
@@ -192,7 +194,7 @@ func (su *ServiceUser) CStore(data []byte) error {
 		return err
 	}
 	e := dicom.NewEncoder(nil, dicom.UnknownVR)
-	EncodeDIMSEMessage(e, &C_STORE_RQ{
+	dimse.EncodeDIMSEMessage(e, &dimse.C_STORE_RQ{
 		AffectedSOPClassUID:    sopClassUID,
 		MessageID:              newMessageID(su),
 		CommandDataSetType:     1, // anything other than 0x101 suffices.
@@ -220,7 +222,7 @@ func (su *ServiceUser) CStore(data []byte) error {
 		}
 		doassert(event.eventType == upcallEventData)
 		doassert(event.command != nil)
-		resp, ok := event.command.(*C_STORE_RSP)
+		resp, ok := event.command.(*dimse.C_STORE_RSP)
 		doassert(ok) // TODO(saito)
 		if resp.Status != 0 {
 			return fmt.Errorf("C_STORE failed: %v", resp.String())

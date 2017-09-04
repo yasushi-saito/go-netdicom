@@ -1,4 +1,4 @@
-package netdicom
+package dimse
 
 // Implements message types defined in P3.7.
 //
@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/yasushi-saito/go-dicom"
+	"github.com/yasushi-saito/go-netdicom/pdu"
 	"v.io/x/lib/vlog"
 )
 
@@ -189,7 +190,9 @@ func decodeC_STORE_RSP(dd *dimseDecoder) *C_STORE_RSP {
 }
 
 func (v *C_STORE_RSP) Encode(e *dicom.Encoder) {
-	doassert(v.CommandDataSetType == 0x101)
+	if v.CommandDataSetType != 0x101 {
+		vlog.Fatal(*v)
+	}
 	encodeDIMSEField(e, dicom.TagCommandField, uint16(0x8001))
 	encodeDIMSEField(e, dicom.TagAffectedSOPClassUID, v.AffectedSOPClassUID)
 	encodeDIMSEField(e, dicom.TagMessageIDBeingRespondedTo, v.MessageIDBeingRespondedTo)
@@ -336,7 +339,7 @@ func EncodeDIMSEMessage(e *dicom.Encoder, v DIMSEMessage) {
 
 // Helper class for assembling a DIMSE command message and data payload from a
 // sequence of P_DATA_TF PDUs.
-type dimseCommandAssembler struct {
+type CommandAssembler struct {
 	contextID      byte
 	commandBytes   []byte
 	command        DIMSEMessage
@@ -349,18 +352,18 @@ type dimseCommandAssembler struct {
 // Add a P_DATA_TF fragment. If the final fragment is received, returns <SOPUID,
 // TransferSyntaxUID, payload, nil>.  If it expects more fragments, it retutrns
 // <"", "", nil, nil>.  On error, the final return value is non-nil.
-func addPDataTF(a *dimseCommandAssembler, pdu *P_DATA_TF, contextManager *contextManager) (string, string, DIMSEMessage, []byte, error) {
+func (a *CommandAssembler) AddDataPDU(pdu *pdu.P_DATA_TF) (byte, DIMSEMessage, []byte, error) {
 	for _, item := range pdu.Items {
 		if a.contextID == 0 {
 			a.contextID = item.ContextID
 		} else if a.contextID != item.ContextID {
-			return "", "", nil, nil, fmt.Errorf("Mixed context: %d %d", a.contextID, item.ContextID)
+			return 0, nil, nil, fmt.Errorf("Mixed context: %d %d", a.contextID, item.ContextID)
 		}
 		if item.Command {
 			a.commandBytes = append(a.commandBytes, item.Value...)
 			if item.Last {
 				if a.readAllCommand {
-					return "", "", nil, nil, fmt.Errorf("P_DATA_TF: found >1 command chunks with the Last bit set")
+					return 0, nil, nil, fmt.Errorf("P_DATA_TF: found >1 command chunks with the Last bit set")
 				}
 				a.readAllCommand = true
 			}
@@ -368,36 +371,29 @@ func addPDataTF(a *dimseCommandAssembler, pdu *P_DATA_TF, contextManager *contex
 			a.dataBytes = append(a.dataBytes, item.Value...)
 			if item.Last {
 				if a.readAllData {
-					return "", "", nil, nil, fmt.Errorf("P_DATA_TF: found >1 data chunks with the Last bit set")
+					return 0, nil, nil, fmt.Errorf("P_DATA_TF: found >1 data chunks with the Last bit set")
 				}
 				a.readAllData = true
 			}
 		}
 	}
 	if !a.readAllCommand {
-		return "", "", nil, nil, nil
+		return 0, nil, nil, nil
 	}
 	if a.command == nil {
 		d := dicom.NewBytesDecoder(a.commandBytes, nil, dicom.UnknownVR)
 		a.command = ReadDIMSEMessage(d)
 		if err := d.Finish(); err != nil {
-			return "", "", nil, nil, err
+			return 0, nil, nil, err
 		}
 	}
-	doassert(a.command != nil)
 	if a.command.HasData() && !a.readAllData {
-		return "", "", nil, nil, nil
+		return 0, nil, nil, nil
 	}
-	context, err := contextManager.lookupByContextID(a.contextID)
-	if err != nil {
-		return "", "", nil, nil, err
-	}
+	contextID := a.contextID
 	command := a.command
 	dataBytes := a.dataBytes
-	vlog.VI(1).Infof("Read all data for syntax %s, command [%v], data %d bytes, err%v",
-		dicom.UIDString(context.abstractSyntaxUID),
-		command.String(), len(a.dataBytes), err)
-	*a = dimseCommandAssembler{}
-	return context.abstractSyntaxUID, context.transferSyntaxUID, command, dataBytes, nil
+	*a = CommandAssembler{}
+	return contextID, command, dataBytes, nil
 	// TODO(saito) Verify that there's no unread items after the last command&data.
 }

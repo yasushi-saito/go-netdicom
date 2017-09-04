@@ -1,21 +1,21 @@
-package netdicom_test
+package dimse_test
 
 import (
 	"encoding/binary"
 	"github.com/yasushi-saito/go-dicom"
-	"github.com/yasushi-saito/go-netdicom"
+	"github.com/yasushi-saito/go-netdicom/dimse"
 	"testing"
 )
 
-func testDIMSE(t *testing.T, v netdicom.DIMSEMessage) {
+func testDIMSE(t *testing.T, v dimse.DIMSEMessage) {
 	e := dicom.NewEncoder(binary.LittleEndian, dicom.ImplicitVR)
-	netdicom.EncodeDIMSEMessage(e, v)
+	dimse.EncodeDIMSEMessage(e, v)
 	bytes, err := e.Finish()
 	if err != nil {
 		t.Fatal(err)
 	}
 	d := dicom.NewBytesDecoder(bytes, binary.LittleEndian, dicom.ImplicitVR)
-	v2 := netdicom.ReadDIMSEMessage(d)
+	v2 := dimse.ReadDIMSEMessage(d)
 	err = d.Finish()
 	if err != nil {
 		t.Fatal(err)
@@ -26,7 +26,7 @@ func testDIMSE(t *testing.T, v netdicom.DIMSEMessage) {
 }
 
 func TestCStoreRq(t *testing.T) {
-	testDIMSE(t, &netdicom.C_STORE_RQ{
+	testDIMSE(t, &dimse.C_STORE_RQ{
 		"1.2.3",
 		0x1234,
 		0x2345,
@@ -37,18 +37,18 @@ func TestCStoreRq(t *testing.T) {
 }
 
 func TestCStoreRsp(t *testing.T) {
-	testDIMSE(t, &netdicom.C_STORE_RSP{
+	testDIMSE(t, &dimse.C_STORE_RSP{
 		"1.2.3",
 		0x1234,
-		netdicom.CommandDataSetTypeNull,
+		dimse.CommandDataSetTypeNull,
 		"3.4.5",
 		0x3456})
 }
 
 func TestCEchoRq(t *testing.T) {
-	testDIMSE(t, &netdicom.C_ECHO_RQ{0x1234, 1})
+	testDIMSE(t, &dimse.C_ECHO_RQ{0x1234, 1})
 }
 
 func TestCEchoRsp(t *testing.T) {
-	testDIMSE(t, &netdicom.C_ECHO_RSP{0x1234, 1, 0x2345})
+	testDIMSE(t, &dimse.C_ECHO_RSP{0x1234, 1, 0x2345})
 }

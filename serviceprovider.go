@@ -2,6 +2,7 @@ package netdicom
 
 import (
 	"github.com/yasushi-saito/go-dicom"
+	"github.com/yasushi-saito/go-netdicom/dimse"
 	"net"
 	"v.io/x/lib/vlog"
 )
@@ -50,11 +51,11 @@ type ServiceProvider struct {
 
 func onDIMSECommand(downcallCh chan stateEvent, abstractSyntaxUID string,
 	transferSyntaxUID string,
-	msg DIMSEMessage, data []byte, callbacks ServiceProviderCallbacks) {
+	msg dimse.DIMSEMessage, data []byte, callbacks ServiceProviderCallbacks) {
 	doassert(transferSyntaxUID != "")
 	switch c := msg.(type) {
-	case *C_STORE_RQ:
-		status := CStoreStatusCannotUnderstand
+	case *dimse.C_STORE_RQ:
+		status := dimse.CStoreStatusCannotUnderstand
 		if callbacks.CStore != nil {
 			status = callbacks.CStore(
 				transferSyntaxUID,
@@ -62,15 +63,15 @@ func onDIMSECommand(downcallCh chan stateEvent, abstractSyntaxUID string,
 				c.AffectedSOPInstanceUID,
 				data)
 		}
-		resp := &C_STORE_RSP{
+		resp := &dimse.C_STORE_RSP{
 			AffectedSOPClassUID:       c.AffectedSOPClassUID,
 			MessageIDBeingRespondedTo: c.MessageID,
-			CommandDataSetType:        CommandDataSetTypeNull,
+			CommandDataSetType:        dimse.CommandDataSetTypeNull,
 			AffectedSOPInstanceUID:    c.AffectedSOPInstanceUID,
 			Status:                    status,
 		}
 		e := dicom.NewEncoder(nil, dicom.UnknownVR)
-		EncodeDIMSEMessage(e, resp)
+		dimse.EncodeDIMSEMessage(e, resp)
 		bytes, err := e.Finish()
 		if err != nil {
 			panic(err)
@@ -84,18 +85,18 @@ func onDIMSECommand(downcallCh chan stateEvent, abstractSyntaxUID string,
 				command:            true,
 				data:               bytes},
 		}
-	case *C_ECHO_RQ:
-		status := CStoreStatusCannotUnderstand
+	case *dimse.C_ECHO_RQ:
+		status := dimse.CStoreStatusCannotUnderstand
 		if callbacks.CEcho != nil {
 			status = callbacks.CEcho()
 		}
-		resp := &C_ECHO_RSP{
+		resp := &dimse.C_ECHO_RSP{
 			MessageIDBeingRespondedTo: c.MessageID,
-			CommandDataSetType:        CommandDataSetTypeNull,
+			CommandDataSetType:        dimse.CommandDataSetTypeNull,
 			Status:                    status,
 		}
 		e := dicom.NewEncoder(nil, dicom.UnknownVR)
-		EncodeDIMSEMessage(e, resp)
+		dimse.EncodeDIMSEMessage(e, resp)
 		bytes, err := e.Finish()
 		if err != nil {
 			panic(err) // TODO(saito)

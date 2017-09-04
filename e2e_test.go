@@ -5,6 +5,7 @@ import (
 	"flag"
 	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-netdicom"
+	"github.com/yasushi-saito/go-netdicom/sopclass"
 	"io/ioutil"
 	"net"
 	"sync"
@@ -120,7 +121,7 @@ func TestStoreSingleFile(t *testing.T) {
 	initTest()
 	data, transferSyntaxUID := readDICOMFile("testdata/IM-0001-0003.dcm")
 	params := netdicom.NewServiceUserParams(
-		"dontcare", "testclient", netdicom.StorageClasses,
+		"dontcare", "testclient", sopclass.StorageClasses,
 		[]string{transferSyntaxUID})
 	su := netdicom.NewServiceUser(params)
 	su.Connect(serverAddr)
@@ -146,7 +147,7 @@ func TestNonexistentServer(t *testing.T) {
 	initTest()
 	data, transferSyntaxUID := readDICOMFile("testdata/IM-0001-0003.dcm")
 	params := netdicom.NewServiceUserParams(
-		"dontcare", "testclient", netdicom.StorageClasses,
+		"dontcare", "testclient", sopclass.StorageClasses,
 		[]string{transferSyntaxUID})
 	su := netdicom.NewServiceUser(params)
 	su.Connect(":99999")

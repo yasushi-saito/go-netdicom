@@ -1,4 +1,4 @@
-package netdicom
+package sopclass
 
 // DICOM SOP UID listing.
 //
