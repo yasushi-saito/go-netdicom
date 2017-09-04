@@ -54,10 +54,10 @@ class TestPydicom(unittest.TestCase):
         assoc.release()
 
         outputs = glob.glob(self.tempdir + "/*.dcm")
-        self.assertEquals(len(outputs), 1)
+        self.assertEqual(len(outputs), 1)
         with open(outputs[0], 'rb') as f:
             out_ds = pydicom.read_file(f, force=True)
-        self.assertEquals(str(in_ds), str(out_ds))
+        self.assertEqual(str(in_ds), str(out_ds))
 
 if __name__ == '__main__':
     unittest.main()

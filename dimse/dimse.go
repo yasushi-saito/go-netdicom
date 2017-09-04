@@ -1,5 +1,7 @@
 package dimse
 
+//go:generate ./generate_dimse_messages.py
+
 // Implements message types defined in P3.7.
 //
 // http://dicom.nema.org/medical/dicom/current/output/pdf/part07.pdf
@@ -93,7 +95,7 @@ func (d *dimseDecoder) getUInt16(tag dicom.Tag, optional isOptionalElement) uint
 }
 
 // Encode a DIMSE field with the given tag, given value "v"
-func encodeDIMSEField(e *dicom.Encoder, tag dicom.Tag, v interface{}) {
+func encodeField(e *dicom.Encoder, tag dicom.Tag, v interface{}) {
 	elem := dicom.DicomElement{
 		Tag:   tag,
 		Vr:    "", // autodetect
@@ -103,71 +105,9 @@ func encodeDIMSEField(e *dicom.Encoder, tag dicom.Tag, v interface{}) {
 	dicom.EncodeDataElement(e, &elem)
 }
 
-// P3.7 9.3.1.1
-type C_STORE_RQ struct {
-	AffectedSOPClassUID                  string
-	MessageID                            uint16
-	Priority                             uint16
-	CommandDataSetType                   uint16
-	AffectedSOPInstanceUID               string
-	MoveOriginatorApplicationEntityTitle string
-	MoveOriginatorMessageID              uint16
-}
-
-func (v *C_STORE_RQ) HasData() bool {
-	if v.CommandDataSetType == CommandDataSetTypeNull {
-		vlog.Error("Bogus C_STORE_RQ without dataset")
-	}
-	return v.CommandDataSetType != CommandDataSetTypeNull
-}
-
-func (v *C_STORE_RQ) Encode(e *dicom.Encoder) {
-	encodeDIMSEField(e, dicom.TagCommandField, uint16(1))
-	encodeDIMSEField(e, dicom.TagAffectedSOPClassUID, v.AffectedSOPClassUID)
-	encodeDIMSEField(e, dicom.TagMessageID, v.MessageID)
-	encodeDIMSEField(e, dicom.TagPriority, v.Priority)
-	encodeDIMSEField(e, dicom.TagCommandDataSetType, v.CommandDataSetType)
-	encodeDIMSEField(e, dicom.TagAffectedSOPInstanceUID, v.AffectedSOPInstanceUID)
-	if v.MoveOriginatorApplicationEntityTitle != "" {
-		encodeDIMSEField(e,
-			dicom.TagMoveOriginatorApplicationEntityTitle,
-			v.MoveOriginatorApplicationEntityTitle)
-	}
-	if v.MoveOriginatorMessageID != 0 {
-		encodeDIMSEField(e, dicom.TagMoveOriginatorMessageID, v.MoveOriginatorMessageID)
-	}
-}
-
-// Decode C_STORE_RQ object. Errors are reported in dd.err.
-func decodeC_STORE_RQ(dd *dimseDecoder) *C_STORE_RQ {
-	v := C_STORE_RQ{}
-	v.AffectedSOPClassUID = dd.getString(dicom.TagAffectedSOPClassUID, RequiredElement)
-	v.MessageID = dd.getUInt16(dicom.TagMessageID, RequiredElement)
-	v.Priority = dd.getUInt16(dicom.TagPriority, RequiredElement)
-	v.CommandDataSetType = dd.getUInt16(dicom.TagCommandDataSetType, RequiredElement)
-	v.AffectedSOPInstanceUID = dd.getString(dicom.TagAffectedSOPInstanceUID, RequiredElement)
-	v.MoveOriginatorApplicationEntityTitle = dd.getString(dicom.TagMoveOriginatorApplicationEntityTitle, OptionalElement)
-	v.MoveOriginatorMessageID = dd.getUInt16(dicom.TagMoveOriginatorMessageID, OptionalElement)
-	return &v
-}
-
-func (v *C_STORE_RQ) String() string {
-	return fmt.Sprintf("cstorerq{sopclass:%v messageid:%v pri: %v cmddatasettype: %v sopinstance: %v m0:%v m1:%v}",
-		v.AffectedSOPClassUID, v.MessageID, v.Priority, v.CommandDataSetType, v.AffectedSOPInstanceUID,
-		v.MoveOriginatorApplicationEntityTitle, v.MoveOriginatorMessageID)
-}
 
 const CommandDataSetTypeNull uint16 = 0x101
 
-// P3.7 9.3.1.2
-type C_STORE_RSP struct {
-	AffectedSOPClassUID       string
-	MessageIDBeingRespondedTo uint16
-	// CommandDataSetType shall always be 0x0101; RSP has no dataset.
-	CommandDataSetType     uint16
-	AffectedSOPInstanceUID string
-	Status                 uint16
-}
 
 // C_STORE_RSP status codes.
 // P3.4 GG4-1
@@ -176,108 +116,6 @@ const (
 	CStoreStatusDataSetDoesNotMatchSOPClass uint16 = 0xa900
 	CStoreStatusCannotUnderstand            uint16 = 0xc000
 )
-
-// Decode C_STORE_RSP object. Errors are reported in dd.err.
-// See P3.7 C.
-func decodeC_STORE_RSP(dd *dimseDecoder) *C_STORE_RSP {
-	v := &C_STORE_RSP{}
-	v.AffectedSOPClassUID = dd.getString(dicom.TagAffectedSOPClassUID, RequiredElement)
-	v.MessageIDBeingRespondedTo = dd.getUInt16(dicom.TagMessageIDBeingRespondedTo, RequiredElement)
-	v.AffectedSOPInstanceUID = dd.getString(dicom.TagAffectedSOPInstanceUID, RequiredElement)
-	v.Status = dd.getUInt16(dicom.TagStatus, RequiredElement)
-	v.CommandDataSetType = dd.getUInt16(dicom.TagCommandDataSetType, RequiredElement)
-	return v
-}
-
-func (v *C_STORE_RSP) Encode(e *dicom.Encoder) {
-	if v.CommandDataSetType != 0x101 {
-		vlog.Fatal(*v)
-	}
-	encodeDIMSEField(e, dicom.TagCommandField, uint16(0x8001))
-	encodeDIMSEField(e, dicom.TagAffectedSOPClassUID, v.AffectedSOPClassUID)
-	encodeDIMSEField(e, dicom.TagMessageIDBeingRespondedTo, v.MessageIDBeingRespondedTo)
-	encodeDIMSEField(e, dicom.TagCommandDataSetType, v.CommandDataSetType)
-	encodeDIMSEField(e, dicom.TagAffectedSOPInstanceUID, v.AffectedSOPInstanceUID)
-	encodeDIMSEField(e, dicom.TagStatus, v.Status)
-}
-
-func (v *C_STORE_RSP) HasData() bool {
-	if v.CommandDataSetType != CommandDataSetTypeNull {
-		vlog.Error("Bogus C_STORE_RSP with dataset")
-	}
-	return v.CommandDataSetType != CommandDataSetTypeNull
-}
-
-func (v *C_STORE_RSP) String() string {
-	return fmt.Sprintf("cstorersp{sopclass:%v messageid:%v cmddatasettype: %v sopinstance: %v status: 0x%v}",
-		v.AffectedSOPClassUID, v.MessageIDBeingRespondedTo, v.CommandDataSetType, v.AffectedSOPInstanceUID,
-		v.Status)
-}
-
-// P3.7 9.3.5
-type C_ECHO_RQ struct {
-	MessageID          uint16
-	CommandDataSetType uint16
-}
-
-func (v *C_ECHO_RQ) Encode(e *dicom.Encoder) {
-	encodeDIMSEField(e, dicom.TagCommandField, uint16(0x30))
-	encodeDIMSEField(e, dicom.TagMessageID, v.MessageID)
-	encodeDIMSEField(e, dicom.TagCommandDataSetType, v.CommandDataSetType)
-}
-
-// Decode C_ECHO_RQ object. Errors are reported in dd.err.
-func decodeC_ECHO_RQ(dd *dimseDecoder) *C_ECHO_RQ {
-	v := C_ECHO_RQ{}
-	v.MessageID = dd.getUInt16(dicom.TagMessageID, RequiredElement)
-	v.CommandDataSetType = dd.getUInt16(dicom.TagCommandDataSetType, RequiredElement)
-	return &v
-}
-
-func (v *C_ECHO_RQ) String() string {
-	return fmt.Sprintf("echorsp{messageid:%v cmddatasettype: %v}",
-		v.MessageID, v.CommandDataSetType)
-}
-
-type C_ECHO_RSP struct {
-	MessageIDBeingRespondedTo uint16
-	CommandDataSetType        uint16
-	Status                    uint16
-}
-
-// Decode C_ECHO_RSP object. Errors are reported in dd.err.
-func (v *C_ECHO_RSP) HasData() bool {
-	if v.CommandDataSetType != CommandDataSetTypeNull {
-		vlog.Error("Bogus C_ECHO_RSP with dataset")
-	}
-	return v.CommandDataSetType != CommandDataSetTypeNull
-}
-
-func (v *C_ECHO_RSP) String() string {
-	return fmt.Sprintf("echorsp{messageid:%v cmddatasettype: %v status: %v}", v.MessageIDBeingRespondedTo, v.CommandDataSetType, v.Status)
-}
-
-func (v *C_ECHO_RSP) Encode(e *dicom.Encoder) {
-	encodeDIMSEField(e, dicom.TagCommandField, uint16(0x8030))
-	encodeDIMSEField(e, dicom.TagMessageIDBeingRespondedTo, v.MessageIDBeingRespondedTo)
-	encodeDIMSEField(e, dicom.TagCommandDataSetType, v.CommandDataSetType)
-	encodeDIMSEField(e, dicom.TagStatus, v.Status)
-}
-
-func decodeC_ECHO_RSP(dd *dimseDecoder) *C_ECHO_RSP {
-	v := C_ECHO_RSP{}
-	v.MessageIDBeingRespondedTo = dd.getUInt16(dicom.TagMessageIDBeingRespondedTo, RequiredElement)
-	v.CommandDataSetType = dd.getUInt16(dicom.TagCommandDataSetType, RequiredElement)
-	v.Status = dd.getUInt16(dicom.TagStatus, RequiredElement)
-	return &v
-}
-
-func (v *C_ECHO_RQ) HasData() bool {
-	if v.CommandDataSetType != CommandDataSetTypeNull {
-		vlog.Error("Bogus C_ECHO_RQ with dataset")
-	}
-	return v.CommandDataSetType != CommandDataSetTypeNull
-}
 
 func ReadDIMSEMessage(d *dicom.Decoder) DIMSEMessage {
 	// A DIMSE message is a sequence of DicomElements, encoded in implicit
@@ -302,19 +140,7 @@ func ReadDIMSEMessage(d *dicom.Decoder) DIMSEMessage {
 		d.SetError(dd.err)
 		return nil
 	}
-	var v DIMSEMessage
-	switch commandField {
-	case 1:
-		v = decodeC_STORE_RQ(&dd)
-	case 0x8001:
-		v = decodeC_STORE_RSP(&dd)
-	case 0x30:
-		v = decodeC_ECHO_RQ(&dd)
-	case 0x8030:
-		v = decodeC_ECHO_RSP(&dd)
-	default:
-		dd.setError(fmt.Errorf("Unknown DIMSE command 0x%x", commandField))
-	}
+	v := decodeMessageForType(&dd, commandField)
 	if dd.err != nil {
 		d.SetError(dd.err)
 		return nil
@@ -333,7 +159,7 @@ func EncodeDIMSEMessage(e *dicom.Encoder, v DIMSEMessage) {
 	}
 	e.PushTransferSyntax(binary.LittleEndian, dicom.ImplicitVR)
 	defer e.PopTransferSyntax()
-	encodeDIMSEField(e, dicom.TagCommandGroupLength, uint32(len(bytes)))
+	encodeField(e, dicom.TagCommandGroupLength, uint32(len(bytes)))
 	e.WriteBytes(bytes)
 }
 
