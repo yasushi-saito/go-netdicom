@@ -4,16 +4,18 @@ import (
 	"encoding/binary"
 	"flag"
 	"fmt"
-	"v.io/x/lib/vlog"
 	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-netdicom"
 	"io/ioutil"
+	"path"
 	"strings"
 	"sync/atomic"
+	"v.io/x/lib/vlog"
 )
 
 var (
-	portFlag = flag.String("port", "10000", "TCP port to listen to")
+	portFlag      = flag.String("port", "10000", "TCP port to listen to")
+	outputFlag = flag.String("output", ".", "The directory to store incoming files")
 )
 
 var pathSeq int32
@@ -28,7 +30,7 @@ func onCStoreRequest(
 	sopClassUID string,
 	sopInstanceUID string,
 	data []byte) uint16 {
-	path := fmt.Sprintf("image%04d.dcm", atomic.AddInt32(&pathSeq, 1))
+	path := path.Join(*outputFlag, fmt.Sprintf("image%04d.dcm", atomic.AddInt32(&pathSeq, 1)))
 
 	vlog.Infof("Writing %s", path)
 	e := dicom.NewEncoder(binary.LittleEndian, dicom.ExplicitVR)

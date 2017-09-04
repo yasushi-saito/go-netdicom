@@ -94,7 +94,6 @@ func encodeSubItemHeader(e *dicom.Encoder, itemType byte, length uint16) {
 // P3.8 9.3.2.3
 type UserInformationItem struct {
 	Items []SubItem // P3.8, Annex D.
-	// Data []byte
 }
 
 func (v *UserInformationItem) Write(e *dicom.Encoder) {
@@ -680,7 +679,6 @@ func (pdu *P_DATA_TF) WritePayload(e *dicom.Encoder) {
 func (pdu *P_DATA_TF) String() string {
 	buf := bytes.Buffer{}
 	buf.WriteString(fmt.Sprintf("P_DATA_TF{items: ["))
-
 	for i, item := range pdu.Items {
 		if i > 0 {
 			buf.WriteString("\n")
