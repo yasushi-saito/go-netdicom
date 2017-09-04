@@ -2,9 +2,11 @@ package fuzzpdu
 
 import (
 	"bytes"
+	"encoding/binary"
 	"flag"
-	"github.com/yasushi-saito/go-netdicom/pdu"
+	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-netdicom/dimse"
+	"github.com/yasushi-saito/go-netdicom/pdu"
 )
 
 func init() {
@@ -16,7 +18,8 @@ func Fuzz(data []byte) int {
 	if len(data) == 0 || data[0] <= 0xc0 {
 		pdu.ReadPDU(in, 4<<20)
 	} else {
-		dimse.ReadDIMSEMessage(in, int64(len(data)))
+		d := dicom.NewDecoder(in, int64(len(data)), binary.LittleEndian, dicom.ExplicitVR)
+		dimse.ReadDIMSEMessage(d)
 	}
 	return 0
 }

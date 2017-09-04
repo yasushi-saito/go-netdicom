@@ -679,13 +679,6 @@ var stateTransitions = []stateTransition{
 	stateTransition{sta13, evt19, actionAa7},
 }
 
-const (
-	Idle = iota
-	Connecting
-	Connected
-	ReadingPDU
-)
-
 // Per-TCP-connection state.
 type stateMachine struct {
 	name   string // For logging only
