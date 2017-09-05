@@ -70,9 +70,9 @@ func onCStoreRequest(
 	return 0 // Success
 }
 
-func checkFileBodiesEqual(t *testing.T, in, out *dicom.DicomFile) {
-	var removeMetaElems = func(f *dicom.DicomFile) []*dicom.DicomElement {
-		var elems []*dicom.DicomElement
+func checkFileBodiesEqual(t *testing.T, in, out *dicom.DataSet) {
+	var removeMetaElems = func(f *dicom.DataSet) []*dicom.Element {
+		var elems []*dicom.Element
 		for _, elem := range f.Elements {
 			if elem.Tag.Group != dicom.TagMetadataGroup {
 				elems = append(elems, &elem)
@@ -95,7 +95,7 @@ func checkFileBodiesEqual(t *testing.T, in, out *dicom.DicomFile) {
 	}
 }
 
-func getCStoreData() (*dicom.DicomFile, error) {
+func getCStoreData() (*dicom.DataSet, error) {
 	if cstoreData == nil {
 		return nil, errors.New("Did not receive C-STORE data")
 	}

@@ -87,8 +87,8 @@ func (m *contextManager) generateAssociateRequest(
 		&pdu.UserInformationItem{
 			Items: []pdu.SubItem{
 				&pdu.UserInformationMaximumLengthItem{uint32(maxPDUSize)},
-				&pdu.ImplementationClassUIDSubItem{dicom.DefaultImplementationClassUID},
-				&pdu.ImplementationVersionNameSubItem{dicom.DefaultImplementationVersionName}}})
+				&pdu.ImplementationClassUIDSubItem{dicom.GoDICOMImplementationClassUID},
+				&pdu.ImplementationVersionNameSubItem{dicom.GoDICOMImplementationVersionName}}})
 
 	return items
 }

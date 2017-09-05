@@ -24,7 +24,7 @@ type DIMSEMessage interface {
 
 // Helper class for extracting values from a list of DicomElement.
 type dimseDecoder struct {
-	elems []*dicom.DicomElement
+	elems []*dicom.Element
 	err   error
 }
 
@@ -43,7 +43,7 @@ func (d *dimseDecoder) setError(err error) {
 
 // Find an element with the given tag. If optional==OptionalElement, returns nil
 // if not found.  If optional==RequiredElement, sets d.err and return nil if not found.
-func (d *dimseDecoder) findElement(tag dicom.Tag, optional isOptionalElement) *dicom.DicomElement {
+func (d *dimseDecoder) findElement(tag dicom.Tag, optional isOptionalElement) *dicom.Element {
 	for _, elem := range d.elems {
 		if elem.Tag == tag {
 			vlog.VI(2).Infof("Return %v for %s", elem, tag.String())
@@ -97,11 +97,11 @@ func (d *dimseDecoder) getUInt16(tag dicom.Tag, optional isOptionalElement) uint
 
 // Encode a DIMSE field with the given tag, given value "v"
 func encodeField(e *dicomio.Encoder, tag dicom.Tag, v interface{}) {
-	elem := dicom.DicomElement{
-		Tag:   tag,
-		Vr:    "", // autodetect
-		Vl:    1,
-		Value: []interface{}{v},
+	elem := dicom.Element{
+		Tag:             tag,
+		VR:              "", // autodetect
+		UndefinedLength: false,
+		Value:           []interface{}{v},
 	}
 	dicom.EncodeDataElement(e, &elem)
 }
@@ -117,11 +117,11 @@ const (
 )
 
 func ReadDIMSEMessage(d *dicomio.Decoder) DIMSEMessage {
-	// A DIMSE message is a sequence of DicomElements, encoded in implicit
+	// A DIMSE message is a sequence of Elements, encoded in implicit
 	// LE.
 	//
 	// TODO(saito) make sure that's the case. Where the ref?
-	var elems []*dicom.DicomElement
+	var elems []*dicom.Element
 	d.PushTransferSyntax(binary.LittleEndian, dicomio.ImplicitVR)
 	defer d.PopTransferSyntax()
 	for d.Len() > 0 {

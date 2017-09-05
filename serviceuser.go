@@ -160,7 +160,7 @@ func (su *ServiceUser) CStore(data []byte) error {
 	if decoder.Error() != nil {
 		return decoder.Error()
 	}
-	var getElement = func(meta []dicom.DicomElement, tag dicom.Tag) (string, error) {
+	var getElement = func(meta []dicom.Element, tag dicom.Tag) (string, error) {
 		elem, err := dicom.LookupElementByTag(meta, tag)
 		if err != nil {
 			return "", fmt.Errorf("C-STORE data lacks %s: %v", tag.String(), err)

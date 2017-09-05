@@ -36,7 +36,7 @@ const (
 // Interface for DUL items, such as ApplicationContextItem,
 // TransferSyntaxSubItem.
 type SubItem interface {
-	fmt.Stringer          // Print human-readable description for debugging.
+	fmt.Stringer            // Print human-readable description for debugging.
 	Write(*dicomio.Encoder) // Serialize the item.
 }
 
@@ -454,8 +454,8 @@ func ReadPDU(in io.Reader, maxPDUSize int) (PDU, error) {
 		return nil, fmt.Errorf("Invalid length %d; it's much larger than max PDU size of %d", length, maxPDUSize)
 	}
 	d := dicomio.NewDecoder(in, int64(length),
-		binary.BigEndian, // PDU is always big endian
-		dicomio.UnknownVR)  // irrelevant for PDU parsing
+		binary.BigEndian,  // PDU is always big endian
+		dicomio.UnknownVR) // irrelevant for PDU parsing
 	var pdu PDU = nil
 	switch pduType {
 	case PDUTypeA_ASSOCIATE_RQ:

@@ -16,7 +16,7 @@ import (
 )
 
 var (
-	portFlag      = flag.String("port", "10000", "TCP port to listen to")
+	portFlag   = flag.String("port", "10000", "TCP port to listen to")
 	outputFlag = flag.String("output", ".", "The directory to store incoming files")
 )
 
