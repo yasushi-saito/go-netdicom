@@ -70,7 +70,7 @@ def generate_go_definition(m: Message, out: IO[str]):
     print(f'type {m.name} struct  {{', file=out)
     for f in m.fields:
         print(f'	{f.name} {f.type}', file=out)
-    print(f'	Extra []*dicom.Element', file=out)
+    print(f'	Extra []*dicom.Element  // Unparsed elements', file=out)
     print('}', file=out)
 
     print('', file=out)
@@ -117,7 +117,7 @@ def generate_go_definition(m: Message, out: IO[str]):
 
 
     print('', file=out)
-    print(f'func decode{m.name}(d *dimseDecoder) *{m.name} {{', file=out)
+    print(f'func decode{m.name}(d *messageDecoder) *{m.name} {{', file=out)
     print(f'	v := &{m.name}{{}}', file=out)
     for f in m.fields:
         if f.type == 'Status':
@@ -154,7 +154,7 @@ import (
         for m in MESSAGES:
             generate_go_definition(m, out)
 
-        print('func decodeMessageForType(d* dimseDecoder, commandField uint16) DIMSEMessage {', file=out)
+        print('func decodeMessageForType(d* messageDecoder, commandField uint16) Message {', file=out)
         print('	switch commandField {', file=out)
         for m in MESSAGES:
             print('	case 0x%x:' % (m.command_field, ), file=out)

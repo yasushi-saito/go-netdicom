@@ -22,8 +22,17 @@ type Message interface {
 	HasData() bool // Do we expact data P_DATA_TF packets after the command packets?
 }
 
+// Result of a DIMSE call.
+// P3.7 C defines list of status codes and error payloads.
+type Status struct {
+	Status StatusCode
+
+	// Optional error payloads.
+	ErrorComment string // (0000,0902)
+}
+
 // Helper class for extracting values from a list of DicomElement.
-type dimseDecoder struct {
+type messageDecoder struct {
 	elems  []*dicom.Element
 	parsed []bool // true if this element was parsed into a message field.
 	err    error
@@ -36,7 +45,7 @@ const (
 	OptionalElement
 )
 
-func (d *dimseDecoder) setError(err error) {
+func (d *messageDecoder) setError(err error) {
 	if d.err == nil {
 		d.err = err
 	}
@@ -44,7 +53,7 @@ func (d *dimseDecoder) setError(err error) {
 
 // Find an element with the given tag. If optional==OptionalElement, returns nil
 // if not found.  If optional==RequiredElement, sets d.err and return nil if not found.
-func (d *dimseDecoder) findElement(tag dicom.Tag, optional isOptionalElement) *dicom.Element {
+func (d *messageDecoder) findElement(tag dicom.Tag, optional isOptionalElement) *dicom.Element {
 	for i, elem := range d.elems {
 		if elem.Tag == tag {
 			vlog.VI(2).Infof("Return %v for %s", elem, tag.String())
@@ -59,7 +68,7 @@ func (d *dimseDecoder) findElement(tag dicom.Tag, optional isOptionalElement) *d
 }
 
 // Return the list of elements that did not match any of the prior getXXX calls.
-func (d *dimseDecoder) unparsedElements() (unparsed []*dicom.Element) {
+func (d *messageDecoder) unparsedElements() (unparsed []*dicom.Element) {
 	for i, parsed := range d.parsed {
 		if !parsed {
 			unparsed = append(unparsed, d.elems[i])
@@ -68,14 +77,14 @@ func (d *dimseDecoder) unparsedElements() (unparsed []*dicom.Element) {
 	return unparsed
 }
 
-func (d *dimseDecoder) getStatus() (s Status) {
+func (d *messageDecoder) getStatus() (s Status) {
 	s.Status = StatusCode(d.getUInt16(dicom.TagStatus, RequiredElement))
 	s.ErrorComment = d.getString(dicom.TagErrorComment, OptionalElement)
 	return s
 }
 
 // Find an element with "tag", and extract a string value from it. Errors are reported in d.err.
-func (d *dimseDecoder) getString(tag dicom.Tag, optional isOptionalElement) string {
+func (d *messageDecoder) getString(tag dicom.Tag, optional isOptionalElement) string {
 	e := d.findElement(tag, optional)
 	if e == nil {
 		return ""
@@ -88,7 +97,7 @@ func (d *dimseDecoder) getString(tag dicom.Tag, optional isOptionalElement) stri
 }
 
 // Find an element with "tag", and extract a uint32 from it. Errors are reported in d.err.
-func (d *dimseDecoder) getUInt32(tag dicom.Tag, optional isOptionalElement) uint32 {
+func (d *messageDecoder) getUInt32(tag dicom.Tag, optional isOptionalElement) uint32 {
 	e := d.findElement(tag, optional)
 	if e == nil {
 		return 0
@@ -101,7 +110,7 @@ func (d *dimseDecoder) getUInt32(tag dicom.Tag, optional isOptionalElement) uint
 }
 
 // Find an element with "tag", and extract a uint16 from it. Errors are reported in d.err.
-func (d *dimseDecoder) getUInt16(tag dicom.Tag, optional isOptionalElement) uint16 {
+func (d *messageDecoder) getUInt16(tag dicom.Tag, optional isOptionalElement) uint16 {
 	e := d.findElement(tag, optional)
 	if e == nil {
 		return 0
@@ -124,30 +133,17 @@ func encodeField(e *dicomio.Encoder, tag dicom.Tag, v interface{}) {
 	dicom.EncodeDataElement(e, &elem)
 }
 
+// CommandDataSetTypeNull for dicom.TagCommandDataSetType indicates
+// that the DIMSE message has no data payload. Any other value
+// indicates the existence of a payload.
 const CommandDataSetTypeNull uint16 = 0x101
 
-// Result of a DIMSE call.
-// P3.7 C defines list of status codes and error payloads.
-type Status struct {
-	Status StatusCode
-
-	// Optional error payloads.
-	ErrorComment string // (0000,0902)
-}
-
-func encodeStatus(e *dicomio.Encoder, s Status) {
-	encodeField(e, dicom.TagStatus, uint16(s.Status))
-	if s.ErrorComment != "" {
-		encodeField(e, dicom.TagErrorComment, s.ErrorComment)
-	}
-}
-
-type StatusCode uint16
-
+// OK status for a call.
 var Success = Status{Status: StatusSuccess}
 
-// C_STORE_RSP status codes.
-// P3.4 GG4-1
+// DIMSE status codes, as defined in P3.7
+type StatusCode uint16
+
 const (
 	StatusSuccess               StatusCode = 0
 	StatusCancel                StatusCode = 0xFE00
@@ -158,17 +154,28 @@ const (
 	StatusUnrecognizedOperation StatusCode = 0x0211
 	StatusNotAuthorized         StatusCode = 0x0124
 
+	// C-STORE-specific status codes. P3.4 GG4-1
 	CStoreStatusOutOfResources              StatusCode = 0xa700
 	CStoreStatusDataSetDoesNotMatchSOPClass StatusCode = 0xa900
 	CStoreStatusCannotUnderstand            StatusCode = 0xc000
 
+	// C-FIND-specific status codes.
 	CFindUnableToProcess StatusCode = 0xc000
 
-	// The following codes are warnings.
+	// Warning codes.
 	StatusAttributeValueOutOfRange StatusCode = 0x0116
 	StatusAttributeListError       StatusCode = 0x0107
 )
 
+func encodeStatus(e *dicomio.Encoder, s Status) {
+	encodeField(e, dicom.TagStatus, uint16(s.Status))
+	if s.ErrorComment != "" {
+		encodeField(e, dicom.TagErrorComment, s.ErrorComment)
+	}
+}
+
+// Given a set of dicom.Elements, construct a typed dimse.Message
+// object.
 func ReadMessage(d *dicomio.Decoder) Message {
 	// A DIMSE message is a sequence of Elements, encoded in implicit
 	// LE.
@@ -186,7 +193,7 @@ func ReadMessage(d *dicomio.Decoder) Message {
 	}
 
 	// Convert elems[] into a golang struct.
-	dd := dimseDecoder{
+	dd := messageDecoder{
 		elems:  elems,
 		parsed: make([]bool, len(elems)),
 		err:    nil,
@@ -204,6 +211,7 @@ func ReadMessage(d *dicomio.Decoder) Message {
 	return v
 }
 
+// Serialize the given message.
 func EncodeMessage(e *dicomio.Encoder, v Message) {
 	// DIMSE messages are always encoded Implicit+LE. See P3.7 6.3.1.
 	subEncoder := dicomio.NewEncoder(binary.LittleEndian, dicomio.ImplicitVR)
@@ -219,8 +227,8 @@ func EncodeMessage(e *dicomio.Encoder, v Message) {
 	e.WriteBytes(bytes)
 }
 
-// Helper class for assembling a DIMSE command message and data payload from a
-// sequence of P_DATA_TF PDUs.
+// Helper class for assembling a DIMSE command message and data
+// payload from a sequence of P_DATA_TF PDUs.
 type CommandAssembler struct {
 	contextID      byte
 	commandBytes   []byte
@@ -231,9 +239,10 @@ type CommandAssembler struct {
 	readAllData bool
 }
 
-// Add a P_DATA_TF fragment. If the final fragment is received, returns <SOPUID,
-// TransferSyntaxUID, payload, nil>.  If it expects more fragments, it retutrns
-// <"", "", nil, nil>.  On error, the final return value is non-nil.
+// Called on receiving a P_DATA_TF fragment. If the fragment is marked
+// as the last one, AddDataPDU returns <SOPUID, TransferSyntaxUID,
+// payload, nil>.  If it needs more fragments, it returns <"", "",
+// nil, nil>.  On error, it returns a non-nil error.
 func (a *CommandAssembler) AddDataPDU(pdu *pdu.P_DATA_TF) (byte, Message, []byte, error) {
 	for _, item := range pdu.Items {
 		if a.contextID == 0 {
