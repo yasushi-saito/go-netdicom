@@ -196,7 +196,7 @@ func (su *ServiceUser) CStore(data []byte) error {
 		return err
 	}
 	e := dicomio.NewEncoder(nil, dicomio.UnknownVR)
-	dimse.EncodeDIMSEMessage(e, &dimse.C_STORE_RQ{
+	dimse.EncodeMessage(e, &dimse.C_STORE_RQ{
 		AffectedSOPClassUID:    sopClassUID,
 		MessageID:              newMessageID(su),
 		CommandDataSetType:     1, // anything other than 0x101 suffices.
@@ -226,7 +226,7 @@ func (su *ServiceUser) CStore(data []byte) error {
 		doassert(event.command != nil)
 		resp, ok := event.command.(*dimse.C_STORE_RSP)
 		doassert(ok) // TODO(saito)
-		if resp.Status != 0 {
+		if resp.Status.Status != 0 {
 			return fmt.Errorf("C_STORE failed: %v", resp.String())
 		}
 		return nil

@@ -7,15 +7,15 @@ import (
 	"testing"
 )
 
-func testDIMSE(t *testing.T, v dimse.DIMSEMessage) {
+func testDIMSE(t *testing.T, v dimse.Message) {
 	e := dicomio.NewEncoder(binary.LittleEndian, dicomio.ImplicitVR)
-	dimse.EncodeDIMSEMessage(e, v)
+	dimse.EncodeMessage(e, v)
 	bytes, err := e.Finish()
 	if err != nil {
 		t.Fatal(err)
 	}
 	d := dicomio.NewBytesDecoder(bytes, binary.LittleEndian, dicomio.ImplicitVR)
-	v2 := dimse.ReadDIMSEMessage(d)
+	v2 := dimse.ReadMessage(d)
 	err = d.Finish()
 	if err != nil {
 		t.Fatal(err)
@@ -33,7 +33,7 @@ func TestCStoreRq(t *testing.T) {
 		1,
 		"3.4.5",
 		"foohah",
-		0x3456})
+		0x3456, nil})
 }
 
 func TestCStoreRsp(t *testing.T) {
@@ -42,13 +42,16 @@ func TestCStoreRsp(t *testing.T) {
 		0x1234,
 		dimse.CommandDataSetTypeNull,
 		"3.4.5",
-		0x3456})
+		dimse.Status{Status: dimse.StatusCode(0x3456)},
+		nil})
 }
 
 func TestCEchoRq(t *testing.T) {
-	testDIMSE(t, &dimse.C_ECHO_RQ{0x1234, 1})
+	testDIMSE(t, &dimse.C_ECHO_RQ{0x1234, 1, nil})
 }
 
 func TestCEchoRsp(t *testing.T) {
-	testDIMSE(t, &dimse.C_ECHO_RSP{0x1234, 1, 0x2345})
+	testDIMSE(t, &dimse.C_ECHO_RSP{0x1234, 1,
+		dimse.Status{Status: dimse.StatusCode(0x2345)},
+		nil})
 }

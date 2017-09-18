@@ -3,6 +3,7 @@ package fuzze2e
 import (
 	"flag"
 	"github.com/yasushi-saito/go-netdicom"
+	"github.com/yasushi-saito/go-netdicom/dimse"
 	"github.com/yasushi-saito/go-netdicom/sopclass"
 	"io/ioutil"
 	"log"
@@ -22,8 +23,8 @@ func startServer(faults *netdicom.FaultInjector) net.Listener {
 			CStore: func(transferSyntaxUID string,
 				sopClassUID string,
 				sopInstanceUID string,
-				data []byte) uint16 {
-				return 0
+				data []byte) dimse.Status {
+				return dimse.Status{Status: dimse.StatusSuccess}
 			},
 		}
 

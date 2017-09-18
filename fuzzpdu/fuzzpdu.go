@@ -19,7 +19,7 @@ func Fuzz(data []byte) int {
 		pdu.ReadPDU(in, 4<<20)
 	} else {
 		d := dicomio.NewDecoder(in, int64(len(data)), binary.LittleEndian, dicomio.ExplicitVR)
-		dimse.ReadDIMSEMessage(d)
+		dimse.ReadMessage(d)
 	}
 	return 0
 }

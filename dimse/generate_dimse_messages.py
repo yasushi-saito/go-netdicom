@@ -1,14 +1,21 @@
 #!/usr/bin/env python3.6
 
+import enum
 from typing import IO, List, NamedTuple
 
 Field = NamedTuple('Field', [('name', str),
                              ('type', str),
                              ('required', bool)])
+class Type(enum.Enum):
+    REQUEST = 1
+    RESPONSE = 2
+
 Message = NamedTuple('Message',
                      [('name', str),
+                      ('type', Type),
                       ('command_field', int),
                       ('fields', List[Field])])
+
 # class Field(object):
 #     def __init__(name: str, tag, typename: str, required: bool):
 #         self.name = name
@@ -18,7 +25,7 @@ Message = NamedTuple('Message',
 MESSAGES = [
     # P3.7 9.3.1.1
     Message('C_STORE_RQ',
-            1,
+            Type.REQUEST, 1,
             [Field('AffectedSOPClassUID', 'string', True),
              Field('MessageID', 'uint16', True),
              Field('Priority', 'uint16', True),
@@ -28,28 +35,42 @@ MESSAGES = [
 	     Field('MoveOriginatorMessageID', 'uint16', False)]),
     # P3.7 9.3.1.2
     Message('C_STORE_RSP',
-            0x8001,
+            Type.RESPONSE, 0x8001,
             [Field('AffectedSOPClassUID', 'string', True),
              Field('MessageIDBeingRespondedTo', 'uint16', True),
              Field('CommandDataSetType', 'uint16', True),
              Field('AffectedSOPInstanceUID', 'string', True),
-	     Field('Status', 'uint16', True)]),
+	     Field('Status', 'Status', True)]),
+    # P3.7 9.1.2.1
+    Message('C_FIND_RQ',
+            Type.REQUEST, 0x20,
+            [Field('AffectedSOPClassUID', 'string', True),
+             Field('MessageID', 'uint16', True),
+             Field('Priority', 'uint16', True),
+             Field('CommandDataSetType', 'uint16', True)]),
+    Message('C_FIND_RSP',
+            Type.RESPONSE, 0x8020,
+            [Field('AffectedSOPClassUID', 'string', True),
+             Field('MessageIDBeingRespondedTo', 'uint16', True),
+             Field('CommandDataSetType', 'uint16', True),
+	     Field('Status', 'Status', True)]),
     # P3.7 9.3.5
     Message('C_ECHO_RQ',
-            0x30,
+            Type.REQUEST, 0x30,
             [Field('MessageID', 'uint16', True),
              Field('CommandDataSetType', 'uint16', True)]),
     Message('C_ECHO_RSP',
-            0x8030,
+            Type.RESPONSE, 0x8030,
             [Field('MessageIDBeingRespondedTo', 'uint16', True),
              Field('CommandDataSetType', 'uint16', True),
-	     Field('Status', 'uint16', True)])
+	     Field('Status', 'Status', True)])
 ]
 
 def generate_go_definition(m: Message, out: IO[str]):
     print(f'type {m.name} struct  {{', file=out)
     for f in m.fields:
         print(f'	{f.name} {f.type}', file=out)
+    print(f'	Extra []*dicom.Element', file=out)
     print('}', file=out)
 
     print('', file=out)
@@ -64,8 +85,13 @@ def generate_go_definition(m: Message, out: IO[str]):
             print(f'	if v.{f.name} != {zero} {{', file=out)
             print(f'		encodeField(e, dicom.Tag{f.name}, v.{f.name})', file=out)
             print(f'	}}', file=out)
+        elif f.type == 'Status':
+            print(f'	encodeStatus(e, v.{f.name})', file=out)
         else:
             print(f'	encodeField(e, dicom.Tag{f.name}, v.{f.name})', file=out)
+    print('	for _, elem := range v.Extra {', file=out)
+    print('		dicom.EncodeDataElement(e, elem)', file=out)
+    print('	}', file=out)
     print('}', file=out)
 
     print('', file=out)
@@ -94,19 +120,23 @@ def generate_go_definition(m: Message, out: IO[str]):
     print(f'func decode{m.name}(d *dimseDecoder) *{m.name} {{', file=out)
     print(f'	v := &{m.name}{{}}', file=out)
     for f in m.fields:
-        if f.type == 'string':
-            decoder = 'String'
-        elif f.type == 'uint16':
-            decoder = 'UInt16'
-        elif f.type == 'uint32':
-            decoder = 'UInt32'
+        if f.type == 'Status':
+            print(f'	v.{f.name} = d.getStatus()', file=out)
         else:
-            raise Exception(f, file=out)
-        if f.required:
-            required = 'RequiredElement'
-        else:
-            required = 'OptionalElement'
-        print(f'	v.{f.name} = d.get{decoder}(dicom.Tag{f.name}, {required})', file=out)
+            if f.type == 'string':
+                decoder = 'String'
+            elif f.type == 'uint16':
+                decoder = 'UInt16'
+            elif f.type == 'uint32':
+                decoder = 'UInt32'
+            else:
+                raise Exception(f)
+            if f.required:
+                required = 'RequiredElement'
+            else:
+                required = 'OptionalElement'
+            print(f'	v.{f.name} = d.get{decoder}(dicom.Tag{f.name}, {required})', file=out)
+    print(f'	v.Extra = d.unparsedElements()', file=out)
     print(f'	return v', file=out)
     print('}', file=out)
 

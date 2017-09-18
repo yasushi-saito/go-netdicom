@@ -6,6 +6,7 @@ import (
 	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-dicom/dicomio"
 	"github.com/yasushi-saito/go-netdicom"
+	"github.com/yasushi-saito/go-netdicom/dimse"
 	"github.com/yasushi-saito/go-netdicom/sopclass"
 	"io/ioutil"
 	"net"
@@ -49,7 +50,7 @@ func onCStoreRequest(
 	transferSyntaxUID string,
 	sopClassUID string,
 	sopInstanceUID string,
-	data []byte) uint16 {
+	data []byte) dimse.Status {
 	vlog.Infof("Start C-STORE handler, transfersyntax=%s, sopclass=%s, sopinstance=%s",
 		dicom.UIDString(transferSyntaxUID),
 		dicom.UIDString(sopClassUID),
@@ -67,7 +68,7 @@ func onCStoreRequest(
 		vlog.Fatal(err)
 	}
 	vlog.Infof("Received C-STORE requset")
-	return 0 // Success
+	return dimse.Status{Status: dimse.StatusSuccess}
 }
 
 func checkFileBodiesEqual(t *testing.T, in, out *dicom.DataSet) {

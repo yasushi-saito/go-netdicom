@@ -19,11 +19,22 @@ type CStoreCallback func(
 	transferSyntaxUID string,
 	sopClassUID string,
 	sopInstanceUID string,
-	data []byte) uint16
+	data []byte) dimse.Status
 
-type CEchoCallback func() uint16
+type CFindCallback func(
+	transferSyntaxUID string,
+	sopClassUID string,
+	data []byte) dimse.Status
+
+type CEchoCallback func() dimse.Status
 
 type ServiceProviderCallbacks struct {
+	// Called on C_ECHO request. It should return 0 on success
+	CEcho CEchoCallback
+
+	// Called on C_FIND request. It should return 0 on success
+	CFind CFindCallback
+
 	// Called on receiving a C_STORE_RQ message.  sopClassUID and
 	// sopInstanceUID are the IDs of the data. They are from the C-STORE
 	// request packat.
@@ -39,9 +50,6 @@ type ServiceProviderCallbacks struct {
 	// DICOM header, followed by data. It should return either 0 on success,
 	// or one of CStoreStatus* error codes.
 	CStore CStoreCallback
-
-	// Called on C_ECHO request. It should return 0 on success
-	CEcho CEchoCallback
 }
 
 // Encapsulates the state for DICOM server (provider).
@@ -52,11 +60,29 @@ type ServiceProvider struct {
 
 func onDIMSECommand(downcallCh chan stateEvent, abstractSyntaxUID string,
 	transferSyntaxUID string,
-	msg dimse.DIMSEMessage, data []byte, callbacks ServiceProviderCallbacks) {
+	msg dimse.Message, data []byte, callbacks ServiceProviderCallbacks) {
 	doassert(transferSyntaxUID != "")
+
+	var sendResponse = func(resp dimse.Message) {
+		e := dicomio.NewEncoder(nil, dicomio.UnknownVR)
+		dimse.EncodeMessage(e, resp)
+		bytes, err := e.Finish()
+		if err != nil {
+			panic(err)
+		}
+		downcallCh <- stateEvent{
+			event: evt09,
+			pdu:   nil,
+			conn:  nil,
+			dataPayload: &stateEventDataPayload{
+				abstractSyntaxName: abstractSyntaxUID,
+				command:            true,
+				data:               bytes},
+		}
+	}
+	status := dimse.Status{Status: dimse.StatusUnrecognizedOperation}
 	switch c := msg.(type) {
 	case *dimse.C_STORE_RQ:
-		status := dimse.CStoreStatusCannotUnderstand
 		if callbacks.CStore != nil {
 			status = callbacks.CStore(
 				transferSyntaxUID,
@@ -71,23 +97,22 @@ func onDIMSECommand(downcallCh chan stateEvent, abstractSyntaxUID string,
 			AffectedSOPInstanceUID:    c.AffectedSOPInstanceUID,
 			Status:                    status,
 		}
-		e := dicomio.NewEncoder(nil, dicomio.UnknownVR)
-		dimse.EncodeDIMSEMessage(e, resp)
-		bytes, err := e.Finish()
-		if err != nil {
-			panic(err)
+		sendResponse(resp)
+	case *dimse.C_FIND_RQ:
+		if callbacks.CFind != nil {
+			status = callbacks.CFind(
+				transferSyntaxUID,
+				c.AffectedSOPClassUID,
+				data)
 		}
-		downcallCh <- stateEvent{
-			event: evt09,
-			pdu:   nil,
-			conn:  nil,
-			dataPayload: &stateEventDataPayload{
-				abstractSyntaxName: abstractSyntaxUID,
-				command:            true,
-				data:               bytes},
+		resp := &dimse.C_FIND_RSP{
+			AffectedSOPClassUID:       c.AffectedSOPClassUID,
+			MessageIDBeingRespondedTo: c.MessageID,
+			CommandDataSetType:        dimse.CommandDataSetTypeNull,
+			Status:                    status,
 		}
+		sendResponse(resp)
 	case *dimse.C_ECHO_RQ:
-		status := dimse.CStoreStatusCannotUnderstand
 		if callbacks.CEcho != nil {
 			status = callbacks.CEcho()
 		}
@@ -96,21 +121,7 @@ func onDIMSECommand(downcallCh chan stateEvent, abstractSyntaxUID string,
 			CommandDataSetType:        dimse.CommandDataSetTypeNull,
 			Status:                    status,
 		}
-		e := dicomio.NewEncoder(nil, dicomio.UnknownVR)
-		dimse.EncodeDIMSEMessage(e, resp)
-		bytes, err := e.Finish()
-		if err != nil {
-			panic(err) // TODO(saito)
-		}
-		downcallCh <- stateEvent{
-			event: evt09,
-			pdu:   nil,
-			conn:  nil,
-			dataPayload: &stateEventDataPayload{
-				abstractSyntaxName: abstractSyntaxUID,
-				command:            true,
-				data:               bytes},
-		}
+		sendResponse(resp)
 	default:
 		panic("aoeu")
 	}

@@ -499,7 +499,7 @@ type upcallEvent struct {
 	abstractSyntaxUID string
 	transferSyntaxUID string
 
-	command dimse.DIMSEMessage
+	command dimse.Message
 	data    []byte
 }
 
