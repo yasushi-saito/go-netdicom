@@ -4,14 +4,15 @@ import (
 	"encoding/binary"
 	"flag"
 	"fmt"
-	"github.com/yasushi-saito/go-dicom"
-	"github.com/yasushi-saito/go-dicom/dicomio"
-	"github.com/yasushi-saito/go-netdicom"
-	"github.com/yasushi-saito/go-netdicom/dimse"
 	"io/ioutil"
 	"path"
 	"strings"
 	"sync/atomic"
+
+	"github.com/yasushi-saito/go-dicom"
+	"github.com/yasushi-saito/go-dicom/dicomio"
+	"github.com/yasushi-saito/go-netdicom"
+	"github.com/yasushi-saito/go-netdicom/dimse"
 	"v.io/x/lib/vlog"
 )
 
@@ -63,12 +64,15 @@ func onCFindRequest(transferSyntaxUID string,
 	}
 	decoder.PushTransferSyntax(endian, implicit)
 	var elems []*dicom.Element
+	vlog.Infof("CFind: transfersyntax: %v, classuid: %v",
+		dicom.UIDString(transferSyntaxUID),
+		dicom.UIDString(sopClassUID))
 	for decoder.Len() > 0 {
 		elem := dicom.ReadDataElement(decoder)
 		if decoder.Error() != nil {
 			break
 		}
-		vlog.Infof("CFind param: %v", elem)
+		vlog.Infof("CFind: param: %v", elem)
 		elems = append(elems, elem)
 	}
 	if decoder.Error() != nil {

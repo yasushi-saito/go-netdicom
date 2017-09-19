@@ -137,6 +137,7 @@ func encodeField(e *dicomio.Encoder, tag dicom.Tag, v interface{}) {
 // that the DIMSE message has no data payload. Any other value
 // indicates the existence of a payload.
 const CommandDataSetTypeNull uint16 = 0x101
+const CommandDataSetTypeNonNull uint16 = 1
 
 // OK status for a call.
 var Success = Status{Status: StatusSuccess}

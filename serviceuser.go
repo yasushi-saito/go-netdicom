@@ -199,7 +199,7 @@ func (su *ServiceUser) CStore(data []byte) error {
 	dimse.EncodeMessage(e, &dimse.C_STORE_RQ{
 		AffectedSOPClassUID:    sopClassUID,
 		MessageID:              newMessageID(su),
-		CommandDataSetType:     1, // anything other than 0x101 suffices.
+		CommandDataSetType:     dimse.CommandDataSetTypeNonNull,
 		AffectedSOPInstanceUID: sopInstanceUID,
 	})
 	req, err := e.Finish()
@@ -220,7 +220,7 @@ func (su *ServiceUser) CStore(data []byte) error {
 		event, ok := <-su.upcallCh
 		if !ok {
 			su.status = serviceUserClosed
-			return fmt.Errorf("Connection closed while waiting for cstore response")
+			return fmt.Errorf("Connection closed while waiting for C-STORE response")
 		}
 		doassert(event.eventType == upcallEventData)
 		doassert(event.command != nil)
@@ -230,6 +230,49 @@ func (su *ServiceUser) CStore(data []byte) error {
 			return fmt.Errorf("C_STORE failed: %v", resp.String())
 		}
 		return nil
+	}
+	panic("should not reach here")
+}
+
+// Issue a C-FIND request; blocks until the server responds, or an error
+// happens. "data" is a DICOM file. Its transfer syntax must match the one
+// established in during DICOM A_ASSOCIATE handshake.
+//
+// TODO(saito) Re-encode the data using the valid transfer syntax.
+func (su *ServiceUser) CFind(filter []*dicom.Element) ([]int, error) {
+	err := waitAssociationEstablishment(su)
+	if err != nil {
+		return nil, err
+	}
+	e := dicomio.NewEncoder(nil, dicomio.UnknownVR)
+	sopClassUID := dicom.PatientRootQRFind
+	dimse.EncodeMessage(e, &dimse.C_FIND_RQ{
+		AffectedSOPClassUID: sopClassUID,
+		MessageID:           newMessageID(su),
+		CommandDataSetType:  dimse.CommandDataSetTypeNonNull,
+	})
+	req, err := e.Finish()
+	if err != nil {
+		return nil, err
+	}
+	su.downcallCh <- stateEvent{
+		event: evt09,
+		dataPayload: &stateEventDataPayload{abstractSyntaxName: sopClassUID,
+			command: true,
+			data:    req}}
+	for {
+		event, ok := <-su.upcallCh
+		if !ok {
+			su.status = serviceUserClosed
+			return nil, fmt.Errorf("Connection closed while waiting for C-FIND response")
+		}
+		doassert(event.eventType == upcallEventData)
+		doassert(event.command != nil)
+		resp, ok := event.command.(*dimse.C_FIND_RSP)
+		if !ok {
+			return nil, fmt.Errorf("Found wrong response for C-FIND: %v", event.command)
+		}
+		vlog.Errorf("Got resp: %v %v", event, resp)
 	}
 	panic("should not reach here")
 }
