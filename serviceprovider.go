@@ -58,11 +58,15 @@ type ServiceProvider struct {
 	callbacks ServiceProviderCallbacks
 }
 
-func onDIMSECommand(downcallCh chan stateEvent, abstractSyntaxUID string,
-	transferSyntaxUID string,
+func onDIMSECommand(downcallCh chan stateEvent,
+	cm *contextManager,
+	contextID byte,
 	msg dimse.Message, data []byte, callbacks ServiceProviderCallbacks) {
-	doassert(transferSyntaxUID != "")
-
+	context, err := cm.lookupByContextID(contextID)
+	if err != nil {
+		downcallCh <- stateEvent{event: evt19, pdu: nil, err: err}
+		return
+	}
 	var sendResponse = func(resp dimse.Message) {
 		e := dicomio.NewBytesEncoder(nil, dicomio.UnknownVR)
 		dimse.EncodeMessage(e, resp)
@@ -72,7 +76,7 @@ func onDIMSECommand(downcallCh chan stateEvent, abstractSyntaxUID string,
 			pdu:   nil,
 			conn:  nil,
 			dataPayload: &stateEventDataPayload{
-				abstractSyntaxName: abstractSyntaxUID,
+				abstractSyntaxName: context.abstractSyntaxUID,
 				command:            true,
 				data:               bytes},
 		}
@@ -82,7 +86,7 @@ func onDIMSECommand(downcallCh chan stateEvent, abstractSyntaxUID string,
 	case *dimse.C_STORE_RQ:
 		if callbacks.CStore != nil {
 			status = callbacks.CStore(
-				transferSyntaxUID,
+				context.transferSyntaxUID,
 				c.AffectedSOPClassUID,
 				c.AffectedSOPInstanceUID,
 				data)
@@ -98,7 +102,7 @@ func onDIMSECommand(downcallCh chan stateEvent, abstractSyntaxUID string,
 	case *dimse.C_FIND_RQ:
 		if callbacks.CFind != nil {
 			status = callbacks.CFind(
-				transferSyntaxUID,
+				context.transferSyntaxUID,
 				c.AffectedSOPClassUID,
 				data)
 		}
@@ -149,8 +153,7 @@ func runUpperLayerForServiceProvider(callbacks ServiceProviderCallbacks,
 		doassert(event.eventType == upcallEventData)
 		doassert(event.command != nil)
 		doassert(handshakeCompleted == true)
-		onDIMSECommand(downcallCh, event.abstractSyntaxUID,
-			event.transferSyntaxUID,
+		onDIMSECommand(downcallCh, event.cm, event.contextID,
 			event.command, event.data, callbacks)
 	}
 	vlog.VI(1).Infof("Finished upper layer service!")

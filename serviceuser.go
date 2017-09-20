@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-dicom/dicomio"
+	"github.com/yasushi-saito/go-dicom/dicomuid"
 	"github.com/yasushi-saito/go-netdicom/dimse"
 	"github.com/yasushi-saito/go-netdicom/sopclass"
 	"net"
@@ -27,6 +28,7 @@ type ServiceUser struct {
 	status        serviceUserStatus
 	downcallCh    chan stateEvent
 	upcallCh      chan upcallEvent
+	cm            *contextManager // Set only after the handshake completes.
 	nextMessageID int32
 }
 
@@ -59,12 +61,12 @@ func NewServiceUserParams(
 	requiredServices []sopclass.SOPUID,
 	transferSyntaxUIDs []string) ServiceUserParams {
 	if len(transferSyntaxUIDs) == 0 {
-		transferSyntaxUIDs = dicom.StandardTransferSyntaxes
+		transferSyntaxUIDs = dicomio.StandardTransferSyntaxes
 	} else {
 		canonical := make([]string, len(transferSyntaxUIDs))
 		for i, uid := range transferSyntaxUIDs {
 			var err error
-			canonical[i], err = dicom.CanonicalTransferSyntaxUID(uid)
+			canonical[i], err = dicomio.CanonicalTransferSyntaxUID(uid)
 			if err != nil {
 				vlog.Fatal(err) // TODO(saito)
 			}
@@ -100,10 +102,13 @@ func waitAssociationEstablishment(su *ServiceUser) error {
 		event, ok := <-su.upcallCh
 		if !ok {
 			su.status = serviceUserClosed
+			su.cm = nil
 			break
 		}
 		if event.eventType == upcallEventHandshakeCompleted {
 			su.status = serviceUserAssociationActive
+			su.cm = event.cm
+			doassert(su.cm != nil)
 			break
 		}
 		vlog.Fatalf("Illegal upcall event during handshake: %v", event)
@@ -244,22 +249,42 @@ func (su *ServiceUser) CFind(filter []*dicom.Element) ([]int, error) {
 	if err != nil {
 		return nil, err
 	}
-	e := dicomio.NewBytesEncoder(nil, dicomio.UnknownVR)
-	sopClassUID := dicom.PatientRootQRFind
-	dimse.EncodeMessage(e, &dimse.C_FIND_RQ{
+	cmdEncoder := dicomio.NewBytesEncoder(nil, dicomio.UnknownVR)
+	sopClassUID := dicomuid.PatientRootQRFind
+	context, err := su.cm.lookupByAbstractSyntaxUID(sopClassUID)
+	if err != nil {
+		// This happens when the user passed a wrong sopclass list in
+		// A-ASSOCIATE handshake.
+		vlog.Errorf("Failed to lookup sopclass %v: %v", sopClassUID, err)
+		return nil, err
+	}
+	dimse.EncodeMessage(cmdEncoder, &dimse.C_FIND_RQ{
 		AffectedSOPClassUID: sopClassUID,
 		MessageID:           newMessageID(su),
 		CommandDataSetType:  dimse.CommandDataSetTypeNonNull,
 	})
-	if err := e.Error(); err != nil {
+	if err := cmdEncoder.Error(); err != nil {
 		return nil, err
 	}
-	req := e.Bytes()
+
+	dataEncoder := dicomio.NewBytesEncoderWithTransferSyntax(context.transferSyntaxUID)
+	for _, elem := range filter {
+		dicom.WriteDataElement(dataEncoder, elem)
+	}
+	if err := dataEncoder.Error(); err != nil {
+		return nil, err
+	}
 	su.downcallCh <- stateEvent{
 		event: evt09,
 		dataPayload: &stateEventDataPayload{abstractSyntaxName: sopClassUID,
 			command: true,
-			data:    req}}
+			data:    cmdEncoder.Bytes()}}
+
+	su.downcallCh <- stateEvent{
+		event: evt09,
+		dataPayload: &stateEventDataPayload{abstractSyntaxName: sopClassUID,
+			command: false,
+			data:    dataEncoder.Bytes()}}
 	for {
 		event, ok := <-su.upcallCh
 		if !ok {

@@ -5,6 +5,7 @@ import (
 	"flag"
 	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-dicom/dicomio"
+	"github.com/yasushi-saito/go-dicom/dicomuid"
 	"github.com/yasushi-saito/go-netdicom"
 	"github.com/yasushi-saito/go-netdicom/dimse"
 	"github.com/yasushi-saito/go-netdicom/sopclass"
@@ -52,11 +53,16 @@ func onCStoreRequest(
 	sopInstanceUID string,
 	data []byte) dimse.Status {
 	vlog.Infof("Start C-STORE handler, transfersyntax=%s, sopclass=%s, sopinstance=%s",
-		dicom.UIDString(transferSyntaxUID),
-		dicom.UIDString(sopClassUID),
-		dicom.UIDString(sopInstanceUID))
+		dicomuid.UIDString(transferSyntaxUID),
+		dicomuid.UIDString(sopClassUID),
+		dicomuid.UIDString(sopInstanceUID))
 	e := dicomio.NewBytesEncoder(nil, dicomio.UnknownVR)
-	dicom.WriteFileHeader(e, transferSyntaxUID, sopClassUID, sopInstanceUID)
+	dicom.WriteFileHeader(e,
+		[]dicom.Element{
+			*dicom.NewElement(dicom.TagTransferSyntaxUID, transferSyntaxUID),
+			*dicom.NewElement(dicom.TagMediaStorageSOPClassUID, sopClassUID),
+			*dicom.NewElement(dicom.TagMediaStorageSOPInstanceUID, sopInstanceUID),
+		})
 	e.WriteBytes(data)
 
 	if cstoreData != nil {

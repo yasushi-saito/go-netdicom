@@ -5,7 +5,7 @@ package netdicom
 
 import (
 	"fmt"
-	"github.com/yasushi-saito/go-dicom"
+	"github.com/yasushi-saito/go-dicom/dicomuid"
 	"github.com/yasushi-saito/go-netdicom/dimse"
 	"github.com/yasushi-saito/go-netdicom/pdu"
 	"io"
@@ -162,7 +162,7 @@ var actionAe2 = &stateAction{"AE-2", "Connection established on the user side. S
 	func(sm *stateMachine, event stateEvent) stateType {
 		doassert(event.conn != nil)
 		sm.conn = event.conn
-		go networkReaderThread(sm.netCh, event.conn, sm.userParams.MaxPDUSize, sm.name)
+		go networkReaderThread(sm.netCh, event.conn, sm.userParams.MaxPDUSize, sm.label)
 		items := sm.contextManager.generateAssociateRequest(
 			sm.userParams.RequiredServices,
 			sm.userParams.SupportedTransferSyntaxes,
@@ -186,7 +186,10 @@ var actionAe3 = &stateAction{"AE-3", "Issue A-ASSOCIATE confirmation (accept) pr
 		doassert(v.Type == pdu.PDUTypeA_ASSOCIATE_AC)
 		err := sm.contextManager.onAssociateResponse(v.Items)
 		if err == nil {
-			sm.upcallCh <- upcallEvent{eventType: upcallEventHandshakeCompleted}
+			sm.upcallCh <- upcallEvent{
+				eventType: upcallEventHandshakeCompleted,
+				cm:        sm.contextManager,
+			}
 			return sta06
 		} else {
 			vlog.Error(err)
@@ -205,7 +208,7 @@ var actionAe5 = &stateAction{"AE-5", "Issue Transport connection response primit
 		doassert(event.conn != nil)
 		startTimer(sm)
 		go func(ch chan stateEvent, conn net.Conn) {
-			networkReaderThread(ch, conn, sm.providerParams.MaxPDUSize, sm.name)
+			networkReaderThread(ch, conn, sm.providerParams.MaxPDUSize, sm.label)
 		}(sm.netCh, event.conn)
 		return sta02
 	}}
@@ -227,7 +230,7 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 		stopTimer(sm)
 		v := event.pdu.(*pdu.A_ASSOCIATE)
 		if v.ProtocolVersion != 0x0001 {
-			vlog.Infof("%s: Wrong remote protocol version 0x%x", sm.name, v.ProtocolVersion)
+			vlog.Infof("%s: Wrong remote protocol version 0x%x", sm.label, v.ProtocolVersion)
 			rj := pdu.A_ASSOCIATE_RJ{Result: 1, Source: 2, Reason: 2}
 			sendPDU(sm, &rj)
 			startTimer(sm)
@@ -264,7 +267,10 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 var actionAe7 = &stateAction{"AE-7", "Send A-ASSOCIATE-AC PDU",
 	func(sm *stateMachine, event stateEvent) stateType {
 		sendPDU(sm, event.pdu.(*pdu.A_ASSOCIATE))
-		sm.upcallCh <- upcallEvent{eventType: upcallEventHandshakeCompleted}
+		sm.upcallCh <- upcallEvent{
+			eventType: upcallEventHandshakeCompleted,
+			cm:        sm.contextManager,
+		}
 		return sta06
 	}}
 
@@ -281,7 +287,7 @@ func splitDataIntoPDUs(sm *stateMachine, abstractSyntaxName string, command bool
 	context, err := sm.contextManager.lookupByAbstractSyntaxUID(abstractSyntaxName)
 	if err != nil {
 		// TODO(saito) Don't crash here.
-		vlog.Fatalf("%s: Illegal syntax name %s: %s", sm.name, dicom.UIDString(abstractSyntaxName), err)
+		vlog.Fatalf("%s: Illegal syntax name %s: %s", sm.label, dicomuid.UIDString(abstractSyntaxName), err)
 	}
 	var pdus []pdu.P_DATA_TF
 	// two byte header overhead.
@@ -324,24 +330,17 @@ var actionDt2 = &stateAction{"DT-2", "Send P-DATA indication primitive",
 	func(sm *stateMachine, event stateEvent) stateType {
 		contextID, command, data, err := sm.commandAssembler.AddDataPDU(event.pdu.(*pdu.P_DATA_TF))
 		if err == nil {
-			if command == nil {
-				// Not all fragments received yet
-				return sta06
-			} else {
-				var context contextManagerEntry
-				context, err = sm.contextManager.lookupByContextID(contextID)
-				if err == nil {
-					sm.upcallCh <- upcallEvent{
-						eventType:         upcallEventData,
-						abstractSyntaxUID: context.abstractSyntaxUID,
-						transferSyntaxUID: context.transferSyntaxUID,
-						command:           command,
-						data:              data}
-					return sta06
-				}
+			if command != nil { // All fragments received
+				sm.upcallCh <- upcallEvent{
+					eventType: upcallEventData,
+					cm:        sm.contextManager,
+					contextID: contextID,
+					command:   command,
+					data:      data}
 			}
+			return sta06
 		}
-		vlog.Infof("%s: Failed to assemble data: %v", sm.name, err) // TODO(saito)
+		vlog.Infof("%s: Failed to assemble data: %v", sm.label, err) // TODO(saito)
 		return actionAa8.Callback(sm, event)
 	}}
 
@@ -492,12 +491,20 @@ func (e *upcallEventType) String() string {
 type upcallEvent struct {
 	eventType upcallEventType
 
+	// The context ID -> <abstract syntax uid, transefr syntax uid> mappings.
+	// Sent for upcallEventHandshakeCompleted and upcallEventData.
+	cm *contextManager
+
 	// abstractSyntaxUID is extracted from the P_DATA_TF packet.
 	// transferSyntaxUID is the value agreed on for the abstractSyntaxUID
 	// during protocol handshake. Both are nonempty iff
 	// eventType==upcallEventData.
-	abstractSyntaxUID string
-	transferSyntaxUID string
+	//abstractSyntaxUID string
+	//transferSyntaxUID string
+
+	// The context of the request. It can be mapped backto <abstract syntax, transfer syntax> by consulting the
+	// context manager. Set only in upcallEventData event.
+	contextID byte
 
 	command dimse.Message
 	data    []byte
@@ -681,7 +688,7 @@ var stateTransitions = []stateTransition{
 
 // Per-TCP-connection state.
 type stateMachine struct {
-	name   string // For logging only
+	label  string // For logging only
 	isUser bool   // true if service user, false if provider
 
 	// Exactly one of the below fields is nonempty.
@@ -724,7 +731,7 @@ type stateMachine struct {
 
 func closeConnection(sm *stateMachine) {
 	close(sm.upcallCh)
-	vlog.Infof("%s: Closing connection %v", sm.name, sm.conn)
+	vlog.Infof("%s: Closing connection %v", sm.label, sm.conn)
 	sm.conn.Close()
 }
 
@@ -732,7 +739,7 @@ func sendPDU(sm *stateMachine, v pdu.PDU) {
 	doassert(sm.conn != nil)
 	data, err := pdu.EncodePDU(v)
 	if err != nil {
-		vlog.Infof("%s: Failed to encode: %v; closing connection %v", sm.name, err, sm.conn)
+		vlog.Infof("%s: Failed to encode: %v; closing connection %v", sm.label, err, sm.conn)
 		sm.conn.Close()
 		sm.errorCh <- stateEvent{event: evt17, err: err}
 		return
@@ -740,18 +747,18 @@ func sendPDU(sm *stateMachine, v pdu.PDU) {
 	if sm.faults != nil {
 		action := sm.faults.onSend(data)
 		if action == faultInjectorDisconnect {
-			vlog.Infof("%s: FAULT: closing connection for test", sm.name)
+			vlog.Infof("%s: FAULT: closing connection for test", sm.label)
 			sm.conn.Close()
 		}
 	}
 	n, err := sm.conn.Write(data)
 	if n != len(data) || err != nil {
-		vlog.Infof("%s: Failed to write %d bytes. Actual %d bytes : %v; closing connection %v", sm.name, len(data), n, err, sm.conn)
+		vlog.Infof("%s: Failed to write %d bytes. Actual %d bytes : %v; closing connection %v", sm.label, len(data), n, err, sm.conn)
 		sm.conn.Close()
 		sm.errorCh <- stateEvent{event: evt17, err: err}
 		return
 	}
-	vlog.VI(2).Infof("%s: sendPDU: %v", sm.name, v.String())
+	vlog.VI(2).Infof("%s: sendPDU: %v", sm.label, v.String())
 }
 
 func startTimer(sm *stateMachine) {
@@ -867,10 +874,10 @@ func findAction(currentState stateType, event *stateEvent, smName string) *state
 
 func runOneStep(sm *stateMachine) {
 	event := getNextEvent(sm)
-	vlog.VI(1).Infof("%s: Current state: %v, Event %v", sm.name, sm.currentState.String(), event)
-	action := findAction(sm.currentState, &event, sm.name)
+	vlog.VI(1).Infof("%s: Current state: %v, Event %v", sm.label, sm.currentState.String(), event)
+	action := findAction(sm.currentState, &event, sm.label)
 	if action == nil {
-		msg := fmt.Sprintf("%s: No action found for state %v, event %v", sm.name, sm.currentState.String(), event.String())
+		msg := fmt.Sprintf("%s: No action found for state %v, event %v", sm.label, sm.currentState.String(), event.String())
 		if sm.faults != nil {
 			msg += " FIhistory: " + sm.faults.String()
 		}
@@ -883,7 +890,7 @@ func runOneStep(sm *stateMachine) {
 	if sm.faults != nil {
 		sm.faults.onStateTransition(sm.currentState, &event, action)
 	}
-	vlog.VI(1).Infof("%s: Running action %v", sm.name, action)
+	vlog.VI(1).Infof("%s: Running action %v", sm.label, action)
 	sm.currentState = action.Callback(sm, event)
 	vlog.VI(1).Infof("Next state: %v", sm.currentState.String())
 }
@@ -895,10 +902,11 @@ func runStateMachineForServiceUser(
 	doassert(params.CallingAETitle != "")
 	doassert(len(params.RequiredServices) > 0)
 	doassert(len(params.SupportedTransferSyntaxes) > 0)
+	label := fmt.Sprintf("sm(u)-%d", atomic.AddInt32(&smSeq, 1))
 	sm := &stateMachine{
-		name:           fmt.Sprintf("sm(u)-%d", atomic.AddInt32(&smSeq, 1)),
+		label:          label,
 		isUser:         true,
-		contextManager: newContextManager(),
+		contextManager: newContextManager(label),
 		userParams:     params,
 		netCh:          make(chan stateEvent, 128),
 		errorCh:        make(chan stateEvent, 128),
@@ -907,12 +915,12 @@ func runStateMachineForServiceUser(
 		faults:         getUserFaultInjector(),
 	}
 	event := stateEvent{event: evt01}
-	action := findAction(sta01, &event, sm.name)
+	action := findAction(sta01, &event, sm.label)
 	sm.currentState = action.Callback(sm, event)
 	for sm.currentState != sta01 {
 		runOneStep(sm)
 	}
-	vlog.VI(1).Infof("%s: statemachine finished", sm.name)
+	vlog.VI(1).Infof("%s: statemachine finished", sm.label)
 }
 
 func runStateMachineForServiceProvider(
@@ -920,11 +928,12 @@ func runStateMachineForServiceProvider(
 	params ServiceProviderParams,
 	upcallCh chan upcallEvent,
 	downcallCh chan stateEvent) {
+	label := fmt.Sprintf("sm(p)-%d", atomic.AddInt32(&smSeq, 1))
 	sm := &stateMachine{
-		name:           fmt.Sprintf("sm(p)-%d", atomic.AddInt32(&smSeq, 1)),
+		label:          label,
 		isUser:         false,
 		providerParams: params,
-		contextManager: newContextManager(),
+		contextManager: newContextManager(label),
 		conn:           conn,
 		netCh:          make(chan stateEvent, 128),
 		errorCh:        make(chan stateEvent, 128),
@@ -933,10 +942,10 @@ func runStateMachineForServiceProvider(
 		faults:         getProviderFaultInjector(),
 	}
 	event := stateEvent{event: evt05, conn: conn}
-	action := findAction(sta01, &event, sm.name)
+	action := findAction(sta01, &event, sm.label)
 	sm.currentState = action.Callback(sm, event)
 	for sm.currentState != sta01 {
 		runOneStep(sm)
 	}
-	vlog.VI(1).Infof("%s: statemachine finished", sm.name)
+	vlog.VI(1).Infof("%s: statemachine finished", sm.label)
 }

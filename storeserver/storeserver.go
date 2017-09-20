@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 
 	"github.com/yasushi-saito/go-dicom"
+	"github.com/yasushi-saito/go-dicom/dicomuid"
 	"github.com/yasushi-saito/go-dicom/dicomio"
 	"github.com/yasushi-saito/go-netdicom"
 	"github.com/yasushi-saito/go-netdicom/dimse"
@@ -37,7 +38,12 @@ func onCStoreRequest(
 
 	vlog.Infof("Writing %s", path)
 	e := dicomio.NewBytesEncoder(binary.LittleEndian, dicomio.ExplicitVR)
-	dicom.WriteFileHeader(e, transferSyntaxUID, sopClassUID, sopInstanceUID)
+	dicom.WriteFileHeader(e,
+		[]dicom.Element{
+			*dicom.NewElement(dicom.TagTransferSyntaxUID, transferSyntaxUID),
+			*dicom.NewElement(dicom.TagMediaStorageSOPClassUID, sopClassUID),
+			*dicom.NewElement(dicom.TagMediaStorageSOPInstanceUID, sopInstanceUID),
+		})
 	e.WriteBytes(data)
 	if err := e.Error(); err != nil {
 		vlog.Errorf("%s: failed to write: %v", path, err)
@@ -56,7 +62,7 @@ func onCFindRequest(transferSyntaxUID string,
 	sopClassUID string,
 	data []byte) dimse.Status {
 	decoder := dicomio.NewBytesDecoder(data, nil, dicomio.UnknownVR)
-	endian, implicit, err := dicom.ParseTransferSyntaxUID(transferSyntaxUID)
+	endian, implicit, err := dicomio.ParseTransferSyntaxUID(transferSyntaxUID)
 	if err != nil {
 		vlog.Errorf("CFIND: Invalid transfer syntax specified by the client: %v", err)
 		return dimse.Status{Status: dimse.CStoreStatusOutOfResources}
@@ -64,8 +70,8 @@ func onCFindRequest(transferSyntaxUID string,
 	decoder.PushTransferSyntax(endian, implicit)
 	var elems []*dicom.Element
 	vlog.Infof("CFind: transfersyntax: %v, classuid: %v",
-		dicom.UIDString(transferSyntaxUID),
-		dicom.UIDString(sopClassUID))
+		dicomuid.UIDString(transferSyntaxUID),
+		dicomuid.UIDString(sopClassUID))
 	for decoder.Len() > 0 {
 		elem := dicom.ReadDataElement(decoder)
 		if decoder.Error() != nil {

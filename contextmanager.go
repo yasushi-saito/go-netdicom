@@ -3,6 +3,7 @@ package netdicom
 import (
 	"fmt"
 	"github.com/yasushi-saito/go-dicom"
+	"github.com/yasushi-saito/go-dicom/dicomuid"
 	"github.com/yasushi-saito/go-netdicom/pdu"
 	"github.com/yasushi-saito/go-netdicom/sopclass"
 	"v.io/x/lib/vlog"
@@ -12,6 +13,7 @@ type contextManagerEntry struct {
 	contextID         byte
 	abstractSyntaxUID string
 	transferSyntaxUID string
+	result            pdu.PresentationContextResult // was this mapping accepted by the server?
 }
 
 // contextManager manages mappings between a contextID and the corresponding
@@ -23,6 +25,8 @@ type contextManagerEntry struct {
 // handshake.  ContextID values are 1, 3, 5, etc.  One contextManager is created
 // per association.
 type contextManager struct {
+	label string // for diagnostics only.
+
 	// The two maps are inverses of each other.
 	contextIDToAbstractSyntaxNameMap map[byte]*contextManagerEntry
 	abstractSyntaxNameToContextIDMap map[string]*contextManagerEntry
@@ -44,8 +48,9 @@ type contextManager struct {
 }
 
 // Create an empty contextManager
-func newContextManager() *contextManager {
+func newContextManager(label string) *contextManager {
 	c := &contextManager{
+		label: label,
 		contextIDToAbstractSyntaxNameMap: make(map[byte]*contextManagerEntry),
 		abstractSyntaxNameToContextIDMap: make(map[string]*contextManagerEntry),
 		peerMaxPDUSize:                   16384, // The default value used by Osirix & pynetdicom.
@@ -141,7 +146,7 @@ func (m *contextManager) onAssociateRequest(requestItems []pdu.SubItem, maxPDUSi
 				Items:     []pdu.SubItem{&pdu.TransferSyntaxSubItem{Name: pickedTransferSyntaxUID}}})
 			vlog.VI(1).Infof("Provider(%p): addmapping %v %v %v",
 				m, sopUID, pickedTransferSyntaxUID, ri.ContextID)
-			addContextMapping(m, sopUID, pickedTransferSyntaxUID, ri.ContextID)
+			addContextMapping(m, sopUID, pickedTransferSyntaxUID, ri.ContextID, ri.Result)
 		case *pdu.UserInformationItem:
 			for _, subItem := range ri.Items {
 				switch c := subItem.(type) {
@@ -203,10 +208,20 @@ func (m *contextManager) onAssociateResponse(responses []pdu.SubItem) error {
 					}
 				}
 			}
-			if !found || sopUID == "" {
-				return fmt.Errorf("TransferSyntaxUID or AbstractSyntaxSubItem not found in %v", ri.String())
+			if sopUID == "" {
+				return fmt.Errorf("The A-ASSOCIATE request lacks the abstract syntax item for tag %v (this shouldn't happen)", ri.ContextID)
 			}
-			addContextMapping(m, sopUID, pickedTransferSyntaxUID, ri.ContextID)
+			if ri.Result != pdu.PresentationContextAccepted {
+				vlog.Errorf("Abstract syntax %v, transfer syntax %v was rejected by the server: %s",
+					sopUID, pickedTransferSyntaxUID, ri.Result.String())
+			}
+			if !found {
+				vlog.Errorf("The server picked TransferSyntaxUID '%s' for %s, but it is not in the list proposed by the client, %v",
+					dicomuid.UIDString(pickedTransferSyntaxUID),
+					dicomuid.UIDString(sopUID),
+					request.Items)
+			}
+			addContextMapping(m, sopUID, pickedTransferSyntaxUID, ri.ContextID, ri.Result)
 		case *pdu.UserInformationItem:
 			for _, subItem := range ri.Items {
 				switch c := subItem.(type) {
@@ -232,10 +247,11 @@ func addContextMapping(
 	m *contextManager,
 	abstractSyntaxUID string,
 	transferSyntaxUID string,
-	contextID byte) {
+	contextID byte,
+	result pdu.PresentationContextResult) {
 	vlog.VI(2).Infof("Map context %d -> %s, %s",
-		contextID, dicom.UIDString(abstractSyntaxUID),
-		dicom.UIDString(transferSyntaxUID))
+		contextID, dicomuid.UIDString(abstractSyntaxUID),
+		dicomuid.UIDString(transferSyntaxUID))
 	doassert(abstractSyntaxUID != "")
 	doassert(transferSyntaxUID != "")
 	doassert(contextID%2 == 1)
@@ -243,16 +259,32 @@ func addContextMapping(
 		abstractSyntaxUID: abstractSyntaxUID,
 		transferSyntaxUID: transferSyntaxUID,
 		contextID:         contextID,
+		result:            result,
 	}
 	m.contextIDToAbstractSyntaxNameMap[contextID] = e
 	m.abstractSyntaxNameToContextIDMap[abstractSyntaxUID] = e
+}
+
+func (m *contextManager) checkContextRejection(e *contextManagerEntry) error {
+	if e.result != pdu.PresentationContextAccepted {
+		return fmt.Errorf("contextmanager(%v): Trying to use rejected context <%v, %v>: %s",
+			m.label,
+			dicomuid.UIDString(e.abstractSyntaxUID),
+			dicomuid.UIDString(e.transferSyntaxUID),
+			e.result.String())
+	}
+	return nil
 }
 
 // Convert an UID to a context ID.
 func (m *contextManager) lookupByAbstractSyntaxUID(name string) (contextManagerEntry, error) {
 	e, ok := m.abstractSyntaxNameToContextIDMap[name]
 	if !ok {
-		return contextManagerEntry{}, fmt.Errorf("contextmanager(%p): Unknown syntax %s", name)
+		return contextManagerEntry{}, fmt.Errorf("contextmanager(%v): Unknown syntax %s", m.label, dicomuid.UIDString(name))
+	}
+	err := m.checkContextRejection(e)
+	if err != nil {
+		return contextManagerEntry{}, err
 	}
 	return *e, nil
 }
@@ -261,7 +293,11 @@ func (m *contextManager) lookupByAbstractSyntaxUID(name string) (contextManagerE
 func (m *contextManager) lookupByContextID(contextID byte) (contextManagerEntry, error) {
 	e, ok := m.contextIDToAbstractSyntaxNameMap[contextID]
 	if !ok {
-		return contextManagerEntry{}, fmt.Errorf("contextmanager(%p): Unknown context ID %d", m, contextID)
+		return contextManagerEntry{}, fmt.Errorf("contextmanager(%v): Unknown context ID %d", m.label, contextID)
+	}
+	err := m.checkContextRejection(e)
+	if err != nil {
+		return contextManagerEntry{}, err
 	}
 	return *e, nil
 }

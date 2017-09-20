@@ -294,12 +294,44 @@ func (v *TransferSyntaxSubItem) String() string {
 	return fmt.Sprintf("transfersyntax{name: \"%s\"}", v.Name)
 }
 
+// Result of abstractsyntax/transfersyntax handshake during A-ACCEPT.  P3.8,
+// 90.3.3.2, table 9-18.
+type PresentationContextResult byte
+
+const (
+	PresentationContextAccepted                                    PresentationContextResult = 0
+	PresentationContextUserRejection                               PresentationContextResult = 1
+	PresentationContextProviderRejectionNoReason                   PresentationContextResult = 2
+	PresentationContextProviderRejectionAbstractSyntaxNotSupported PresentationContextResult = 3
+	PresentationContextProviderRejectionTransferSyntaxNotSupported PresentationContextResult = 4
+)
+
+func (p PresentationContextResult) String() string {
+	switch p {
+	case PresentationContextAccepted:
+		return "Accepted"
+	case PresentationContextUserRejection:
+		return "User rejection"
+	case PresentationContextProviderRejectionNoReason:
+		return "Provider rejection (no reason)"
+	case PresentationContextProviderRejectionAbstractSyntaxNotSupported:
+		return "Provider rejection (abstract syntax not supported)"
+	case PresentationContextProviderRejectionTransferSyntaxNotSupported:
+		return "Provider rejection (transfer syntax not supported)"
+	default:
+		return fmt.Sprintf("Unknown presentationcontextresult %d", p)
+	}
+}
+
 // P3.8 9.3.2.2, 9.3.3.2
 type PresentationContextItem struct {
 	Type      byte // ItemTypePresentationContext*
 	ContextID byte
 	// 1 byte reserved
-	Result byte // Used iff type=0x21, zero else.
+
+	// Result is meaningful iff Type=0x21, zero else.
+	Result PresentationContextResult
+
 	// 1 byte reserved
 	Items []SubItem // List of {Abstract,Transfer}SyntaxSubItem
 }
@@ -310,7 +342,7 @@ func decodePresentationContextItem(d *dicomio.Decoder, itemType byte, length uin
 	defer d.PopLimit()
 	v.ContextID = d.ReadByte()
 	d.Skip(1)
-	v.Result = d.ReadByte()
+	v.Result = PresentationContextResult(d.ReadByte())
 	d.Skip(1)
 	for d.Len() > 0 {
 		item := decodeSubItem(d)
@@ -351,8 +383,8 @@ func (v *PresentationContextItem) String() string {
 	if v.Type == ItemTypePresentationContextResponse {
 		itemType = "ac"
 	}
-	return fmt.Sprintf("presentationcontext%s{id: %d items:%s}",
-		itemType, v.ContextID, subItemListString(v.Items))
+	return fmt.Sprintf("presentationcontext%s{id: %d result: %d, items:%s}",
+		itemType, v.ContextID, v.Result, subItemListString(v.Items))
 }
 
 // P3.8 9.3.2.2.1 & 9.3.2.2.2

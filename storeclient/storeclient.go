@@ -9,6 +9,7 @@ import (
 
 	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-dicom/dicomio"
+	"github.com/yasushi-saito/go-dicom/dicomuid"
 	"github.com/yasushi-saito/go-netdicom"
 	"github.com/yasushi-saito/go-netdicom/sopclass"
 	"v.io/x/lib/vlog"
@@ -17,7 +18,7 @@ import (
 var (
 	serverFlag = flag.String("server", "localhost:10000", "host:port of the remote application entity")
 	storeFlag  = flag.String("store", "", "If set, issue C-STORE to copy this file to the remote server")
-	findFlag   = flag.String("find", "aoeu", "blah")
+	findFlag   = flag.String("find", "", "blah")
 )
 
 func cStore(server, inPath string) {
@@ -50,8 +51,8 @@ func cStore(server, inPath string) {
 
 func cFind(server, argStr string) {
 	params := netdicom.NewServiceUserParams(
-		"dontcare", "testclient", sopclass.StorageClasses,
-		[]string{dicom.ExplicitVRLittleEndian})
+		"dontcare", "testclient", sopclass.QRFindClasses,
+		[]string{dicomuid.ExplicitVRLittleEndian})
 	su := netdicom.NewServiceUser(params)
 	su.Connect(server)
 
