@@ -8,15 +8,12 @@ import (
 )
 
 func testDIMSE(t *testing.T, v dimse.Message) {
-	e := dicomio.NewEncoder(binary.LittleEndian, dicomio.ImplicitVR)
+	e := dicomio.NewBytesEncoder(binary.LittleEndian, dicomio.ImplicitVR)
 	dimse.EncodeMessage(e, v)
-	bytes, err := e.Finish()
-	if err != nil {
-		t.Fatal(err)
-	}
+	bytes := e.Bytes()
 	d := dicomio.NewBytesDecoder(bytes, binary.LittleEndian, dicomio.ImplicitVR)
 	v2 := dimse.ReadMessage(d)
-	err = d.Finish()
+	err := d.Finish()
 	if err != nil {
 		t.Fatal(err)
 	}

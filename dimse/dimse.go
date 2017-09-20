@@ -130,7 +130,7 @@ func encodeField(e *dicomio.Encoder, tag dicom.Tag, v interface{}) {
 		UndefinedLength: false,
 		Value:           []interface{}{v},
 	}
-	dicom.EncodeDataElement(e, &elem)
+	dicom.WriteDataElement(e, &elem)
 }
 
 // CommandDataSetTypeNull for dicom.TagCommandDataSetType indicates
@@ -215,13 +215,13 @@ func ReadMessage(d *dicomio.Decoder) Message {
 // Serialize the given message.
 func EncodeMessage(e *dicomio.Encoder, v Message) {
 	// DIMSE messages are always encoded Implicit+LE. See P3.7 6.3.1.
-	subEncoder := dicomio.NewEncoder(binary.LittleEndian, dicomio.ImplicitVR)
+	subEncoder := dicomio.NewBytesEncoder(binary.LittleEndian, dicomio.ImplicitVR)
 	v.Encode(subEncoder)
-	bytes, err := subEncoder.Finish()
-	if err != nil {
+	if err := subEncoder.Error(); err != nil {
 		e.SetError(err)
 		return
 	}
+	bytes := subEncoder.Bytes()
 	e.PushTransferSyntax(binary.LittleEndian, dicomio.ImplicitVR)
 	defer e.PopTransferSyntax()
 	encodeField(e, dicom.TagCommandGroupLength, uint32(len(bytes)))

@@ -195,17 +195,17 @@ func (su *ServiceUser) CStore(data []byte) error {
 	if err != nil {
 		return err
 	}
-	e := dicomio.NewEncoder(nil, dicomio.UnknownVR)
+	e := dicomio.NewBytesEncoder(nil, dicomio.UnknownVR)
 	dimse.EncodeMessage(e, &dimse.C_STORE_RQ{
 		AffectedSOPClassUID:    sopClassUID,
 		MessageID:              newMessageID(su),
 		CommandDataSetType:     dimse.CommandDataSetTypeNonNull,
 		AffectedSOPInstanceUID: sopInstanceUID,
 	})
-	req, err := e.Finish()
-	if err != nil {
+	if err := e.Error(); err != nil {
 		return err
 	}
+	req := e.Bytes()
 	su.downcallCh <- stateEvent{
 		event: evt09,
 		dataPayload: &stateEventDataPayload{abstractSyntaxName: sopClassUID,
@@ -244,17 +244,17 @@ func (su *ServiceUser) CFind(filter []*dicom.Element) ([]int, error) {
 	if err != nil {
 		return nil, err
 	}
-	e := dicomio.NewEncoder(nil, dicomio.UnknownVR)
+	e := dicomio.NewBytesEncoder(nil, dicomio.UnknownVR)
 	sopClassUID := dicom.PatientRootQRFind
 	dimse.EncodeMessage(e, &dimse.C_FIND_RQ{
 		AffectedSOPClassUID: sopClassUID,
 		MessageID:           newMessageID(su),
 		CommandDataSetType:  dimse.CommandDataSetTypeNonNull,
 	})
-	req, err := e.Finish()
-	if err != nil {
+	if err := e.Error(); err != nil {
 		return nil, err
 	}
+	req := e.Bytes()
 	su.downcallCh <- stateEvent{
 		event: evt09,
 		dataPayload: &stateEventDataPayload{abstractSyntaxName: sopClassUID,

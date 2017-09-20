@@ -55,18 +55,14 @@ func onCStoreRequest(
 		dicom.UIDString(transferSyntaxUID),
 		dicom.UIDString(sopClassUID),
 		dicom.UIDString(sopInstanceUID))
-	e := dicomio.NewEncoder(nil, dicomio.UnknownVR)
+	e := dicomio.NewBytesEncoder(nil, dicomio.UnknownVR)
 	dicom.WriteFileHeader(e, transferSyntaxUID, sopClassUID, sopInstanceUID)
 	e.WriteBytes(data)
 
 	if cstoreData != nil {
 		vlog.Fatal("Received C-STORE data twice")
 	}
-	var err error
-	cstoreData, err = e.Finish()
-	if err != nil {
-		vlog.Fatal(err)
-	}
+	cstoreData = e.Bytes()
 	vlog.Infof("Received C-STORE requset")
 	return dimse.Status{Status: dimse.StatusSuccess}
 }

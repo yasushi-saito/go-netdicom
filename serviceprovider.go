@@ -64,12 +64,9 @@ func onDIMSECommand(downcallCh chan stateEvent, abstractSyntaxUID string,
 	doassert(transferSyntaxUID != "")
 
 	var sendResponse = func(resp dimse.Message) {
-		e := dicomio.NewEncoder(nil, dicomio.UnknownVR)
+		e := dicomio.NewBytesEncoder(nil, dicomio.UnknownVR)
 		dimse.EncodeMessage(e, resp)
-		bytes, err := e.Finish()
-		if err != nil {
-			panic(err)
-		}
+		bytes := e.Bytes()
 		downcallCh <- stateEvent{
 			event: evt09,
 			pdu:   nil,

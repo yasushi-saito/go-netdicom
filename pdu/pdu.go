@@ -97,15 +97,15 @@ type UserInformationItem struct {
 }
 
 func (v *UserInformationItem) Write(e *dicomio.Encoder) {
-	itemEncoder := dicomio.NewEncoder(binary.BigEndian, dicomio.UnknownVR)
+	itemEncoder := dicomio.NewBytesEncoder(binary.BigEndian, dicomio.UnknownVR)
 	for _, s := range v.Items {
 		s.Write(itemEncoder)
 	}
-	itemBytes, err := itemEncoder.Finish()
-	if err != nil {
+	if err := itemEncoder.Error(); err != nil {
 		e.SetError(err)
 		return
 	}
+	itemBytes := itemEncoder.Bytes()
 	encodeSubItemHeader(e, ItemTypeUserInformation, uint16(len(itemBytes)))
 	e.WriteBytes(itemBytes)
 }
@@ -331,15 +331,15 @@ func (v *PresentationContextItem) Write(e *dicomio.Encoder) {
 		vlog.Fatal(*v)
 	}
 
-	itemEncoder := dicomio.NewEncoder(binary.BigEndian, dicomio.UnknownVR)
+	itemEncoder := dicomio.NewBytesEncoder(binary.BigEndian, dicomio.UnknownVR)
 	for _, s := range v.Items {
 		s.Write(itemEncoder)
 	}
-	itemBytes, err := itemEncoder.Finish()
-	if err != nil {
+	if err := itemEncoder.Error(); err != nil {
 		e.SetError(err)
 		return
 	}
+	itemBytes := itemEncoder.Bytes()
 	encodeSubItemHeader(e, v.Type, uint16(4+len(itemBytes)))
 	e.WriteByte(v.ContextID)
 	e.WriteZeros(3)
@@ -418,13 +418,12 @@ func EncodePDU(pdu PDU) ([]byte, error) {
 	default:
 		vlog.Fatalf("Unknown PDU %v", pdu)
 	}
-	e := dicomio.NewEncoder(binary.BigEndian, dicomio.UnknownVR)
+	e := dicomio.NewBytesEncoder(binary.BigEndian, dicomio.UnknownVR)
 	pdu.WritePayload(e)
-	payload, err := e.Finish()
-	if err != nil {
+	if err := e.Error(); err != nil {
 		return nil, err
 	}
-
+	payload := e.Bytes()
 	// Reserve the header bytes. It will be filled in Finish.
 	var header [6]byte // First 6 bytes of buf.
 	header[0] = byte(pduType)

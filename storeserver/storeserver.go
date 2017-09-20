@@ -36,16 +36,15 @@ func onCStoreRequest(
 	path := path.Join(*outputFlag, fmt.Sprintf("image%04d.dcm", atomic.AddInt32(&pathSeq, 1)))
 
 	vlog.Infof("Writing %s", path)
-	e := dicomio.NewEncoder(binary.LittleEndian, dicomio.ExplicitVR)
+	e := dicomio.NewBytesEncoder(binary.LittleEndian, dicomio.ExplicitVR)
 	dicom.WriteFileHeader(e, transferSyntaxUID, sopClassUID, sopInstanceUID)
 	e.WriteBytes(data)
-	bytes, err := e.Finish()
-
-	if err != nil {
+	if err := e.Error(); err != nil {
 		vlog.Errorf("%s: failed to write: %v", path, err)
 		return dimse.Status{Status: dimse.StatusNotAuthorized}
 	}
-	err = ioutil.WriteFile(path, bytes, 0644)
+	bytes := e.Bytes()
+	err := ioutil.WriteFile(path, bytes, 0644)
 	if err != nil {
 		vlog.Errorf("%s: %s", path, err)
 		return dimse.Status{Status: dimse.StatusNotAuthorized}
