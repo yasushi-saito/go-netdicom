@@ -32,7 +32,10 @@ func initTest() {
 		go func() {
 			// TODO(saito) test w/ small PDU.
 			params := netdicom.ServiceProviderParams{MaxPDUSize: 4096000}
-			callbacks := netdicom.ServiceProviderCallbacks{CStore: onCStoreRequest}
+			callbacks := netdicom.ServiceProviderCallbacks{
+				CStore: onCStoreRequest,
+				CFind: onCFindRequest,
+			}
 			for {
 				conn, err := listener.Accept()
 				if err != nil {
@@ -69,8 +72,21 @@ func onCStoreRequest(
 		vlog.Fatal("Received C-STORE data twice")
 	}
 	cstoreData = e.Bytes()
-	vlog.Infof("Received C-STORE requset")
+	vlog.Infof("Received C-STORE request")
 	return dimse.Status{Status: dimse.StatusSuccess}
+}
+
+func onCFindRequest(
+	transferSyntaxUID string,
+	sopClassUID string,
+	filters []*dicom.Element) chan netdicom.CFindResult {
+	ch := make(chan netdicom.CFindResult, 128)
+	vlog.Infof("Received cfind request")
+	for _, elem := range filters {
+		vlog.Infof("Filter %v", elem)
+	}
+	close(ch)
+	return ch
 }
 
 func checkFileBodiesEqual(t *testing.T, in, out *dicom.DataSet) {
@@ -145,6 +161,21 @@ func TestStoreSingleFile(t *testing.T) {
 		vlog.Fatal(err)
 	}
 	checkFileBodiesEqual(t, in, out)
+}
+
+func TestFind(t *testing.T) {
+	initTest()
+	params := netdicom.NewServiceUserParams(
+		"dontcare", "testclient", sopclass.QRFindClasses,
+		dicomio.StandardTransferSyntaxes)
+	su := netdicom.NewServiceUser(params)
+	su.Connect(serverAddr)
+	filter := []*dicom.Element{
+		dicom.NewElement(dicom.TagPatientName, "*"),
+	}
+	for result := range su.CFind(netdicom.CFindPatientQRLevel, filter) {
+		vlog.Errorf("Got result: %v", result)
+	}
 }
 
 func TestNonexistentServer(t *testing.T) {

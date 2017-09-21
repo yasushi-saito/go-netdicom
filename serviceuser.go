@@ -306,9 +306,9 @@ func (su *ServiceUser) CFind(qrLevel CFindQRLevel, filter []*dicom.Element) chan
 
 	// Encode the data payload containing the filtering conditions.
 	dataEncoder := dicomio.NewBytesEncoderWithTransferSyntax(context.transferSyntaxUID)
-	dicom.WriteDataElement(dataEncoder, dicom.NewElement(dicom.TagQueryRetrievalLevel, qrLevelString))
+	dicom.WriteDataElement(dataEncoder, dicom.NewElement(dicom.TagQueryRetrieveLevel, qrLevelString))
 	for _, elem := range filter {
-		if elem.Tag == dicom.TagQueryRetrievalLevel {
+		if elem.Tag == dicom.TagQueryRetrieveLevel {
 			// This tag is auto-computed from qrlevel.
 			ch <- CFindResult{Err: fmt.Errorf("%v: tag must not be in the C-FIND payload (it is derived from qrLevel)", elem.Tag)}
 			close(ch)
