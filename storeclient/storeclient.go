@@ -57,11 +57,8 @@ func cFind(server, argStr string) {
 	su.Connect(server)
 
 	var args []*dicom.Element
-	args = append(args,
-		dicom.NewElement(dicom.TagQueryRetrievalLevel, "PATIENT"))
-	args = append(args,
-		dicom.NewElement(dicom.TagPatientName, "*"))
-	_, err := su.CFind(args)
+	args = append(args, dicom.NewElement(dicom.TagPatientName, "*"))
+	_, err := su.CFind(netdicom.CFindStudyQRLevel, args)
 	if err != nil {
 		log.Fatalf("C-FIND '%s' failed: %v", argStr, err)
 	}

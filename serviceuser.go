@@ -239,18 +239,41 @@ func (su *ServiceUser) CStore(data []byte) error {
 	panic("should not reach here")
 }
 
+type CFindQRLevel int
+
+const (
+	CFindPatientQRLevel CFindQRLevel = iota
+	CFindStudyQRLevel
+)
+
 // Issue a C-FIND request; blocks until the server responds, or an error
-// happens. "data" is a DICOM file. Its transfer syntax must match the one
-// established in during DICOM A_ASSOCIATE handshake.
+// happens.
+//
+// sopClassUID is one of the UIDs defined in sopclass.QRFindClasses.  filter is
+// the list of elements to match and retrieve.
 //
 // TODO(saito) Re-encode the data using the valid transfer syntax.
-func (su *ServiceUser) CFind(filter []*dicom.Element) ([]int, error) {
+func (su *ServiceUser) CFind(
+	qrLevel CFindQRLevel,
+	filter []*dicom.Element) ([]int, error) {
 	err := waitAssociationEstablishment(su)
 	if err != nil {
 		return nil, err
 	}
+
+	var sopClassUID string
+	var qrLevelString string
+	switch qrLevel {
+	case CFindPatientQRLevel:
+		sopClassUID = dicomuid.PatientRootQRFind
+		qrLevelString = "PATIENT"
+	case CFindStudyQRLevel:
+		sopClassUID = dicomuid.StudyRootQRFind
+		qrLevelString = "STUDY"
+	default:
+		return nil, fmt.Errorf("Invalid C-FIND QR lever: %d", qrLevel)
+	}
 	cmdEncoder := dicomio.NewBytesEncoder(nil, dicomio.UnknownVR)
-	sopClassUID := dicomuid.PatientRootQRFind
 	context, err := su.cm.lookupByAbstractSyntaxUID(sopClassUID)
 	if err != nil {
 		// This happens when the user passed a wrong sopclass list in
@@ -268,7 +291,12 @@ func (su *ServiceUser) CFind(filter []*dicom.Element) ([]int, error) {
 	}
 
 	dataEncoder := dicomio.NewBytesEncoderWithTransferSyntax(context.transferSyntaxUID)
+	dicom.WriteDataElement(dataEncoder, dicom.NewElement(dicom.TagQueryRetrievalLevel, qrLevelString))
 	for _, elem := range filter {
+		if elem.Tag == dicom.TagQueryRetrievalLevel {
+			// This tag is auto-computed from qrlevel.
+			return nil, fmt.Errorf("%v: tag must not be in the C-FIND payload (it is derived from qrLevel)", elem.Tag)
+		}
 		dicom.WriteDataElement(dataEncoder, elem)
 	}
 	if err := dataEncoder.Error(); err != nil {
@@ -297,7 +325,7 @@ func (su *ServiceUser) CFind(filter []*dicom.Element) ([]int, error) {
 		if !ok {
 			return nil, fmt.Errorf("Found wrong response for C-FIND: %v", event.command)
 		}
-		vlog.Errorf("Got resp: %v %v", event, resp)
+		vlog.Errorf("Got resp: %v %v", event, resp.String())
 	}
 	panic("should not reach here")
 }

@@ -61,13 +61,7 @@ func onCStoreRequest(
 func onCFindRequest(transferSyntaxUID string,
 	sopClassUID string,
 	data []byte) dimse.Status {
-	decoder := dicomio.NewBytesDecoder(data, nil, dicomio.UnknownVR)
-	endian, implicit, err := dicomio.ParseTransferSyntaxUID(transferSyntaxUID)
-	if err != nil {
-		vlog.Errorf("CFIND: Invalid transfer syntax specified by the client: %v", err)
-		return dimse.Status{Status: dimse.CStoreStatusOutOfResources}
-	}
-	decoder.PushTransferSyntax(endian, implicit)
+	decoder := dicomio.NewBytesDecoderWithTransferSyntax(data, transferSyntaxUID)
 	var elems []*dicom.Element
 	vlog.Infof("CFind: transfersyntax: %v, classuid: %v",
 		dicomuid.UIDString(transferSyntaxUID),

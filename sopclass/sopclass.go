@@ -1,5 +1,7 @@
 package sopclass
 
+// TODO(saito) Merge w/ dicomuid.
+
 // DICOM SOP UID listing.
 //
 // https://www.dicomlibrary.com/dicom/sop/
