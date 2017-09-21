@@ -55,14 +55,19 @@ func cFind(server, argStr string) {
 		[]string{dicomuid.ExplicitVRLittleEndian})
 	su := netdicom.NewServiceUser(params)
 	su.Connect(server)
-
-	var args []*dicom.Element
-	args = append(args, dicom.NewElement(dicom.TagPatientName, "*"))
-	_, err := su.CFind(netdicom.CFindStudyQRLevel, args)
-	if err != nil {
-		log.Fatalf("C-FIND '%s' failed: %v", argStr, err)
+	args := []*dicom.Element{
+		dicom.NewElement(dicom.TagPatientName, "*"),
 	}
-	log.Printf("C-FIND done!!")
+	for result := range su.CFind(netdicom.CFindStudyQRLevel, args) {
+		if result.Err != nil {
+			vlog.Errorf("C-FIND error: %v", result.Err)
+			continue
+		}
+		vlog.Errorf("Got response with %d elems", len(result.Elements))
+		for _, elem := range result.Elements {
+			vlog.Errorf("Got elem: %v", elem.String())
+		}
+	}
 	su.Release()
 }
 

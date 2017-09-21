@@ -216,7 +216,14 @@ func (m *contextManager) onAssociateResponse(responses []pdu.SubItem) error {
 					sopUID, pickedTransferSyntaxUID, ri.Result.String())
 			}
 			if !found {
-				vlog.Errorf("The server picked TransferSyntaxUID '%s' for %s, but it is not in the list proposed by the client, %v",
+				// Generally, we expect the server to pick a
+				// transfer syntax that's in the A-ASSOCIATE-RQ
+				// list, but it's not required to do so - e.g.,
+				// Osirix SCP. That being the case, I'm not sure
+				// the point of reporting the list in
+				// A-ASSOCIATE-RQ, but that's only one of
+				// DICOM's pointless complexities.
+				vlog.Errorf("The server picked TransferSyntaxUID '%s' for %s, which is not in the list proposed, %v",
 					dicomuid.UIDString(pickedTransferSyntaxUID),
 					dicomuid.UIDString(sopUID),
 					request.Items)

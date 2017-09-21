@@ -246,21 +246,27 @@ const (
 	CFindStudyQRLevel
 )
 
-// Issue a C-FIND request; blocks until the server responds, or an error
-// happens.
+type CFindResult struct {
+	// Exactly one of Err or Elements is set.
+	Err      error
+	Elements []*dicom.Element // Elements belonging to one dataset.
+}
+
+// CFind issues a C-FIND request. Returns a channel that streams sequence of
+// either an error or a dataset found. The caller MUST read all responses from
+// the channel before issuing any other DIMSE command (C-FIND, C-STORE, etc).
 //
-// sopClassUID is one of the UIDs defined in sopclass.QRFindClasses.  filter is
-// the list of elements to match and retrieve.
-//
-// TODO(saito) Re-encode the data using the valid transfer syntax.
-func (su *ServiceUser) CFind(
-	qrLevel CFindQRLevel,
-	filter []*dicom.Element) ([]int, error) {
+// The param sopClassUID is one of the UIDs defined in sopclass.QRFindClasses.
+// filter is the list of elements to match and retrieve.
+func (su *ServiceUser) CFind(qrLevel CFindQRLevel, filter []*dicom.Element) chan CFindResult {
+	ch := make(chan CFindResult, 128)
 	err := waitAssociationEstablishment(su)
 	if err != nil {
-		return nil, err
+		ch <- CFindResult{Err: err}
+		close(ch)
+		return ch
 	}
-
+	// Translate qrLevel to the sopclass and QRLevel elem.
 	var sopClassUID string
 	var qrLevelString string
 	switch qrLevel {
@@ -271,15 +277,21 @@ func (su *ServiceUser) CFind(
 		sopClassUID = dicomuid.StudyRootQRFind
 		qrLevelString = "STUDY"
 	default:
-		return nil, fmt.Errorf("Invalid C-FIND QR lever: %d", qrLevel)
+		ch <- CFindResult{Err: fmt.Errorf("Invalid C-FIND QR lever: %d", qrLevel)}
+		close(ch)
+		return ch
 	}
+
+	// Encode the C-FIND DIMSE command.
 	cmdEncoder := dicomio.NewBytesEncoder(nil, dicomio.UnknownVR)
 	context, err := su.cm.lookupByAbstractSyntaxUID(sopClassUID)
 	if err != nil {
 		// This happens when the user passed a wrong sopclass list in
 		// A-ASSOCIATE handshake.
 		vlog.Errorf("Failed to lookup sopclass %v: %v", sopClassUID, err)
-		return nil, err
+		ch <- CFindResult{Err: err}
+		close(ch)
+		return ch
 	}
 	dimse.EncodeMessage(cmdEncoder, &dimse.C_FIND_RQ{
 		AffectedSOPClassUID: sopClassUID,
@@ -287,47 +299,81 @@ func (su *ServiceUser) CFind(
 		CommandDataSetType:  dimse.CommandDataSetTypeNonNull,
 	})
 	if err := cmdEncoder.Error(); err != nil {
-		return nil, err
+		ch <- CFindResult{Err: err}
+		close(ch)
+		return ch
 	}
 
+	// Encode the data payload containing the filtering conditions.
 	dataEncoder := dicomio.NewBytesEncoderWithTransferSyntax(context.transferSyntaxUID)
 	dicom.WriteDataElement(dataEncoder, dicom.NewElement(dicom.TagQueryRetrievalLevel, qrLevelString))
 	for _, elem := range filter {
 		if elem.Tag == dicom.TagQueryRetrievalLevel {
 			// This tag is auto-computed from qrlevel.
-			return nil, fmt.Errorf("%v: tag must not be in the C-FIND payload (it is derived from qrLevel)", elem.Tag)
+			ch <- CFindResult{Err: fmt.Errorf("%v: tag must not be in the C-FIND payload (it is derived from qrLevel)", elem.Tag)}
+			close(ch)
+			return ch
 		}
 		dicom.WriteDataElement(dataEncoder, elem)
 	}
 	if err := dataEncoder.Error(); err != nil {
-		return nil, err
+		ch <- CFindResult{Err: err}
+		close(ch)
+		return ch
 	}
-	su.downcallCh <- stateEvent{
-		event: evt09,
-		dataPayload: &stateEventDataPayload{abstractSyntaxName: sopClassUID,
-			command: true,
-			data:    cmdEncoder.Bytes()}}
+	go func() {
+		defer close(ch)
+		su.downcallCh <- stateEvent{
+			event: evt09,
+			dataPayload: &stateEventDataPayload{abstractSyntaxName: sopClassUID,
+				command: true,
+				data:    cmdEncoder.Bytes()}}
 
-	su.downcallCh <- stateEvent{
-		event: evt09,
-		dataPayload: &stateEventDataPayload{abstractSyntaxName: sopClassUID,
-			command: false,
-			data:    dataEncoder.Bytes()}}
-	for {
-		event, ok := <-su.upcallCh
-		if !ok {
-			su.status = serviceUserClosed
-			return nil, fmt.Errorf("Connection closed while waiting for C-FIND response")
+		su.downcallCh <- stateEvent{
+			event: evt09,
+			dataPayload: &stateEventDataPayload{abstractSyntaxName: sopClassUID,
+				command: false,
+				data:    dataEncoder.Bytes()}}
+		for {
+			event, ok := <-su.upcallCh
+			if !ok {
+				su.status = serviceUserClosed
+				ch <- CFindResult{Err: fmt.Errorf("Connection closed while waiting for C-FIND response")}
+				break
+			}
+			doassert(event.eventType == upcallEventData)
+			doassert(event.command != nil)
+			resp, ok := event.command.(*dimse.C_FIND_RSP)
+			if !ok {
+				ch <- CFindResult{Err: fmt.Errorf("Found wrong response for C-FIND: %v", event.command)}
+				break
+			}
+			decoder := dicomio.NewBytesDecoderWithTransferSyntax(event.data, context.transferSyntaxUID)
+			var elems []*dicom.Element
+			for decoder.Len() > 0 {
+				elem := dicom.ReadDataElement(decoder)
+				if decoder.Error() != nil {
+					break
+				}
+				vlog.Infof("CFind: param: %v", elem)
+				elems = append(elems, elem)
+			}
+			if decoder.Error() != nil {
+				vlog.Errorf("Failed to decode C-FIND response: %v %v", resp.String(), decoder.Error())
+				ch <- CFindResult{Err: decoder.Error()}
+			} else {
+				ch <- CFindResult{Elements: elems}
+			}
+			if resp.Status.Status != dimse.StatusPending {
+				if resp.Status.Status != 0 {
+					// TODO: report error if status!= 0
+					panic(resp)
+				}
+				break
+			}
 		}
-		doassert(event.eventType == upcallEventData)
-		doassert(event.command != nil)
-		resp, ok := event.command.(*dimse.C_FIND_RSP)
-		if !ok {
-			return nil, fmt.Errorf("Found wrong response for C-FIND: %v", event.command)
-		}
-		vlog.Errorf("Got resp: %v %v", event, resp.String())
-	}
-	panic("should not reach here")
+	}()
+	return ch
 }
 
 func (su *ServiceUser) Release() {

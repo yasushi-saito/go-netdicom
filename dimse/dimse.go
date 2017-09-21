@@ -154,6 +154,7 @@ const (
 	StatusInvalidObjectInstance StatusCode = 0x0117
 	StatusUnrecognizedOperation StatusCode = 0x0211
 	StatusNotAuthorized         StatusCode = 0x0124
+	StatusPending               StatusCode = 0xff00
 
 	// C-STORE-specific status codes. P3.4 GG4-1
 	CStoreStatusOutOfResources              StatusCode = 0xa700
