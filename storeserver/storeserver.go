@@ -10,8 +10,8 @@ import (
 	"sync/atomic"
 
 	"github.com/yasushi-saito/go-dicom"
-	"github.com/yasushi-saito/go-dicom/dicomuid"
 	"github.com/yasushi-saito/go-dicom/dicomio"
+	"github.com/yasushi-saito/go-dicom/dicomuid"
 	"github.com/yasushi-saito/go-netdicom"
 	"github.com/yasushi-saito/go-netdicom/dimse"
 	"v.io/x/lib/vlog"
@@ -60,27 +60,16 @@ func onCStoreRequest(
 
 func onCFindRequest(transferSyntaxUID string,
 	sopClassUID string,
-	data []byte) dimse.Status {
-	decoder := dicomio.NewBytesDecoderWithTransferSyntax(data, transferSyntaxUID)
-	var elems []*dicom.Element
+	filter []*dicom.Element) chan netdicom.CFindResult {
 	vlog.Infof("CFind: transfersyntax: %v, classuid: %v",
 		dicomuid.UIDString(transferSyntaxUID),
 		dicomuid.UIDString(sopClassUID))
-	for decoder.Len() > 0 {
-		elem := dicom.ReadDataElement(decoder)
-		if decoder.Error() != nil {
-			break
-		}
-		vlog.Infof("CFind: param: %v", elem)
-		elems = append(elems, elem)
+	for _, elem := range  filter {
+		vlog.Infof("CFind: filter %v", elem)
 	}
-	if decoder.Error() != nil {
-		return dimse.Status{
-			Status:       dimse.CFindUnableToProcess,
-			ErrorComment: decoder.Error().Error(),
-		}
-	}
-	return dimse.Success
+	ch := make(chan netdicom.CFindResult)
+	close(ch)
+	return ch
 }
 
 func main() {

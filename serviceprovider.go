@@ -1,6 +1,7 @@
 package netdicom
 
 import (
+	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-dicom/dicomio"
 	"github.com/yasushi-saito/go-netdicom/dimse"
 	"net"
@@ -24,7 +25,7 @@ type CStoreCallback func(
 type CFindCallback func(
 	transferSyntaxUID string,
 	sopClassUID string,
-	data []byte) dimse.Status
+	filters []*dicom.Element) chan CFindResult
 
 type CEchoCallback func() dimse.Status
 
@@ -58,6 +59,34 @@ type ServiceProvider struct {
 	callbacks ServiceProviderCallbacks
 }
 
+func writeElementsToBytes(elems []*dicom.Element, transferSyntaxUID string) ([]byte, error) {
+	dataEncoder := dicomio.NewBytesEncoderWithTransferSyntax(transferSyntaxUID)
+	for _, elem := range elems {
+		dicom.WriteDataElement(dataEncoder, elem)
+	}
+	if err := dataEncoder.Error(); err != nil {
+		return nil, err
+	}
+	return dataEncoder.Bytes(), nil
+}
+
+func readElementsInBytes(data []byte, transferSyntaxUID string) ([]*dicom.Element, error) {
+	decoder := dicomio.NewBytesDecoderWithTransferSyntax(data, transferSyntaxUID)
+	var elems []*dicom.Element
+	for decoder.Len() > 0 {
+		elem := dicom.ReadDataElement(decoder)
+		if decoder.Error() != nil {
+			break
+		}
+		vlog.Infof("CFind: param: %v", elem)
+		elems = append(elems, elem)
+	}
+	if decoder.Error() != nil {
+		return nil, decoder.Error()
+	}
+	return elems, nil
+}
+
 func onDIMSECommand(downcallCh chan stateEvent,
 	cm *contextManager,
 	contextID byte,
@@ -81,9 +110,21 @@ func onDIMSECommand(downcallCh chan stateEvent,
 				data:               bytes},
 		}
 	}
-	status := dimse.Status{Status: dimse.StatusUnrecognizedOperation}
+	var sendData = func(bytes []byte) {
+		downcallCh <- stateEvent{
+			event: evt09,
+			pdu:   nil,
+			conn:  nil,
+			dataPayload: &stateEventDataPayload{
+				abstractSyntaxName: context.abstractSyntaxUID,
+				command:            false,
+				data:               bytes},
+		}
+	}
+
 	switch c := msg.(type) {
 	case *dimse.C_STORE_RQ:
+		status := dimse.Status{Status: dimse.StatusUnrecognizedOperation}
 		if callbacks.CStore != nil {
 			status = callbacks.CStore(
 				context.transferSyntaxUID,
@@ -100,20 +141,74 @@ func onDIMSECommand(downcallCh chan stateEvent,
 		}
 		sendResponse(resp)
 	case *dimse.C_FIND_RQ:
-		if callbacks.CFind != nil {
-			status = callbacks.CFind(
-				context.transferSyntaxUID,
-				c.AffectedSOPClassUID,
-				data)
+		if callbacks.CFind == nil {
+			sendResponse(&dimse.C_FIND_RSP{
+				AffectedSOPClassUID:       c.AffectedSOPClassUID,
+				MessageIDBeingRespondedTo: c.MessageID,
+				CommandDataSetType:        dimse.CommandDataSetTypeNull,
+				Status:                    dimse.Status{Status: dimse.StatusUnrecognizedOperation},
+			})
+			break
 		}
-		resp := &dimse.C_FIND_RSP{
-			AffectedSOPClassUID:       c.AffectedSOPClassUID,
-			MessageIDBeingRespondedTo: c.MessageID,
-			CommandDataSetType:        dimse.CommandDataSetTypeNull,
-			Status:                    status,
+		elems, err := readElementsInBytes(data, context.transferSyntaxUID)
+		if err != nil {
+			sendResponse(&dimse.C_FIND_RSP{
+				AffectedSOPClassUID:       c.AffectedSOPClassUID,
+				MessageIDBeingRespondedTo: c.MessageID,
+				CommandDataSetType:        dimse.CommandDataSetTypeNull,
+				Status:                    dimse.Status{Status: dimse.StatusUnrecognizedOperation, ErrorComment: err.Error()},
+			})
+			break
 		}
-		sendResponse(resp)
+		foundError := false
+		for resp := range callbacks.CFind(context.transferSyntaxUID, c.AffectedSOPClassUID, elems) {
+			if resp.Err != nil {
+				sendResponse(&dimse.C_FIND_RSP{
+					AffectedSOPClassUID:       c.AffectedSOPClassUID,
+					MessageIDBeingRespondedTo: c.MessageID,
+					CommandDataSetType:        dimse.CommandDataSetTypeNull,
+					Status: dimse.Status{
+						Status:       dimse.CFindUnableToProcess,
+						ErrorComment: resp.Err.Error(),
+					},
+				})
+				foundError = true
+				continue
+			}
+			if foundError {
+				// Drop all responses after the first
+				// error. DIMSE provides no way to send an error
+				// status, then continue sending non-error
+				// responses.
+				continue
+			}
+			payload, err := writeElementsToBytes(resp.Elements, context.transferSyntaxUID)
+			if err != nil {
+				sendResponse(&dimse.C_FIND_RSP{
+					AffectedSOPClassUID:       c.AffectedSOPClassUID,
+					MessageIDBeingRespondedTo: c.MessageID,
+					CommandDataSetType:        dimse.CommandDataSetTypeNull,
+					Status: dimse.Status{
+						Status:   dimse.CFindUnableToProcess,
+						ErrorComment: err.Error(),
+					}})
+				foundError = true
+			}
+			if foundError {
+				continue
+			}
+			sendData(payload)
+		}
+		if !foundError {
+			sendResponse(&dimse.C_FIND_RSP{
+				AffectedSOPClassUID:       c.AffectedSOPClassUID,
+				MessageIDBeingRespondedTo: c.MessageID,
+				CommandDataSetType:        dimse.CommandDataSetTypeNull,
+				Status:                    dimse.Status{Status: dimse.StatusSuccess},
+			})
+		}
 	case *dimse.C_ECHO_RQ:
+		status := dimse.Status{Status: dimse.StatusUnrecognizedOperation}
 		if callbacks.CEcho != nil {
 			status = callbacks.CEcho()
 		}

@@ -348,19 +348,10 @@ func (su *ServiceUser) CFind(qrLevel CFindQRLevel, filter []*dicom.Element) chan
 				ch <- CFindResult{Err: fmt.Errorf("Found wrong response for C-FIND: %v", event.command)}
 				break
 			}
-			decoder := dicomio.NewBytesDecoderWithTransferSyntax(event.data, context.transferSyntaxUID)
-			var elems []*dicom.Element
-			for decoder.Len() > 0 {
-				elem := dicom.ReadDataElement(decoder)
-				if decoder.Error() != nil {
-					break
-				}
-				vlog.Infof("CFind: param: %v", elem)
-				elems = append(elems, elem)
-			}
-			if decoder.Error() != nil {
-				vlog.Errorf("Failed to decode C-FIND response: %v %v", resp.String(), decoder.Error())
-				ch <- CFindResult{Err: decoder.Error()}
+			elems, err := readElementsInBytes(event.data, context.transferSyntaxUID)
+			if err != nil {
+				vlog.Errorf("Failed to decode C-FIND response: %v %v", resp.String(), err)
+				ch <- CFindResult{Err: err}
 			} else {
 				ch <- CFindResult{Elements: elems}
 			}

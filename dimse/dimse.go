@@ -133,9 +133,9 @@ func encodeField(e *dicomio.Encoder, tag dicom.Tag, v interface{}) {
 	dicom.WriteDataElement(e, &elem)
 }
 
-// CommandDataSetTypeNull for dicom.TagCommandDataSetType indicates
-// that the DIMSE message has no data payload. Any other value
-// indicates the existence of a payload.
+// CommandDataSetTypeNull for dicom.TagCommandDataSetType indicates that the
+// DIMSE message has no data payload. Any other value indicates the existence of
+// a payload.
 const CommandDataSetTypeNull uint16 = 0x101
 const CommandDataSetTypeNonNull uint16 = 1
 
