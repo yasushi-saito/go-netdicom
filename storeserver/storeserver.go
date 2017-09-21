@@ -39,10 +39,10 @@ func onCStoreRequest(
 	vlog.Infof("Writing %s", path)
 	e := dicomio.NewBytesEncoder(binary.LittleEndian, dicomio.ExplicitVR)
 	dicom.WriteFileHeader(e,
-		[]dicom.Element{
-			*dicom.NewElement(dicom.TagTransferSyntaxUID, transferSyntaxUID),
-			*dicom.NewElement(dicom.TagMediaStorageSOPClassUID, sopClassUID),
-			*dicom.NewElement(dicom.TagMediaStorageSOPInstanceUID, sopInstanceUID),
+		[]*dicom.Element{
+			dicom.NewElement(dicom.TagTransferSyntaxUID, transferSyntaxUID),
+			dicom.NewElement(dicom.TagMediaStorageSOPClassUID, sopClassUID),
+			dicom.NewElement(dicom.TagMediaStorageSOPInstanceUID, sopInstanceUID),
 		})
 	e.WriteBytes(data)
 	if err := e.Error(); err != nil {

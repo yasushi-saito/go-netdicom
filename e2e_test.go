@@ -58,10 +58,10 @@ func onCStoreRequest(
 		dicomuid.UIDString(sopInstanceUID))
 	e := dicomio.NewBytesEncoder(nil, dicomio.UnknownVR)
 	dicom.WriteFileHeader(e,
-		[]dicom.Element{
-			*dicom.NewElement(dicom.TagTransferSyntaxUID, transferSyntaxUID),
-			*dicom.NewElement(dicom.TagMediaStorageSOPClassUID, sopClassUID),
-			*dicom.NewElement(dicom.TagMediaStorageSOPInstanceUID, sopInstanceUID),
+		[]*dicom.Element{
+			dicom.NewElement(dicom.TagTransferSyntaxUID, transferSyntaxUID),
+			dicom.NewElement(dicom.TagMediaStorageSOPClassUID, sopClassUID),
+			dicom.NewElement(dicom.TagMediaStorageSOPInstanceUID, sopInstanceUID),
 		})
 	e.WriteBytes(data)
 
@@ -78,7 +78,7 @@ func checkFileBodiesEqual(t *testing.T, in, out *dicom.DataSet) {
 		var elems []*dicom.Element
 		for _, elem := range f.Elements {
 			if elem.Tag.Group != dicom.TagMetadataGroup {
-				elems = append(elems, &elem)
+				elems = append(elems, elem)
 			}
 		}
 		return elems
