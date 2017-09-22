@@ -1,5 +1,7 @@
 package netdicom
 
+// This file defines ServiceProvider (i.e., a DICOM server).
+
 import (
 	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-dicom/dicomio"
@@ -9,7 +11,7 @@ import (
 )
 
 type ServiceProviderParams struct {
-	// Max size of a message chunk (PDU) that the client can receiuve.  If
+	// Max size of a message chunk (PDU) that the provider can receiuve.  If
 	// <= 0, DefaultMaxPDUSize is used.
 	MaxPDUSize int
 }
@@ -30,10 +32,17 @@ type CFindCallback func(
 type CEchoCallback func() dimse.Status
 
 type ServiceProviderCallbacks struct {
-	// Called on C_ECHO request. It should return 0 on success
+	// Called on C_ECHO request. If nil, a C-ECHO call will produce an error response.
 	CEcho CEchoCallback
 
-	// Called on C_FIND request. It should return 0 on success
+	// Called on C_FIND request. It should create and return a channel that
+	// streams CFindResult objects. To report a matched DICOM dataset, the
+	// callback should send one CFindResult with nonempty Element field. To
+	// report multiple DICOM-dataset matches, the callback should send
+	// multiple CFindResult objects, one for each dataset.  The callback
+	// must close the channel after it produces all the responses.
+	//
+	// If CFindCallback=nil, a C-FIND call will produce an error response.
 	CFind CFindCallback
 
 	// Called on receiving a C_STORE_RQ message.  sopClassUID and
@@ -50,7 +59,11 @@ type ServiceProviderCallbacks struct {
 	// The handler should store encode the sop{Class,InstanceUID} as the
 	// DICOM header, followed by data. It should return either 0 on success,
 	// or one of CStoreStatus* error codes.
+	//
+	// If CStoreCallback=nil, a C-STORE call will produce an error response.
 	CStore CStoreCallback
+
+	// TODO(saito) Implement C-MOVE, C-GET, etc.
 }
 
 // Encapsulates the state for DICOM server (provider).
@@ -146,7 +159,7 @@ func onDIMSECommand(downcallCh chan stateEvent,
 				AffectedSOPClassUID:       c.AffectedSOPClassUID,
 				MessageIDBeingRespondedTo: c.MessageID,
 				CommandDataSetType:        dimse.CommandDataSetTypeNull,
-				Status:                    dimse.Status{Status: dimse.StatusUnrecognizedOperation},
+				Status:                    dimse.Status{Status: dimse.StatusUnrecognizedOperation, ErrorComment: "No callback found for C-FIND"},
 			})
 			break
 		}
@@ -160,52 +173,41 @@ func onDIMSECommand(downcallCh chan stateEvent,
 			})
 			break
 		}
-		foundError := false
-		for resp := range callbacks.CFind(context.transferSyntaxUID, c.AffectedSOPClassUID, elems) {
+
+		status := dimse.Status{Status: dimse.StatusSuccess}
+		responseCh := callbacks.CFind(context.transferSyntaxUID, c.AffectedSOPClassUID, elems)
+		for resp := range responseCh {
 			if resp.Err != nil {
-				sendResponse(&dimse.C_FIND_RSP{
-					AffectedSOPClassUID:       c.AffectedSOPClassUID,
-					MessageIDBeingRespondedTo: c.MessageID,
-					CommandDataSetType:        dimse.CommandDataSetTypeNull,
-					Status: dimse.Status{
-						Status:       dimse.CFindUnableToProcess,
-						ErrorComment: resp.Err.Error(),
-					},
-				})
-				foundError = true
-				continue
-			}
-			if foundError {
-				// Drop all responses after the first
-				// error. DIMSE provides no way to send an error
-				// status, then continue sending non-error
-				// responses.
-				continue
+				status = dimse.Status{
+					Status:       dimse.CFindUnableToProcess,
+					ErrorComment: resp.Err.Error(),
+				}
+				break
 			}
 			payload, err := writeElementsToBytes(resp.Elements, context.transferSyntaxUID)
 			if err != nil {
-				sendResponse(&dimse.C_FIND_RSP{
-					AffectedSOPClassUID:       c.AffectedSOPClassUID,
-					MessageIDBeingRespondedTo: c.MessageID,
-					CommandDataSetType:        dimse.CommandDataSetTypeNull,
-					Status: dimse.Status{
-						Status:   dimse.CFindUnableToProcess,
-						ErrorComment: err.Error(),
-					}})
-				foundError = true
+				vlog.Errorf("C-FIND: encode error %v", err)
+				status = dimse.Status{
+					Status:       dimse.CFindUnableToProcess,
+					ErrorComment: err.Error(),
+				}
+				break
 			}
-			if foundError {
-				continue
-			}
-			sendData(payload)
-		}
-		if !foundError {
 			sendResponse(&dimse.C_FIND_RSP{
 				AffectedSOPClassUID:       c.AffectedSOPClassUID,
 				MessageIDBeingRespondedTo: c.MessageID,
-				CommandDataSetType:        dimse.CommandDataSetTypeNull,
-				Status:                    dimse.Status{Status: dimse.StatusSuccess},
+				CommandDataSetType:        dimse.CommandDataSetTypeNonNull,
+				Status:                    dimse.Status{Status: dimse.StatusPending},
 			})
+			sendData(payload)
+		}
+		sendResponse(&dimse.C_FIND_RSP{
+			AffectedSOPClassUID:       c.AffectedSOPClassUID,
+			MessageIDBeingRespondedTo: c.MessageID,
+			CommandDataSetType:        dimse.CommandDataSetTypeNull,
+			Status:                    status})
+		// Drain the responses in case of errors
+		for _ = range responseCh {
 		}
 	case *dimse.C_ECHO_RQ:
 		status := dimse.Status{Status: dimse.StatusUnrecognizedOperation}

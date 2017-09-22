@@ -34,7 +34,7 @@ func initTest() {
 			params := netdicom.ServiceProviderParams{MaxPDUSize: 4096000}
 			callbacks := netdicom.ServiceProviderCallbacks{
 				CStore: onCStoreRequest,
-				CFind: onCFindRequest,
+				CFind:  onCFindRequest,
 			}
 			for {
 				conn, err := listener.Accept()
@@ -82,8 +82,30 @@ func onCFindRequest(
 	filters []*dicom.Element) chan netdicom.CFindResult {
 	ch := make(chan netdicom.CFindResult, 128)
 	vlog.Infof("Received cfind request")
+	found := 0
 	for _, elem := range filters {
 		vlog.Infof("Filter %v", elem)
+		if elem.Tag == dicom.TagQueryRetrieveLevel {
+			if elem.MustGetString() != "PATIENT" {
+				vlog.Fatalf("Wrong QR level: %v", elem)
+			}
+			found++
+		}
+		if elem.Tag == dicom.TagPatientName {
+			if elem.MustGetString() != "foohah" {
+				vlog.Fatalf("Wrong patient name: %v", elem)
+			}
+			found++
+		}
+	}
+	if found != 2 {
+		vlog.Fatalf("Didn't find expected filters: %v", filters)
+	}
+	ch <- netdicom.CFindResult{
+		Elements: []*dicom.Element{dicom.NewElement(dicom.TagPatientName, "johndoe")},
+	}
+	ch <- netdicom.CFindResult{
+		Elements: []*dicom.Element{dicom.NewElement(dicom.TagPatientName, "johndoe2")},
 	}
 	close(ch)
 	return ch
@@ -171,10 +193,25 @@ func TestFind(t *testing.T) {
 	su := netdicom.NewServiceUser(params)
 	su.Connect(serverAddr)
 	filter := []*dicom.Element{
-		dicom.NewElement(dicom.TagPatientName, "*"),
+		dicom.NewElement(dicom.TagPatientName, "foohah"),
 	}
+	var namesFound []string
+
 	for result := range su.CFind(netdicom.CFindPatientQRLevel, filter) {
 		vlog.Errorf("Got result: %v", result)
+		if result.Err != nil {
+			t.Error(result.Err)
+			continue
+		}
+		for _, elem := range result.Elements {
+			if elem.Tag != dicom.TagPatientName {
+				t.Error(elem)
+			}
+			namesFound = append(namesFound, elem.MustGetString())
+		}
+	}
+	if len(namesFound) != 2 || namesFound[0] != "johndoe" || namesFound[1] != "johndoe2" {
+		t.Error(namesFound)
 	}
 }
 

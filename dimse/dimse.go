@@ -25,10 +25,11 @@ type Message interface {
 // Result of a DIMSE call.
 // P3.7 C defines list of status codes and error payloads.
 type Status struct {
+	// Status==StatusSuccess on success. A non-zero value on error.
 	Status StatusCode
 
 	// Optional error payloads.
-	ErrorComment string // (0000,0902)
+	ErrorComment string // Encoded as (0000,0902)
 }
 
 // Helper class for extracting values from a list of DicomElement.
