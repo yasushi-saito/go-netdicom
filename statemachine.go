@@ -331,6 +331,7 @@ var actionDt2 = &stateAction{"DT-2", "Send P-DATA indication primitive",
 		contextID, command, data, err := sm.commandAssembler.AddDataPDU(event.pdu.(*pdu.P_DATA_TF))
 		if err == nil {
 			if command != nil { // All fragments received
+				vlog.VI(1).Infof("%s: DIMSE request: %v", sm.label, command)
 				sm.upcallCh <- upcallEvent{
 					eventType: upcallEventData,
 					cm:        sm.contextManager,
@@ -781,12 +782,12 @@ func stopTimer(sm *stateMachine) {
 }
 
 func networkReaderThread(ch chan stateEvent, conn net.Conn, maxPDUSize int, smName string) {
-	vlog.VI(1).Infof("%s: Starting network reader, maxPDU %d", smName, maxPDUSize)
+	vlog.VI(2).Infof("%s: Starting network reader, maxPDU %d", smName, maxPDUSize)
 	doassert(maxPDUSize > 16*1024)
 	for {
 		v, err := pdu.ReadPDU(conn, maxPDUSize)
 		if err != nil {
-			vlog.Infof("%s: Failed to read PDU: %v", err, smName)
+			vlog.Infof("%s: Failed to read PDU: %v", smName, err)
 			if err == io.EOF {
 				ch <- stateEvent{event: evt17, pdu: nil, err: nil}
 			} else {
@@ -828,7 +829,7 @@ func networkReaderThread(ch chan stateEvent, conn net.Conn, maxPDUSize int, smNa
 			continue
 		}
 	}
-	vlog.VI(1).Infof("%s: Exiting network reader", smName)
+	vlog.VI(2).Infof("%s: Exiting network reader", smName)
 }
 
 func getNextEvent(sm *stateMachine) stateEvent {
@@ -874,7 +875,7 @@ func findAction(currentState stateType, event *stateEvent, smName string) *state
 
 func runOneStep(sm *stateMachine) {
 	event := getNextEvent(sm)
-	vlog.VI(1).Infof("%s: Current state: %v, Event %v", sm.label, sm.currentState.String(), event)
+	vlog.VI(2).Infof("%s: Current state: %v, Event %v", sm.label, sm.currentState.String(), event)
 	action := findAction(sm.currentState, &event, sm.label)
 	if action == nil {
 		msg := fmt.Sprintf("%s: No action found for state %v, event %v", sm.label, sm.currentState.String(), event.String())
@@ -890,9 +891,9 @@ func runOneStep(sm *stateMachine) {
 	if sm.faults != nil {
 		sm.faults.onStateTransition(sm.currentState, &event, action)
 	}
-	vlog.VI(1).Infof("%s: Running action %v", sm.label, action)
+	vlog.VI(2).Infof("%s: Running action %v", sm.label, action)
 	sm.currentState = action.Callback(sm, event)
-	vlog.VI(1).Infof("Next state: %v", sm.currentState.String())
+	vlog.VI(2).Infof("Next state: %v", sm.currentState.String())
 }
 
 func runStateMachineForServiceUser(

@@ -57,7 +57,7 @@ func (d *messageDecoder) setError(err error) {
 func (d *messageDecoder) findElement(tag dicom.Tag, optional isOptionalElement) *dicom.Element {
 	for i, elem := range d.elems {
 		if elem.Tag == tag {
-			vlog.VI(2).Infof("Return %v for %s", elem, tag.String())
+			vlog.VI(3).Infof("Return %v for %s", elem, tag.String())
 			d.parsed[i] = true
 			return elem
 		}

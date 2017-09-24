@@ -101,7 +101,6 @@ func (m *contextManager) generateAssociateRequest(
 // Called when A_ASSOCIATE_RQ pdu arrives, on the provider side. Returns a list of items to be sent in
 // the A_ASSOCIATE_AC pdu.
 func (m *contextManager) onAssociateRequest(requestItems []pdu.SubItem, maxPDUSize int) ([]pdu.SubItem, error) {
-	//var responses []*PresentationContextItem
 	responses := []pdu.SubItem{
 		&pdu.ApplicationContextItem{
 			Name: pdu.DICOMApplicationContextItemName,
@@ -112,7 +111,7 @@ func (m *contextManager) onAssociateRequest(requestItems []pdu.SubItem, maxPDUSi
 		case *pdu.ApplicationContextItem:
 			if ri.Name != pdu.DICOMApplicationContextItemName {
 				vlog.Errorf("Found illegal applicationcontextname. Expect %v, found %v",
-					ri.Name != pdu.DICOMApplicationContextItemName)
+					ri.Name, pdu.DICOMApplicationContextItemName)
 			}
 		case *pdu.PresentationContextItem:
 			var sopUID string
@@ -144,9 +143,10 @@ func (m *contextManager) onAssociateRequest(requestItems []pdu.SubItem, maxPDUSi
 				ContextID: ri.ContextID,
 				Result:    0, // accepted
 				Items:     []pdu.SubItem{&pdu.TransferSyntaxSubItem{Name: pickedTransferSyntaxUID}}})
-			vlog.VI(1).Infof("Provider(%p): addmapping %v %v %v",
+			vlog.VI(2).Infof("Provider(%p): addmapping %v %v %v",
 				m, sopUID, pickedTransferSyntaxUID, ri.ContextID)
-			addContextMapping(m, sopUID, pickedTransferSyntaxUID, ri.ContextID, ri.Result)
+			// TODO(saito) Callback the service provider instead of accepting the sopclass blindly.
+			addContextMapping(m, sopUID, pickedTransferSyntaxUID, ri.ContextID, pdu.PresentationContextAccepted)
 		case *pdu.UserInformationItem:
 			for _, subItem := range ri.Items {
 				switch c := subItem.(type) {
@@ -259,9 +259,10 @@ func addContextMapping(
 	vlog.VI(2).Infof("Map context %d -> %s, %s",
 		contextID, dicomuid.UIDString(abstractSyntaxUID),
 		dicomuid.UIDString(transferSyntaxUID))
-	doassert(abstractSyntaxUID != "")
-	doassert(transferSyntaxUID != "")
-	doassert(contextID%2 == 1)
+	doassert(abstractSyntaxUID != "", abstractSyntaxUID)
+	doassert(transferSyntaxUID != "", transferSyntaxUID)
+	doassert(contextID%2 == 1, contextID)
+	doassert(result >= 0 && result <= 4, result)
 	e := &contextManagerEntry{
 		abstractSyntaxUID: abstractSyntaxUID,
 		transferSyntaxUID: transferSyntaxUID,

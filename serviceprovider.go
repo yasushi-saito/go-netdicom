@@ -91,7 +91,6 @@ func readElementsInBytes(data []byte, transferSyntaxUID string) ([]*dicom.Elemen
 		if decoder.Error() != nil {
 			break
 		}
-		vlog.Infof("CFind: param: %v", elem)
 		elems = append(elems, elem)
 	}
 	if decoder.Error() != nil {
@@ -100,12 +99,26 @@ func readElementsInBytes(data []byte, transferSyntaxUID string) ([]*dicom.Elemen
 	return elems, nil
 }
 
+func elementsString(elems []*dicom.Element) string {
+	s := "["
+	for i, elem := range elems {
+		if i > 0 {
+			s += ", "
+		}
+		s += elem.String()
+	}
+	return s + "]"
+}
+
 func onDIMSECommand(downcallCh chan stateEvent,
 	cm *contextManager,
 	contextID byte,
-	msg dimse.Message, data []byte, callbacks ServiceProviderCallbacks) {
+	msg dimse.Message,
+	data []byte,
+	callbacks ServiceProviderCallbacks) {
 	context, err := cm.lookupByContextID(contextID)
 	if err != nil {
+		vlog.Infof("Invalid context ID %d: %v", contextID, err)
 		downcallCh <- stateEvent{event: evt19, pdu: nil, err: err}
 		return
 	}
@@ -135,6 +148,7 @@ func onDIMSECommand(downcallCh chan stateEvent,
 		}
 	}
 
+	vlog.VI(1).Infof("DIMSE request: %s", msg.String())
 	switch c := msg.(type) {
 	case *dimse.C_STORE_RQ:
 		status := dimse.Status{Status: dimse.StatusUnrecognizedOperation}
@@ -173,6 +187,7 @@ func onDIMSECommand(downcallCh chan stateEvent,
 			})
 			break
 		}
+		vlog.VI(1).Infof("C-FIND-RQ payload: %s", elementsString(elems))
 
 		status := dimse.Status{Status: dimse.StatusSuccess}
 		responseCh := callbacks.CFind(context.transferSyntaxUID, c.AffectedSOPClassUID, elems)
@@ -184,6 +199,7 @@ func onDIMSECommand(downcallCh chan stateEvent,
 				}
 				break
 			}
+			vlog.VI(1).Infof("C-FIND-RSP: %s", elementsString(resp.Elements))
 			payload, err := writeElementsToBytes(resp.Elements, context.transferSyntaxUID)
 			if err != nil {
 				vlog.Errorf("C-FIND: encode error %v", err)
@@ -235,27 +251,6 @@ func NewServiceProvider(
 	return sp
 }
 
-// Run a thread that listens to events from the DUL statemachine (DICOM spec P3.8).
-func runUpperLayerForServiceProvider(callbacks ServiceProviderCallbacks,
-	upcallCh chan upcallEvent,
-	downcallCh chan stateEvent) {
-	handshakeCompleted := false
-	for event := range upcallCh {
-		if event.eventType == upcallEventHandshakeCompleted {
-			doassert(!handshakeCompleted)
-			handshakeCompleted = true
-			vlog.VI(1).Infof("handshake completed")
-			continue
-		}
-		doassert(event.eventType == upcallEventData)
-		doassert(event.command != nil)
-		doassert(handshakeCompleted == true)
-		onDIMSECommand(downcallCh, event.cm, event.contextID,
-			event.command, event.data, callbacks)
-	}
-	vlog.VI(1).Infof("Finished upper layer service!")
-}
-
 // Start threads for handling "conn". This function returns immediately; "conn"
 // will be cleaned up in the background.
 func RunProviderForConn(conn net.Conn,
@@ -264,8 +259,22 @@ func RunProviderForConn(conn net.Conn,
 	downcallCh := make(chan stateEvent, 128)
 	upcallCh := make(chan upcallEvent, 128)
 	go runStateMachineForServiceProvider(conn, params, upcallCh, downcallCh)
-	runUpperLayerForServiceProvider(callbacks, upcallCh, downcallCh)
-	vlog.VI(1).Info("Finished the provider")
+
+	handshakeCompleted := false
+	for event := range upcallCh {
+		if event.eventType == upcallEventHandshakeCompleted {
+			doassert(!handshakeCompleted)
+			handshakeCompleted = true
+			vlog.VI(2).Infof("handshake completed")
+			continue
+		}
+		doassert(event.eventType == upcallEventData)
+		doassert(event.command != nil)
+		doassert(handshakeCompleted == true)
+		onDIMSECommand(downcallCh, event.cm, event.contextID,
+			event.command, event.data, callbacks)
+	}
+	vlog.VI(2).Info("Finished provider")
 }
 
 // Listen to incoming connections, accept them, and run the DICOM protocol. This
