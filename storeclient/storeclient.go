@@ -45,7 +45,7 @@ func cStore(server, inPath string) {
 	if err != nil {
 		vlog.Fatalf("%s: cstore failed: %v", inPath, err)
 	}
-	vlog.Printf("C-STORE done!!")
+	vlog.Infof("C-STORE done!!")
 }
 
 func cFind(server, argStr string) {

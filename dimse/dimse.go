@@ -143,7 +143,7 @@ const CommandDataSetTypeNonNull uint16 = 1
 // OK status for a call.
 var Success = Status{Status: StatusSuccess}
 
-// DIMSE status codes, as defined in P3.7
+// StatusCode represents a DIMSE service response code, as defined in P3.7
 type StatusCode uint16
 
 const (
@@ -177,8 +177,8 @@ func encodeStatus(e *dicomio.Encoder, s Status) {
 	}
 }
 
-// Given a set of dicom.Elements, construct a typed dimse.Message
-// object.
+// ReadMessage constructs a typed dimse.Message object, given a set of
+// dicom.Elements,
 func ReadMessage(d *dicomio.Decoder) Message {
 	// A DIMSE message is a sequence of Elements, encoded in implicit
 	// LE.
@@ -214,7 +214,7 @@ func ReadMessage(d *dicomio.Decoder) Message {
 	return v
 }
 
-// Serialize the given message.
+// EncodeMessage serializes the given message. Errors are reported through e.Error()
 func EncodeMessage(e *dicomio.Encoder, v Message) {
 	// DIMSE messages are always encoded Implicit+LE. See P3.7 6.3.1.
 	subEncoder := dicomio.NewBytesEncoder(binary.LittleEndian, dicomio.ImplicitVR)
@@ -230,7 +230,7 @@ func EncodeMessage(e *dicomio.Encoder, v Message) {
 	e.WriteBytes(bytes)
 }
 
-// Helper class for assembling a DIMSE command message and data
+// CommandAssembler is a helper that assembles a DIMSE command message and data
 // payload from a sequence of P_DATA_TF PDUs.
 type CommandAssembler struct {
 	contextID      byte
@@ -242,10 +242,10 @@ type CommandAssembler struct {
 	readAllData bool
 }
 
-// Called on receiving a P_DATA_TF fragment. If the fragment is marked
-// as the last one, AddDataPDU returns <SOPUID, TransferSyntaxUID,
-// payload, nil>.  If it needs more fragments, it returns <"", "",
-// nil, nil>.  On error, it returns a non-nil error.
+// AddDataPDU is to be called for each P_DATA_TF PDU received from the
+// network. If the fragment is marked as the last one, AddDataPDU returns
+// <SOPUID, TransferSyntaxUID, payload, nil>.  If it needs more fragments, it
+// returns <"", "", nil, nil>.  On error, it returns a non-nil error.
 func (a *CommandAssembler) AddDataPDU(pdu *pdu.P_DATA_TF) (byte, Message, []byte, error) {
 	for _, item := range pdu.Items {
 		if a.contextID == 0 {
