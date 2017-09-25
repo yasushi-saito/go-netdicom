@@ -125,13 +125,13 @@ func checkFileBodiesEqual(t *testing.T, in, out *dicom.DataSet) {
 	inElems := removeMetaElems(in)
 	outElems := removeMetaElems(out)
 	if len(inElems) != len(outElems) {
-		t.Error("Wrong # of elems: in %d, out %d", len(inElems), len(outElems))
+		t.Errorf("Wrong # of elems: in %d, out %d", len(inElems), len(outElems))
 	}
 	for i := 0; i < len(inElems); i++ {
 		ins := inElems[i].String()
 		outs := outElems[i].String()
 		if ins != outs {
-			t.Error("%dth element mismatch: %v <-> %v", i, ins, outs)
+			t.Errorf("%dth element mismatch: %v <-> %v", i, ins, outs)
 		}
 	}
 }
@@ -140,7 +140,7 @@ func getCStoreData() (*dicom.DataSet, error) {
 	if cstoreData == nil {
 		return nil, errors.New("Did not receive C-STORE data")
 	}
-	f, err := dicom.ParseBytes(cstoreData)
+	f, err := dicom.ReadDataSetInBytes(cstoreData, dicom.ReadOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -162,12 +162,15 @@ func readDICOMFile(path string) ([]byte, string) {
 func TestStoreSingleFile(t *testing.T) {
 	initTest()
 	data, transferSyntaxUID := readDICOMFile("testdata/IM-0001-0003.dcm")
-	params := netdicom.NewServiceUserParams(
+	params, err := netdicom.NewServiceUserParams(
 		"dontcare", "testclient", sopclass.StorageClasses,
 		[]string{transferSyntaxUID})
+	if err != nil {
+		vlog.Fatal(err)
+	}
 	su := netdicom.NewServiceUser(params)
 	su.Connect(serverAddr)
-	err := su.CStore(data)
+	err = su.CStore(data)
 	if err != nil {
 		vlog.Fatal(err)
 	}
@@ -178,7 +181,7 @@ func TestStoreSingleFile(t *testing.T) {
 	if err != nil {
 		vlog.Fatal(err)
 	}
-	in, err := dicom.ParseBytes(data)
+	in, err := dicom.ReadDataSetInBytes(data, dicom.ReadOptions{})
 	if err != nil {
 		vlog.Fatal(err)
 	}
@@ -187,10 +190,13 @@ func TestStoreSingleFile(t *testing.T) {
 
 func TestFind(t *testing.T) {
 	initTest()
-	params := netdicom.NewServiceUserParams(
+	params, err := netdicom.NewServiceUserParams(
 		"dontcare", "testclient", sopclass.QRFindClasses,
 		dicomio.StandardTransferSyntaxes)
 	su := netdicom.NewServiceUser(params)
+	if err != nil {
+		vlog.Fatal(err)
+	}
 	su.Connect(serverAddr)
 	filter := []*dicom.Element{
 		dicom.NewElement(dicom.TagPatientName, "foohah"),
@@ -218,12 +224,15 @@ func TestFind(t *testing.T) {
 func TestNonexistentServer(t *testing.T) {
 	initTest()
 	data, transferSyntaxUID := readDICOMFile("testdata/IM-0001-0003.dcm")
-	params := netdicom.NewServiceUserParams(
+	params, err := netdicom.NewServiceUserParams(
 		"dontcare", "testclient", sopclass.StorageClasses,
 		[]string{transferSyntaxUID})
+	if err != nil {
+		t.Fatal(err)
+	}
 	su := netdicom.NewServiceUser(params)
 	su.Connect(":99999")
-	err := su.CStore(data)
+	err = su.CStore(data)
 	if err == nil || err.Error() != "Connection failed" {
 		vlog.Fatalf("Expect CStore to fail: %v", err)
 	}

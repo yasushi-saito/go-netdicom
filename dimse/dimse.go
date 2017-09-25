@@ -188,7 +188,7 @@ func ReadMessage(d *dicomio.Decoder) Message {
 	d.PushTransferSyntax(binary.LittleEndian, dicomio.ImplicitVR)
 	defer d.PopTransferSyntax()
 	for d.Len() > 0 {
-		elem := dicom.ReadDataElement(d)
+		elem := dicom.ReadElement(d, dicom.ReadOptions{})
 		if d.Error() != nil {
 			break
 		}

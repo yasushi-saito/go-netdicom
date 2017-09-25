@@ -59,19 +59,17 @@ func NewServiceUserParams(
 	calledAETitle string,
 	callingAETitle string,
 	requiredServices []sopclass.SOPUID,
-	transferSyntaxUIDs []string) ServiceUserParams {
+	transferSyntaxUIDs []string) (ServiceUserParams, error) {
 	if len(transferSyntaxUIDs) == 0 {
 		transferSyntaxUIDs = dicomio.StandardTransferSyntaxes
 	} else {
-		canonical := make([]string, len(transferSyntaxUIDs))
 		for i, uid := range transferSyntaxUIDs {
-			var err error
-			canonical[i], err = dicomio.CanonicalTransferSyntaxUID(uid)
+			canonicalUID, err := dicomio.CanonicalTransferSyntaxUID(uid)
 			if err != nil {
-				vlog.Fatal(err) // TODO(saito)
+				return ServiceUserParams{}, err
 			}
+			transferSyntaxUIDs[i] = canonicalUID
 		}
-		transferSyntaxUIDs = canonical
 	}
 	return ServiceUserParams{
 		CalledAETitle:             calledAETitle,
@@ -79,7 +77,7 @@ func NewServiceUserParams(
 		RequiredServices:          requiredServices,
 		SupportedTransferSyntaxes: transferSyntaxUIDs,
 		MaxPDUSize:                1 << 20,
-	}
+	}, nil
 }
 
 func NewServiceUser(params ServiceUserParams) *ServiceUser {
@@ -125,7 +123,7 @@ func (su *ServiceUser) Connect(serverAddr string) {
 	doassert(su.status == serviceUserInitial)
 	conn, err := net.Dial("tcp", serverAddr)
 	if err != nil {
-		vlog.Infof("Failed to connect to %s: %v", serverAddr, err)
+		vlog.Infof("Connect(%s): %v", serverAddr, err)
 		su.downcallCh <- stateEvent{event: evt17, pdu: nil, err: err}
 		close(su.downcallCh)
 	} else {

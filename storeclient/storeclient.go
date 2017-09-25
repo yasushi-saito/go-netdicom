@@ -34,9 +34,12 @@ func cStore(server, inPath string) {
 	if err != nil {
 		vlog.Fatal(err)
 	}
-	params := netdicom.NewServiceUserParams(
+	params, err := netdicom.NewServiceUserParams(
 		"dontcare", "testclient", sopclass.StorageClasses,
 		[]string{transferSyntaxUID.MustGetString()})
+	if err != nil {
+		vlog.Fatal(err)
+	}
 	su := netdicom.NewServiceUser(params)
 	defer su.Release()
 	su.Connect(server)
@@ -49,9 +52,12 @@ func cStore(server, inPath string) {
 }
 
 func cFind(server, argStr string) {
-	params := netdicom.NewServiceUserParams(
+	params, err := netdicom.NewServiceUserParams(
 		"dontcare", "testclient", sopclass.QRFindClasses,
 		[]string{dicomuid.ExplicitVRLittleEndian})
+	if err != nil {
+		vlog.Fatal(err)
+	}
 	su := netdicom.NewServiceUser(params)
 	defer su.Release()
 	vlog.Infof("Connecting to %s", server)

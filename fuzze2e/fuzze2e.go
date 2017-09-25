@@ -51,10 +51,12 @@ func runClient(serverAddr string, faults *netdicom.FaultInjector) {
 		log.Fatal(err)
 	}
 	netdicom.SetUserFaultInjector(faults)
-
-	params := netdicom.NewServiceUserParams(
+	params, err := netdicom.NewServiceUserParams(
 		"dontcare", "testclient", sopclass.StorageClasses,
 		[]string{transferSyntaxUID})
+	if err != nil {
+		log.Fatal(err)
+	}
 	su := netdicom.NewServiceUser(params)
 	su.Connect(serverAddr)
 	err = su.CStore(data)

@@ -87,7 +87,7 @@ func readElementsInBytes(data []byte, transferSyntaxUID string) ([]*dicom.Elemen
 	decoder := dicomio.NewBytesDecoderWithTransferSyntax(data, transferSyntaxUID)
 	var elems []*dicom.Element
 	for decoder.Len() > 0 {
-		elem := dicom.ReadDataElement(decoder)
+		elem := dicom.ReadElement(decoder, dicom.ReadOptions{})
 		if decoder.Error() != nil {
 			break
 		}

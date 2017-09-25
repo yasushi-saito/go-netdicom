@@ -1,6 +1,8 @@
 package netdicom
 
 import (
+	"fmt"
+
 	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-dicom/dicomio"
 )
@@ -24,8 +26,12 @@ func GetTransferSyntaxUIDInBytes(bytes []byte) (string, error) {
 	return s, nil
 }
 
-func doassert(cond bool, values... interface{}) {
+func doassert(cond bool, values ...interface{}) {
 	if !cond {
-		panic(values)
+		var s string
+		for _, value := range values {
+			s += fmt.Sprintf("%v ", value)
+		}
+		panic(s)
 	}
 }
