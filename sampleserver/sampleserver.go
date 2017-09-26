@@ -14,6 +14,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -27,8 +28,11 @@ import (
 )
 
 var (
-	portFlag = flag.String("port", "10000", "TCP port to listen to")
-	dirFlag  = flag.String("dir", ".", `
+	portFlag     = flag.String("port", "10000", "TCP port to listen to")
+	remoteAEFlag = flag.String("remote-ae", "", `
+Comma-separated list of remote AEs, in form aetitle:host:port, For example -remote-ae testae:foo.example.com:12345,testae2:bar.example.com:23456.
+In this example, a C-GET or C-MOVE request to application entity "testae" will resolve to foo.example.com:12345.`)
+	dirFlag = flag.String("dir", ".", `
 The directory to locate DICOM files to report in C-FIND, C-MOVE, etc.
 Files are searched recursivsely under this directory.
 Defaults to '.'.`)
@@ -41,8 +45,9 @@ var pathSeq int32
 
 type server struct {
 	// Set of dicom files the server manages. Keys are file paths.
-	mu       *sync.Mutex
-	datasets map[string]*dicom.DataSet // guarded by mu.
+	mu        *sync.Mutex
+	datasets  map[string]*dicom.DataSet // guarded by mu.
+	remoteAEs map[string]string         // AEtitle -> "host:port" string.
 }
 
 func (ss *server) onCEchoRequest() dimse.Status {
@@ -93,31 +98,34 @@ func (ss *server) onCFindRequest(
 	transferSyntaxUID string,
 	sopClassUID string,
 	filters []*dicom.Element) chan netdicom.CFindResult {
-	vlog.Infof("CFind: transfersyntax: %v, classuid: %v",
-		dicomuid.UIDString(transferSyntaxUID),
-		dicomuid.UIDString(sopClassUID))
 	for _, filter := range filters {
 		vlog.Infof("CFind: filter %v", filter)
 	}
-	ch := make(chan netdicom.CFindResult)
+	ch := make(chan netdicom.CFindResult, 128)
+	vlog.Infof("CFind: transfersyntax: %v, classuid: %v",
+		dicomuid.UIDString(transferSyntaxUID),
+		dicomuid.UIDString(sopClassUID))
 
-	// Match the filter against every file. This is just for demonstration.
-	ss.mu.Lock()
-	defer ss.mu.Unlock()
-	for _, ds := range ss.datasets {
-		var resp netdicom.CFindResult
-		for _, filter := range filters {
-			// TODO(saito): match the condition! This code returns every file in the database.
-			elem, err := ds.LookupElementByTag(filter.Tag)
-			if err == nil {
-				resp.Elements = append(resp.Elements, elem)
-			} else {
-				resp.Elements = append(resp.Elements, dicom.NewElement(filter.Tag))
+	// Match the filter against every file. This is just for demonstration
+	go func() {
+		ss.mu.Lock()
+		defer ss.mu.Unlock()
+		for _, ds := range ss.datasets {
+			var resp netdicom.CFindResult
+			for _, filter := range filters {
+				// TODO(saito): match the condition! This code returns every file in the database.
+				elem, err := ds.LookupElementByTag(filter.Tag)
+				if err == nil {
+					resp.Elements = append(resp.Elements, elem)
+				} else {
+					resp.Elements = append(resp.Elements, dicom.NewElement(filter.Tag))
+				}
 			}
+			vlog.VI(1).Infof("Send response: %v", resp)
+			ch <- resp
 		}
-		ch <- resp
-	}
-	close(ch)
+		close(ch)
+	}()
 	return ch
 }
 
@@ -170,24 +178,47 @@ func listDicomFiles(dir string) (map[string]*dicom.DataSet, error) {
 	return datasets, nil
 }
 
+func parseRemoteAEFlag(flag string) (map[string]string, error) {
+	aeMap := make(map[string]string)
+	re := regexp.MustCompile("^([^:]+):(.+)$")
+	for _, str := range strings.Split(flag, ",") {
+		m := re.FindStringSubmatch(str)
+		if m == nil {
+			return aeMap, fmt.Errorf("Failed to parse AE spec '%v'", str)
+		}
+		vlog.VI(1).Infof("Remote AE '%v' -> '%v'", m[1], m[2])
+		aeMap[m[1]] = m[2]
+	}
+	return aeMap, nil
+}
+
+func canonicalizeHostPort(addr string) string {
+	if !strings.Contains(addr, ":") {
+		return ":" + addr
+	}
+	return addr
+}
+
 func main() {
 	flag.Parse()
 	vlog.ConfigureLibraryLoggerFromFlags()
-	port := *portFlag
-	if !strings.Contains(port, ":") {
-		port = ":" + port
-	}
+	port := canonicalizeHostPort(*portFlag)
 	if *outputFlag == "" {
 		*outputFlag = filepath.Join(*dirFlag, "incoming")
 	}
 
+	remoteAEs, err := parseRemoteAEFlag(*remoteAEFlag)
+	if err != nil {
+		vlog.Fatalf("Failed to parse -remote-ae flag: %v", err)
+	}
 	datasets, err := listDicomFiles(*dirFlag)
 	if err != nil {
 		vlog.Fatalf("%s: Failed to list dicom files: %v", *dirFlag, err)
 	}
 	ss := server{
-		mu:       &sync.Mutex{},
-		datasets: datasets,
+		mu:        &sync.Mutex{},
+		datasets:  datasets,
+		remoteAEs: remoteAEs,
 	}
 	vlog.Infof("Listening on %s", port)
 	params := netdicom.ServiceProviderParams{}

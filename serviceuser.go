@@ -250,6 +250,8 @@ type CFindResult struct {
 	Elements []*dicom.Element // Elements belonging to one dataset.
 }
 
+type CMoveResult CFindResult
+
 // CFind issues a C-FIND request. Returns a channel that streams sequence of
 // either an error or a dataset found. The caller MUST read all responses from
 // the channel before issuing any other DIMSE command (C-FIND, C-STORE, etc).
@@ -304,7 +306,7 @@ func (su *ServiceUser) CFind(qrLevel CFindQRLevel, filter []*dicom.Element) chan
 
 	// Encode the data payload containing the filtering conditions.
 	dataEncoder := dicomio.NewBytesEncoderWithTransferSyntax(context.transferSyntaxUID)
-	dicom.WriteDataElement(dataEncoder, dicom.NewElement(dicom.TagQueryRetrieveLevel, qrLevelString))
+	dicom.WriteElement(dataEncoder, dicom.NewElement(dicom.TagQueryRetrieveLevel, qrLevelString))
 	for _, elem := range filter {
 		if elem.Tag == dicom.TagQueryRetrieveLevel {
 			// This tag is auto-computed from qrlevel.
@@ -312,7 +314,7 @@ func (su *ServiceUser) CFind(qrLevel CFindQRLevel, filter []*dicom.Element) chan
 			close(ch)
 			return ch
 		}
-		dicom.WriteDataElement(dataEncoder, elem)
+		dicom.WriteElement(dataEncoder, elem)
 	}
 	if err := dataEncoder.Error(); err != nil {
 		ch <- CFindResult{Err: err}

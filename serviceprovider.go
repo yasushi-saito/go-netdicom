@@ -29,6 +29,12 @@ type CFindCallback func(
 	sopClassUID string,
 	filters []*dicom.Element) chan CFindResult
 
+type CMoveCallback func(
+	transferSyntaxUID string,
+	sopClassUID string,
+	remoteAETitle string,
+	filters []*dicom.Element) (remoteAEHostPort string, numMatches int, ch chan CMoveResult, err error)
+
 type CEchoCallback func() dimse.Status
 
 type ServiceProviderCallbacks struct {
@@ -44,6 +50,19 @@ type ServiceProviderCallbacks struct {
 	//
 	// If CFindCallback=nil, a C-FIND call will produce an error response.
 	CFind CFindCallback
+
+	// Called on C_MOVE request. On return:
+	//
+	// -remoteAEHostPort should specify the host:port of the remote AE to
+	// send datasets to.
+	//
+	// - numMatches should be either the total number of datasets to be
+	// sent, or -1 when the number is unknown.
+	//
+	// - ch should be a channel that streams datasets to be sent to the
+	// remoteAEHostPort.  The callback must close the channel after it
+	// produces all the datasets.
+	CMove CMoveCallback
 
 	// Called on receiving a C_STORE_RQ message.  sopClassUID and
 	// sopInstanceUID are the IDs of the data. They are from the C-STORE
@@ -75,7 +94,7 @@ type ServiceProvider struct {
 func writeElementsToBytes(elems []*dicom.Element, transferSyntaxUID string) ([]byte, error) {
 	dataEncoder := dicomio.NewBytesEncoderWithTransferSyntax(transferSyntaxUID)
 	for _, elem := range elems {
-		dicom.WriteDataElement(dataEncoder, elem)
+		dicom.WriteElement(dataEncoder, elem)
 	}
 	if err := dataEncoder.Error(); err != nil {
 		return nil, err
@@ -225,6 +244,8 @@ func onDIMSECommand(downcallCh chan stateEvent,
 		// Drain the responses in case of errors
 		for _ = range responseCh {
 		}
+
+	case *dimse.C_MOVE_RQ:
 	case *dimse.C_ECHO_RQ:
 		status := dimse.Status{Status: dimse.StatusUnrecognizedOperation}
 		if callbacks.CEcho != nil {
@@ -237,7 +258,7 @@ func onDIMSECommand(downcallCh chan stateEvent,
 		}
 		sendResponse(resp)
 	default:
-		panic("aoeu")
+		vlog.Fatalf("UNknown DIMSE message type: %v", c)
 	}
 }
 

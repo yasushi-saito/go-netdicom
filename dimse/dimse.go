@@ -131,7 +131,7 @@ func encodeField(e *dicomio.Encoder, tag dicom.Tag, v interface{}) {
 		UndefinedLength: false,
 		Value:           []interface{}{v},
 	}
-	dicom.WriteDataElement(e, &elem)
+	dicom.WriteElement(e, &elem)
 }
 
 // CommandDataSetTypeNull for dicom.TagCommandDataSetType indicates that the

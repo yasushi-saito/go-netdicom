@@ -54,6 +54,41 @@ MESSAGES = [
              Field('MessageIDBeingRespondedTo', 'uint16', True),
              Field('CommandDataSetType', 'uint16', True),
 	     Field('Status', 'Status', True)]),
+    # P3.7 9.1.2.1
+    Message('C_GET_RQ',
+            Type.REQUEST, 0x10,
+            [Field('AffectedSOPClassUID', 'string', True),
+             Field('MessageID', 'uint16', True),
+             Field('Priority', 'uint16', True),
+             Field('CommandDataSetType', 'uint16', True)]),
+    Message('C_GET_RSP',
+            Type.RESPONSE, 0x8010,
+            [Field('AffectedSOPClassUID', 'string', True),
+             Field('MessageIDBeingRespondedTo', 'uint16', True),
+             Field('CommandDataSetType', 'uint16', True),
+             Field('NumberOfRemainingSuboperations', 'uint16', False),
+             Field('NumberOfCompletedSuboperations', 'uint16', False),
+             Field('NumberOfFailedSuboperations', 'uint16', False),
+             Field('NumberOfWarningSuboperations', 'uint16', False),
+	     Field('Status', 'Status', True)]),
+    # P3.7 9.3.4.1
+    Message('C_MOVE_RQ',
+            Type.REQUEST, 0x21,
+            [Field('AffectedSOPClassUID', 'string', True),
+             Field('MessageID', 'uint16', True),
+             Field('Priority', 'uint16', True),
+             Field('MoveDestination', 'string', True),
+             Field('CommandDataSetType', 'uint16', True)]),
+    Message('C_MOVE_RSP',
+            Type.RESPONSE, 0x8021,
+            [Field('AffectedSOPClassUID', 'string', True),
+             Field('MessageIDBeingRespondedTo', 'uint16', True),
+             Field('CommandDataSetType', 'uint16', True),
+             Field('NumberOfRemainingSuboperations', 'uint16', False),
+             Field('NumberOfCompletedSuboperations', 'uint16', False),
+             Field('NumberOfFailedSuboperations', 'uint16', False),
+             Field('NumberOfWarningSuboperations', 'uint16', False),
+	     Field('Status', 'Status', True)]),
     # P3.7 9.3.5
     Message('C_ECHO_RQ',
             Type.REQUEST, 0x30,
@@ -90,7 +125,7 @@ def generate_go_definition(m: Message, out: IO[str]):
         else:
             print(f'	encodeField(e, dicom.Tag{f.name}, v.{f.name})', file=out)
     print('	for _, elem := range v.Extra {', file=out)
-    print('		dicom.EncodeDataElement(e, elem)', file=out)
+    print('		dicom.WriteElement(e, elem)', file=out)
     print('	}', file=out)
     print('}', file=out)
 
