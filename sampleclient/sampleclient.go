@@ -30,7 +30,7 @@ func cStore(server, inPath string) {
 	if decoder.Error() != nil {
 		vlog.Fatalf("%s: failed to parse as DICOM: %v", inPath, decoder.Error())
 	}
-	transferSyntaxUID, err := dicom.LookupElementByTag(meta, dicom.TagTransferSyntaxUID)
+	transferSyntaxUID, err := dicom.FindElementByTag(meta, dicom.TagTransferSyntaxUID)
 	if err != nil {
 		vlog.Fatal(err)
 	}

@@ -15,7 +15,7 @@ func GetTransferSyntaxUIDInBytes(bytes []byte) (string, error) {
 	if decoder.Error() != nil {
 		return "", decoder.Error()
 	}
-	transferSyntaxUID, err := dicom.LookupElementByTag(meta, dicom.TagTransferSyntaxUID)
+	transferSyntaxUID, err := dicom.FindElementByTag(meta, dicom.TagTransferSyntaxUID)
 	if err != nil {
 		return "", err
 	}

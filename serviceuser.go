@@ -175,7 +175,7 @@ func (su *ServiceUser) CStoreRaw(data []byte) error {
 		return decoder.Error()
 	}
 	var getElement = func(meta []*dicom.Element, tag dicom.Tag) (string, error) {
-		elem, err := dicom.LookupElementByTag(meta, tag)
+		elem, err := dicom.FindElementByTag(meta, tag)
 		if err != nil {
 			return "", fmt.Errorf("C-STORE data lacks %s: %v", tag.String(), err)
 		}
@@ -250,7 +250,7 @@ func (su *ServiceUser) CStoreRaw(data []byte) error {
 
 func (su *ServiceUser) CStore(ds *dicom.DataSet) error {
 	var getElement = func(tag dicom.Tag) (string, error) {
-		elem, err := ds.LookupElementByTag(tag)
+		elem, err := ds.FindElementByTag(tag)
 		if err != nil {
 			return "", fmt.Errorf("C-STORE data lacks %s: %v", tag.String(), err)
 		}
