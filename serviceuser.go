@@ -3,14 +3,16 @@ package netdicom
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"net"
+	"sync/atomic"
+
 	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-dicom/dicomio"
 	"github.com/yasushi-saito/go-dicom/dicomuid"
 	"github.com/yasushi-saito/go-netdicom/dimse"
 	"github.com/yasushi-saito/go-netdicom/sopclass"
-	"net"
-	"sync/atomic"
 	"v.io/x/lib/vlog"
 )
 
@@ -60,6 +62,12 @@ func NewServiceUserParams(
 	callingAETitle string,
 	requiredServices []sopclass.SOPUID,
 	transferSyntaxUIDs []string) (ServiceUserParams, error) {
+	if calledAETitle == "" {
+		return ServiceUserParams{}, errors.New("NewServiceUSerParams: Empty calledAETitle")
+	}
+	if callingAETitle == "" {
+		return ServiceUserParams{}, errors.New("NewServiceUSerParams: Empty callingAETitle")
+	}
 	if len(transferSyntaxUIDs) == 0 {
 		transferSyntaxUIDs = dicomio.StandardTransferSyntaxes
 	} else {
@@ -151,7 +159,7 @@ func newMessageID(su *ServiceUser) uint16 {
 // established in during DICOM A_ASSOCIATE handshake.
 //
 // TODO(saito) Re-encode the data using the valid transfer syntax.
-func (su *ServiceUser) CStore(data []byte) error {
+func (su *ServiceUser) CStoreRaw(data []byte) error {
 	// Parse the beginning of file, extract syntax UIDs to fill in the
 	// C-STORE request.
 	decoder := dicomio.NewDecoder(
@@ -237,6 +245,89 @@ func (su *ServiceUser) CStore(data []byte) error {
 	panic("should not reach here")
 }
 
+func (su *ServiceUser) CStore(ds *dicom.DataSet) error {
+	var getElement = func(tag dicom.Tag) (string, error) {
+		elem, err := ds.LookupElementByTag(tag)
+		if err != nil {
+			return "", fmt.Errorf("C-STORE data lacks %s: %v", tag.String(), err)
+		}
+		s, err := elem.GetString()
+		if err != nil {
+			return "", err
+		}
+		return s, nil
+	}
+	sopInstanceUID, err := getElement(dicom.TagMediaStorageSOPInstanceUID)
+	if err != nil {
+		return fmt.Errorf("C-STORE data lacks SOPInstanceUID: %v", err)
+	}
+	sopClassUID, err := getElement(dicom.TagMediaStorageSOPClassUID)
+	if err != nil {
+		return fmt.Errorf("C-STORE data lacks MediaStorageSOPClassUID: %v", err)
+	}
+	vlog.VI(1).Infof("DICOM abstractsyntax: %s, sopinstance: %s",
+		sopClassUID, sopInstanceUID)
+
+	err = waitAssociationEstablishment(su)
+	if err != nil {
+		return err
+	}
+
+	context, err := su.cm.lookupByAbstractSyntaxUID(sopClassUID)
+	if err != nil {
+		vlog.Errorf("C-STORE: sop class %v not found in context %v", sopClassUID, err)
+		return err
+	}
+	e := dicomio.NewBytesEncoder(nil, dicomio.UnknownVR)
+	dimse.EncodeMessage(e, &dimse.C_STORE_RQ{
+		AffectedSOPClassUID:    sopClassUID,
+		MessageID:              newMessageID(su),
+		CommandDataSetType:     dimse.CommandDataSetTypeNonNull,
+		AffectedSOPInstanceUID: sopInstanceUID,
+	})
+	if err := e.Error(); err != nil {
+		return err
+	}
+	req := e.Bytes()
+	su.downcallCh <- stateEvent{
+		event: evt09,
+		dataPayload: &stateEventDataPayload{abstractSyntaxName: sopClassUID,
+			command: true,
+			data:    req}}
+
+	bodyEncoder := dicomio.NewBytesEncoderWithTransferSyntax(context.transferSyntaxUID)
+	for _, elem := range ds.Elements {
+		if elem.Tag.Group == dicom.TagMetadataGroup {
+			continue
+		}
+		dicom.WriteElement(bodyEncoder, elem)
+	}
+	if bodyEncoder.Error() != nil {
+		return err
+	}
+	su.downcallCh <- stateEvent{
+		event: evt09,
+		dataPayload: &stateEventDataPayload{abstractSyntaxName: sopClassUID,
+			command: false,
+			data:    bodyEncoder.Bytes()}}
+	for {
+		event, ok := <-su.upcallCh
+		if !ok {
+			su.status = serviceUserClosed
+			return fmt.Errorf("Connection closed while waiting for C-STORE response")
+		}
+		doassert(event.eventType == upcallEventData)
+		doassert(event.command != nil)
+		resp, ok := event.command.(*dimse.C_STORE_RSP)
+		doassert(ok) // TODO(saito)
+		if resp.Status.Status != 0 {
+			return fmt.Errorf("C_STORE failed: %v", resp.String())
+		}
+		return nil
+	}
+	panic("should not reach here")
+}
+
 type CFindQRLevel int
 
 const (
@@ -250,7 +341,12 @@ type CFindResult struct {
 	Elements []*dicom.Element // Elements belonging to one dataset.
 }
 
-type CMoveResult CFindResult
+type CMoveResult struct {
+	Remaining int // Number of files remaining to be sent. Set -1 if unknown.
+	Err       error
+	Path      string         // Path name of the DICOM file being copied. Used only for reporting errors.
+	DataSet   *dicom.DataSet // Contents of the file.
+}
 
 // CFind issues a C-FIND request. Returns a channel that streams sequence of
 // either an error or a dataset found. The caller MUST read all responses from
@@ -306,7 +402,7 @@ func (su *ServiceUser) CFind(qrLevel CFindQRLevel, filter []*dicom.Element) chan
 
 	// Encode the data payload containing the filtering conditions.
 	dataEncoder := dicomio.NewBytesEncoderWithTransferSyntax(context.transferSyntaxUID)
-	dicom.WriteElement(dataEncoder, dicom.NewElement(dicom.TagQueryRetrieveLevel, qrLevelString))
+	dicom.WriteElement(dataEncoder, dicom.MustNewElement(dicom.TagQueryRetrieveLevel, qrLevelString))
 	for _, elem := range filter {
 		if elem.Tag == dicom.TagQueryRetrieveLevel {
 			// This tag is auto-computed from qrlevel.

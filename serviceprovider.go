@@ -3,14 +3,20 @@ package netdicom
 // This file defines ServiceProvider (i.e., a DICOM server).
 
 import (
+	"fmt"
+	"net"
+
 	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-dicom/dicomio"
 	"github.com/yasushi-saito/go-netdicom/dimse"
-	"net"
+	"github.com/yasushi-saito/go-netdicom/sopclass"
 	"v.io/x/lib/vlog"
 )
 
 type ServiceProviderParams struct {
+	AETitle   string            // The title of the provider. Must be nonempty
+	RemoteAEs map[string]string // Names of remote AEs and their host:ports. Used by C-MOVE.
+
 	// Max size of a message chunk (PDU) that the provider can receiuve.  If
 	// <= 0, DefaultMaxPDUSize is used.
 	MaxPDUSize int
@@ -32,8 +38,7 @@ type CFindCallback func(
 type CMoveCallback func(
 	transferSyntaxUID string,
 	sopClassUID string,
-	remoteAETitle string,
-	filters []*dicom.Element) (remoteAEHostPort string, numMatches int, ch chan CMoveResult, err error)
+	filters []*dicom.Element) chan CMoveResult
 
 type CEchoCallback func() dimse.Status
 
@@ -52,9 +57,6 @@ type ServiceProviderCallbacks struct {
 	CFind CFindCallback
 
 	// Called on C_MOVE request. On return:
-	//
-	// -remoteAEHostPort should specify the host:port of the remote AE to
-	// send datasets to.
 	//
 	// - numMatches should be either the total number of datasets to be
 	// sent, or -1 when the number is unknown.
@@ -129,11 +131,26 @@ func elementsString(elems []*dicom.Element) string {
 	return s + "]"
 }
 
+// Send "ds" to remoteHostPort using C-STORE. Called as part of C-MOVE.
+func runCStoreSubOp(myAETitle, remoteAETitle, remoteHostPort string, ds *dicom.DataSet) error {
+	params, err := NewServiceUserParams(remoteAETitle, myAETitle, sopclass.StorageClasses, nil)
+	if err != nil {
+		return err
+	}
+	su := NewServiceUser(params)
+	defer su.Release()
+	su.Connect(remoteHostPort)
+	err = su.CStore(ds)
+	vlog.Infof("%s: C-STORE subop done: %v", err)
+	return err
+}
+
 func onDIMSECommand(downcallCh chan stateEvent,
 	cm *contextManager,
 	contextID byte,
 	msg dimse.Message,
 	data []byte,
+	params ServiceProviderParams,
 	callbacks ServiceProviderCallbacks) {
 	context, err := cm.lookupByContextID(contextID)
 	if err != nil {
@@ -142,6 +159,7 @@ func onDIMSECommand(downcallCh chan stateEvent,
 		return
 	}
 	var sendResponse = func(resp dimse.Message) {
+		vlog.VI(1).Infof("DIMSE resp: %v", resp)
 		e := dicomio.NewBytesEncoder(nil, dicomio.UnknownVR)
 		dimse.EncodeMessage(e, resp)
 		bytes := e.Bytes()
@@ -246,6 +264,73 @@ func onDIMSECommand(downcallCh chan stateEvent,
 		}
 
 	case *dimse.C_MOVE_RQ:
+		sendError := func(err error) {
+			sendResponse(&dimse.C_MOVE_RSP{
+				AffectedSOPClassUID:       c.AffectedSOPClassUID,
+				MessageIDBeingRespondedTo: c.MessageID,
+				CommandDataSetType:        dimse.CommandDataSetTypeNull,
+				Status:                    dimse.Status{Status: dimse.StatusUnrecognizedOperation, ErrorComment: err.Error()},
+			})
+		}
+		if callbacks.CMove == nil {
+			sendResponse(&dimse.C_MOVE_RSP{
+				AffectedSOPClassUID:       c.AffectedSOPClassUID,
+				MessageIDBeingRespondedTo: c.MessageID,
+				CommandDataSetType:        dimse.CommandDataSetTypeNull,
+				Status:                    dimse.Status{Status: dimse.StatusUnrecognizedOperation, ErrorComment: "No callback found for C-MOVE"},
+			})
+			break
+		}
+		remoteHostPort, ok := params.RemoteAEs[c.MoveDestination]
+		if !ok {
+			sendError(fmt.Errorf("C-MOVE destination '%v' not registered in the server", c.MoveDestination))
+			break
+		}
+		elems, err := readElementsInBytes(data, context.transferSyntaxUID)
+		if err != nil {
+			sendError(err)
+			break
+		}
+		vlog.VI(1).Infof("C-MOVE-RQ payload: %s", elementsString(elems))
+		responseCh := callbacks.CMove(context.transferSyntaxUID, c.AffectedSOPClassUID, elems)
+		status := dimse.Status{Status: dimse.StatusSuccess}
+		var numSuccesses, numFailures uint16
+		for resp := range responseCh {
+			if resp.Err != nil {
+				status = dimse.Status{
+					Status:       dimse.CFindUnableToProcess,
+					ErrorComment: resp.Err.Error(),
+				}
+				break
+			}
+			vlog.Infof("C-MOVE: Sending %v to %v(%s)", resp.Path, c.MoveDestination, remoteHostPort)
+			err := runCStoreSubOp(params.AETitle, c.MoveDestination, remoteHostPort, resp.DataSet)
+			if err != nil {
+				vlog.Errorf("C-MOVE: C-store of %v to %v(%v) failed: %v", resp.Path, c.MoveDestination, remoteHostPort, err)
+				numFailures++
+			} else {
+				numSuccesses++
+			}
+			sendResponse(&dimse.C_MOVE_RSP{
+				AffectedSOPClassUID:            c.AffectedSOPClassUID,
+				MessageIDBeingRespondedTo:      c.MessageID,
+				CommandDataSetType:             dimse.CommandDataSetTypeNull,
+				NumberOfRemainingSuboperations: uint16(resp.Remaining),
+				NumberOfCompletedSuboperations: numSuccesses,
+				NumberOfFailedSuboperations:    numFailures,
+				Status: dimse.Status{Status: dimse.StatusPending},
+			})
+		}
+		sendResponse(&dimse.C_MOVE_RSP{
+			AffectedSOPClassUID:            c.AffectedSOPClassUID,
+			MessageIDBeingRespondedTo:      c.MessageID,
+			CommandDataSetType:             dimse.CommandDataSetTypeNull,
+			NumberOfCompletedSuboperations: numSuccesses,
+			NumberOfFailedSuboperations:    numFailures,
+			Status: status})
+		// Drain the responses in case of errors
+		for _ = range responseCh {
+		}
 	case *dimse.C_ECHO_RQ:
 		status := dimse.Status{Status: dimse.StatusUnrecognizedOperation}
 		if callbacks.CEcho != nil {
@@ -293,7 +378,7 @@ func RunProviderForConn(conn net.Conn,
 		doassert(event.command != nil)
 		doassert(handshakeCompleted == true)
 		onDIMSECommand(downcallCh, event.cm, event.contextID,
-			event.command, event.data, callbacks)
+			event.command, event.data, params, callbacks)
 	}
 	vlog.VI(2).Info("Finished provider")
 }
