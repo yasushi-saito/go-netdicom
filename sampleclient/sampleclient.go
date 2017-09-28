@@ -44,7 +44,7 @@ func cStore(server, inPath string) {
 	defer su.Release()
 	su.Connect(server)
 
-	err = su.CStore(data)
+	err = su.CStoreRaw(data)
 	if err != nil {
 		vlog.Fatalf("%s: cstore failed: %v", inPath, err)
 	}
@@ -63,22 +63,22 @@ func cFind(server, argStr string) {
 	vlog.Infof("Connecting to %s", server)
 	su.Connect(server)
 	args := []*dicom.Element{
-		dicom.NewElement(dicom.TagSpecificCharacterSet, "ISO_IR 100"),
-		dicom.NewElement(dicom.TagAccessionNumber, ""),
-		dicom.NewElement(dicom.TagReferringPhysicianName, ""),
-		dicom.NewElement(dicom.TagPatientName, ""),
-		dicom.NewElement(dicom.TagPatientID, ""),
-		dicom.NewElement(dicom.TagPatientBirthDate, ""),
-		dicom.NewElement(dicom.TagPatientSex, ""),
-		dicom.NewElement(dicom.TagStudyInstanceUID, ""),
-		dicom.NewElement(dicom.TagRequestedProcedureDescription, ""),
-		dicom.NewElement(dicom.TagScheduledProcedureStepSequence,
-			dicom.NewElement(dicom.TagItem,
-				dicom.NewElement(dicom.TagModality, ""),
-				dicom.NewElement(dicom.TagScheduledProcedureStepStartDate, ""),
-				dicom.NewElement(dicom.TagScheduledProcedureStepStartTime, ""),
-				dicom.NewElement(dicom.TagScheduledPerformingPhysicianName, ""),
-				dicom.NewElement(dicom.TagScheduledProcedureStepStatus, ""))),
+		dicom.MustNewElement(dicom.TagSpecificCharacterSet, "ISO_IR 100"),
+		dicom.MustNewElement(dicom.TagAccessionNumber, ""),
+		dicom.MustNewElement(dicom.TagReferringPhysicianName, ""),
+		dicom.MustNewElement(dicom.TagPatientName, ""),
+		dicom.MustNewElement(dicom.TagPatientID, ""),
+		dicom.MustNewElement(dicom.TagPatientBirthDate, ""),
+		dicom.MustNewElement(dicom.TagPatientSex, ""),
+		dicom.MustNewElement(dicom.TagStudyInstanceUID, ""),
+		dicom.MustNewElement(dicom.TagRequestedProcedureDescription, ""),
+		dicom.MustNewElement(dicom.TagScheduledProcedureStepSequence,
+			dicom.MustNewElement(dicom.TagItem,
+				dicom.MustNewElement(dicom.TagModality, ""),
+				dicom.MustNewElement(dicom.TagScheduledProcedureStepStartDate, ""),
+				dicom.MustNewElement(dicom.TagScheduledProcedureStepStartTime, ""),
+				dicom.MustNewElement(dicom.TagScheduledPerformingPhysicianName, ""),
+				dicom.MustNewElement(dicom.TagScheduledProcedureStepStatus, ""))),
 	}
 	for result := range su.CFind(netdicom.CFindStudyQRLevel, args) {
 		if result.Err != nil {

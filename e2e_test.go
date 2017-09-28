@@ -62,9 +62,9 @@ func onCStoreRequest(
 	e := dicomio.NewBytesEncoder(nil, dicomio.UnknownVR)
 	dicom.WriteFileHeader(e,
 		[]*dicom.Element{
-			dicom.NewElement(dicom.TagTransferSyntaxUID, transferSyntaxUID),
-			dicom.NewElement(dicom.TagMediaStorageSOPClassUID, sopClassUID),
-			dicom.NewElement(dicom.TagMediaStorageSOPInstanceUID, sopInstanceUID),
+			dicom.MustNewElement(dicom.TagTransferSyntaxUID, transferSyntaxUID),
+			dicom.MustNewElement(dicom.TagMediaStorageSOPClassUID, sopClassUID),
+			dicom.MustNewElement(dicom.TagMediaStorageSOPInstanceUID, sopInstanceUID),
 		})
 	e.WriteBytes(data)
 
@@ -102,10 +102,10 @@ func onCFindRequest(
 		vlog.Fatalf("Didn't find expected filters: %v", filters)
 	}
 	ch <- netdicom.CFindResult{
-		Elements: []*dicom.Element{dicom.NewElement(dicom.TagPatientName, "johndoe")},
+		Elements: []*dicom.Element{dicom.MustNewElement(dicom.TagPatientName, "johndoe")},
 	}
 	ch <- netdicom.CFindResult{
-		Elements: []*dicom.Element{dicom.NewElement(dicom.TagPatientName, "johndoe2")},
+		Elements: []*dicom.Element{dicom.MustNewElement(dicom.TagPatientName, "johndoe2")},
 	}
 	close(ch)
 	return ch
@@ -170,7 +170,7 @@ func TestStoreSingleFile(t *testing.T) {
 	}
 	su := netdicom.NewServiceUser(params)
 	su.Connect(serverAddr)
-	err = su.CStore(data)
+	err = su.CStoreRaw(data)
 	if err != nil {
 		vlog.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestFind(t *testing.T) {
 	}
 	su.Connect(serverAddr)
 	filter := []*dicom.Element{
-		dicom.NewElement(dicom.TagPatientName, "foohah"),
+		dicom.MustNewElement(dicom.TagPatientName, "foohah"),
 	}
 	var namesFound []string
 
@@ -232,7 +232,7 @@ func TestNonexistentServer(t *testing.T) {
 	}
 	su := netdicom.NewServiceUser(params)
 	su.Connect(":99999")
-	err = su.CStore(data)
+	err = su.CStoreRaw(data)
 	if err == nil || err.Error() != "Connection failed" {
 		vlog.Fatalf("Expect CStore to fail: %v", err)
 	}

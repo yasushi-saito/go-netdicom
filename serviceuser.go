@@ -159,6 +159,9 @@ func newMessageID(su *ServiceUser) uint16 {
 // established in during DICOM A_ASSOCIATE handshake.
 //
 // TODO(saito) Re-encode the data using the valid transfer syntax.
+//
+//
+// TODO(saito) Remove this function. Use CStore instead.
 func (su *ServiceUser) CStoreRaw(data []byte) error {
 	// Parse the beginning of file, extract syntax UIDs to fill in the
 	// C-STORE request.

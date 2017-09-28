@@ -1,10 +1,10 @@
 package main
 
-// A simple PACS server.
+// A simple PACS server. Supports C-STORE, C-FIND, C-MOVE.
 //
 // Usage: ./sampleserver -dir <directory> -port 11111
 //
-// It starts a DICOM server that serves files under <directory>.
+// It starts a DICOM server and serves files under <directory>.
 
 import (
 	"encoding/binary"
@@ -17,7 +17,6 @@ import (
 	"regexp"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-dicom/dicomio"
@@ -29,7 +28,7 @@ import (
 
 var (
 	portFlag     = flag.String("port", "10000", "TCP port to listen to")
-	aeFlag = flag.String("ae", "bogusae", "AE title of this server")
+	aeFlag       = flag.String("ae", "bogusae", "AE title of this server")
 	remoteAEFlag = flag.String("remote-ae", "GBMAC0261:localhost:11112", `
 Comma-separated list of remote AEs, in form aetitle:host:port, For example -remote-ae testae:foo.example.com:12345,testae2:bar.example.com:23456.
 In this example, a C-GET or C-MOVE request to application entity "testae" will resolve to foo.example.com:12345.`)
@@ -42,12 +41,15 @@ The directory to store files received by C-STORE.
 If empty, use <dir>/incoming, where <dir> is the value of the -dir flag.`)
 )
 
-var pathSeq int32
-
 type server struct {
-	// Set of dicom files the server manages. Keys are file paths.
-	mu       *sync.Mutex
-	datasets map[string]*dicom.DataSet // guarded by mu.
+	mu *sync.Mutex
+
+	// Set of dicom files the server manages. Keys are file paths.  Guarded
+	// by mu.
+	datasets map[string]*dicom.DataSet
+
+	// For generating new unique path in C-STORE. Guarded by mu.
+	pathSeq int32
 }
 
 func (ss *server) onCStore(
@@ -57,9 +59,10 @@ func (ss *server) onCStore(
 	data []byte) dimse.Status {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
-	path := path.Join(*outputFlag, fmt.Sprintf("image%04d.dcm", atomic.AddInt32(&pathSeq, 1)))
+	ss.pathSeq++
+	path := path.Join(*outputFlag, fmt.Sprintf("image%04d.dcm", ss.pathSeq))
 
-	vlog.Infof("Writing %s", path)
+	vlog.Infof("C-STORE: creating %s", path)
 	e := dicomio.NewBytesEncoder(binary.LittleEndian, dicomio.ExplicitVR)
 	dicom.WriteFileHeader(e,
 		[]*dicom.Element{
@@ -92,9 +95,11 @@ func (ss *server) onCStore(
 type filterMatch struct {
 	path  string           // DICOM path name
 	ds    *dicom.DataSet   // Contents of "path".
-	elems []*dicom.Element // Elements that matched the filter
+	elems []*dicom.Element // Elements within "ds" that match the filter
 }
 
+// "filters" are matching conditions specified in C-{FIND,GET,MOVE}. This
+// function returns the list of datasets and their elements that match filters.
 func (ss *server) findMatchingFiles(filters []*dicom.Element) ([]filterMatch, error) {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
@@ -145,7 +150,6 @@ func (ss *server) onCFind(
 	vlog.Infof("CFind: transfersyntax: %v, classuid: %v",
 		dicomuid.UIDString(transferSyntaxUID),
 		dicomuid.UIDString(sopClassUID))
-
 	// Match the filter against every file. This is just for demonstration
 	go func() {
 		matches, err := ss.findMatchingFiles(filters)
@@ -274,14 +278,13 @@ func main() {
 	if *outputFlag == "" {
 		*outputFlag = filepath.Join(*dirFlag, "incoming")
 	}
-
 	remoteAEs, err := parseRemoteAEFlag(*remoteAEFlag)
 	if err != nil {
 		vlog.Fatalf("Failed to parse -remote-ae flag: %v", err)
 	}
 	datasets, err := listDicomFiles(*dirFlag)
 	if err != nil {
-		vlog.Fatalf("%s: Failed to list dicom files: %v", *dirFlag, err)
+		vlog.Fatalf("Failed to list DICOM files in %s: %v", *dirFlag, err)
 	}
 	ss := server{
 		mu:       &sync.Mutex{},
@@ -289,7 +292,7 @@ func main() {
 	}
 	vlog.Infof("Listening on %s", port)
 	params := netdicom.ServiceProviderParams{
-		AETitle: *aeFlag,
+		AETitle:   *aeFlag,
 		RemoteAEs: remoteAEs,
 	}
 	callbacks := netdicom.ServiceProviderCallbacks{
