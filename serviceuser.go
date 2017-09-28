@@ -269,7 +269,7 @@ func (su *ServiceUser) CStore(ds *dicom.DataSet) error {
 		return fmt.Errorf("C-STORE data lacks MediaStorageSOPClassUID: %v", err)
 	}
 	vlog.VI(1).Infof("DICOM abstractsyntax: %s, sopinstance: %s",
-		sopClassUID, sopInstanceUID)
+		dicomuid.UIDString(sopClassUID), dicomuid.UIDString(sopInstanceUID))
 
 	err = waitAssociationEstablishment(su)
 	if err != nil {
@@ -281,6 +281,9 @@ func (su *ServiceUser) CStore(ds *dicom.DataSet) error {
 		vlog.Errorf("C-STORE: sop class %v not found in context %v", sopClassUID, err)
 		return err
 	}
+	vlog.VI(1).Infof("C-STORE: using transfersyntax %s to send sop class %s",
+		dicomuid.UIDString(context.transferSyntaxUID),
+		dicomuid.UIDString(sopClassUID))
 	e := dicomio.NewBytesEncoder(nil, dicomio.UnknownVR)
 	dimse.EncodeMessage(e, &dimse.C_STORE_RQ{
 		AffectedSOPClassUID:    sopClassUID,

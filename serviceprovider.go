@@ -141,7 +141,7 @@ func runCStoreSubOp(myAETitle, remoteAETitle, remoteHostPort string, ds *dicom.D
 	defer su.Release()
 	su.Connect(remoteHostPort)
 	err = su.CStore(ds)
-	vlog.Infof("%s: C-STORE subop done: %v", err)
+	vlog.Infof("C-STORE subop done: %v", err)
 	return err
 }
 

@@ -213,7 +213,7 @@ func (m *contextManager) onAssociateResponse(responses []pdu.SubItem) error {
 			}
 			if ri.Result != pdu.PresentationContextAccepted {
 				vlog.Errorf("Abstract syntax %v, transfer syntax %v was rejected by the server: %s",
-					sopUID, pickedTransferSyntaxUID, ri.Result.String())
+					dicomuid.UIDString(sopUID), dicomuid.UIDString(pickedTransferSyntaxUID), ri.Result.String())
 			}
 			if !found {
 				// Generally, we expect the server to pick a

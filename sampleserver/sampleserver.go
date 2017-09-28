@@ -94,7 +94,6 @@ func (ss *server) onCStore(
 
 type filterMatch struct {
 	path  string           // DICOM path name
-	ds    *dicom.DataSet   // Contents of "path".
 	elems []*dicom.Element // Elements within "ds" that match the filter
 }
 
@@ -107,7 +106,7 @@ func (ss *server) findMatchingFiles(filters []*dicom.Element) ([]filterMatch, er
 	var matches []filterMatch
 	for path, ds := range ss.datasets {
 		allMatched := true
-		match := filterMatch{path: path, ds: ds}
+		match := filterMatch{path: path}
 		for _, filter := range filters {
 			ok, elem, err := dicom.Query(ds, filter)
 			if err != nil {
@@ -186,11 +185,18 @@ func (ss *server) onCMove(
 		} else {
 			for i, match := range matches {
 				vlog.VI(1).Infof("C-MOVE resp %d %s: %v", i, match.path, match.elems)
-				ch <- netdicom.CMoveResult{
+				// Read the file; the one in ss.datasets lack the PixelData.
+				ds, err := dicom.ReadDataSetFromFile(match.path, dicom.ReadOptions{})
+				resp := netdicom.CMoveResult{
 					Remaining: len(matches) - i - 1,
 					Path:      match.path,
-					DataSet:   match.ds,
 				}
+				if err != nil {
+					resp.Err = err
+				} else {
+					resp.DataSet = ds
+				}
+				ch <- resp
 			}
 		}
 		close(ch)

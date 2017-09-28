@@ -293,7 +293,7 @@ func splitDataIntoPDUs(sm *stateMachine, abstractSyntaxName string, command bool
 	// two byte header overhead.
 	//
 	// TODO(saito) move the magic number elsewhere.
-	var maxChunkSize = sm.contextManager.peerMaxPDUSize - 2
+	var maxChunkSize = sm.contextManager.peerMaxPDUSize - 8
 	for len(data) > 0 {
 		chunkSize := len(data)
 		if chunkSize > maxChunkSize {
