@@ -78,6 +78,14 @@ func (ss *server) onCStore(
 	bytes := e.Bytes()
 	err := ioutil.WriteFile(path, bytes, 0644)
 	if err != nil {
+		dirPath := filepath.Dir(path)
+		err2 := os.MkdirAll(dirPath, 0755)
+		if err2 == nil {
+			vlog.Infof("Created directory %v", dirPath)
+			err = ioutil.WriteFile(path, bytes, 0644)
+		}
+	}
+	if err != nil {
 		vlog.Errorf("%s: %s", path, err)
 		return dimse.Status{Status: dimse.StatusNotAuthorized}
 	}
