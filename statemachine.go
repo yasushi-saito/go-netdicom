@@ -162,11 +162,10 @@ var actionAe2 = &stateAction{"AE-2", "Connection established on the user side. S
 	func(sm *stateMachine, event stateEvent) stateType {
 		doassert(event.conn != nil)
 		sm.conn = event.conn
-		go networkReaderThread(sm.netCh, event.conn, sm.userParams.MaxPDUSize, sm.label)
+		go networkReaderThread(sm.netCh, event.conn, DefaultMaxPDUSize, sm.label)
 		items := sm.contextManager.generateAssociateRequest(
 			sm.userParams.RequiredServices,
-			sm.userParams.SupportedTransferSyntaxes,
-			sm.userParams.MaxPDUSize)
+			sm.userParams.SupportedTransferSyntaxes)
 		pdu := &pdu.A_ASSOCIATE{
 			Type:            pdu.PDUTypeA_ASSOCIATE_RQ,
 			ProtocolVersion: pdu.CurrentProtocolVersion,

@@ -50,10 +50,6 @@ type ServiceUserParams struct {
 	// spec is particularly moronic here, since we could just have specified
 	// the transfer syntax per data sent.
 	SupportedTransferSyntaxes []string
-
-	// Max size of a message chunk (PDU) that the client can receiuve.  If
-	// <= 0, DefaultMaxPDUSize is used.
-	MaxPDUSize int
 }
 
 // If transferSyntaxUIDs is empty, the standard list of syntax is used.
@@ -84,7 +80,6 @@ func NewServiceUserParams(
 		CallingAETitle:            callingAETitle,
 		RequiredServices:          requiredServices,
 		SupportedTransferSyntaxes: transferSyntaxUIDs,
-		MaxPDUSize:                1 << 20,
 	}, nil
 }
 
