@@ -105,10 +105,12 @@ func writeElementsToBytes(elems []*dicom.Element, transferSyntaxUID string) ([]b
 }
 
 func readElementsInBytes(data []byte, transferSyntaxUID string) ([]*dicom.Element, error) {
+	dicom.Zzzz = vlog.Level(0)
 	decoder := dicomio.NewBytesDecoderWithTransferSyntax(data, transferSyntaxUID)
 	var elems []*dicom.Element
 	for decoder.Len() > 0 {
 		elem := dicom.ReadElement(decoder, dicom.ReadOptions{})
+		vlog.Infof("C-FIND: Read elem: %v, err %v", elem, decoder.Error())
 		if decoder.Error() != nil {
 			break
 		}
@@ -185,7 +187,7 @@ func onDIMSECommand(downcallCh chan stateEvent,
 		}
 	}
 
-	vlog.VI(1).Infof("DIMSE request: %s", msg.String())
+	vlog.VI(1).Infof("DIMSE request: %s data %d bytes context %+v", msg.String(), len(data), context)
 	switch c := msg.(type) {
 	case *dimse.C_STORE_RQ:
 		status := dimse.Status{Status: dimse.StatusUnrecognizedOperation}
