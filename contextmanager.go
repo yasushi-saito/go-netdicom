@@ -100,7 +100,7 @@ func (m *contextManager) generateAssociateRequest(
 
 // Called when A_ASSOCIATE_RQ pdu arrives, on the provider side. Returns a list of items to be sent in
 // the A_ASSOCIATE_AC pdu.
-func (m *contextManager) onAssociateRequest(requestItems []pdu.SubItem, maxPDUSize int) ([]pdu.SubItem, error) {
+func (m *contextManager) onAssociateRequest(requestItems []pdu.SubItem) ([]pdu.SubItem, error) {
 	responses := []pdu.SubItem{
 		&pdu.ApplicationContextItem{
 			Name: pdu.DICOMApplicationContextItemName,
@@ -163,7 +163,7 @@ func (m *contextManager) onAssociateRequest(requestItems []pdu.SubItem, maxPDUSi
 	}
 	responses = append(responses,
 		&pdu.UserInformationItem{
-			Items: []pdu.SubItem{&pdu.UserInformationMaximumLengthItem{MaximumLengthReceived: uint32(maxPDUSize)}}})
+			Items: []pdu.SubItem{&pdu.UserInformationMaximumLengthItem{MaximumLengthReceived: uint32(DefaultMaxPDUSize)}}})
 	vlog.VI(1).Infof("Received associate request, #contexts:%v, maxPDU:%v, implclass:%v, version:%v",
 		len(m.contextIDToAbstractSyntaxNameMap),
 		m.peerMaxPDUSize, m.peerImplementationClassUID, m.peerImplementationVersionName)

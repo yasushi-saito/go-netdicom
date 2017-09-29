@@ -300,8 +300,6 @@ func main() {
 	params := netdicom.ServiceProviderParams{
 		AETitle:   *aeFlag,
 		RemoteAEs: remoteAEs,
-	}
-	callbacks := netdicom.ServiceProviderCallbacks{
 		CEcho: func() dimse.Status {
 			vlog.Info("Received C-ECHO")
 			return dimse.Success
@@ -319,7 +317,7 @@ func main() {
 			return ss.onCStore(transferSyntaxUID, sopClassUID, sopInstanceUID, data)
 		},
 	}
-	sp := netdicom.NewServiceProvider(params, callbacks)
+	sp := netdicom.NewServiceProvider(params)
 	err = sp.Run(port)
 	if err != nil {
 		panic(err)

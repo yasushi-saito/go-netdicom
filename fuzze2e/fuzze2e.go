@@ -18,8 +18,7 @@ func startServer(faults *netdicom.FaultInjector) net.Listener {
 	}
 	go func() {
 		// TODO(saito) test w/ small PDU.
-		params := netdicom.ServiceProviderParams{MaxPDUSize: 4096000}
-		callbacks := netdicom.ServiceProviderCallbacks{
+		params := netdicom.ServiceProviderParams{
 			CStore: func(transferSyntaxUID string,
 				sopClassUID string,
 				sopInstanceUID string,
@@ -35,7 +34,7 @@ func startServer(faults *netdicom.FaultInjector) net.Listener {
 				break
 			}
 			log.Printf("Accepted connection %v", conn)
-			netdicom.RunProviderForConn(conn, params, callbacks)
+			netdicom.RunProviderForConn(conn, params)
 		}
 	}()
 	return listener
