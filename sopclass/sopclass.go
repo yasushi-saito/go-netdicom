@@ -19,11 +19,9 @@ var VerificationClasses = []SOPUID{
 var StorageClasses = []SOPUID{
 	SOPUID{"ComputedRadiographyImageStorage", "1.2.840.10008.5.1.4.1.1.1"},
 	SOPUID{"DigitalXRayImagePresentationStorage", "1.2.840.10008.5.1.4.1.1.1.1"},
-	SOPUID{"DigitalXRayImageProcessingStorage", "1.2.840.10008.5.1.4.1.1.1.1.1.1"},
 	SOPUID{"DigitalMammographyXRayImagePresentationStorage", "1.2.840.10008.5.1.4.1.1.1.2"},
 	SOPUID{"DigitalMammographyXRayImageProcessingStorage", "1.2.840.10008.5.1.4.1.1.1.2.1"},
 	SOPUID{"DigitalIntraOralXRayImagePresentationStorage", "1.2.840.10008.5.1.4.1.1.1.3"},
-	SOPUID{"DigitalIntraOralXRayImageProcessingStorage", "1.2.840.10008.5.1.1.4.1.1.3.1"},
 	SOPUID{"CTImageStorage", "1.2.840.10008.5.1.4.1.1.2"},
 	SOPUID{"EnhancedCTImageStorage", "1.2.840.10008.5.1.4.1.1.2.1"},
 	SOPUID{"LegacyConvertedEnhancedCTImageStorage", "1.2.840.10008.5.1.4.1.1.2.2"},

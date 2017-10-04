@@ -105,7 +105,6 @@ func writeElementsToBytes(elems []*dicom.Element, transferSyntaxUID string) ([]b
 }
 
 func readElementsInBytes(data []byte, transferSyntaxUID string) ([]*dicom.Element, error) {
-	dicom.Zzzz = vlog.Level(0)
 	decoder := dicomio.NewBytesDecoderWithTransferSyntax(data, transferSyntaxUID)
 	var elems []*dicom.Element
 	for decoder.Len() > 0 {

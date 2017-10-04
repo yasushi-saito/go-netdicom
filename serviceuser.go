@@ -240,6 +240,7 @@ func (su *ServiceUser) CStoreRaw(data []byte) error {
 		doassert(event.command != nil)
 		resp, ok := event.command.(*dimse.C_STORE_RSP)
 		doassert(ok) // TODO(saito)
+		vlog.VI(1).Infof("C-STORE: got resp: %v", resp)
 		if resp.Status.Status != 0 {
 			return fmt.Errorf("C_STORE failed: %v", resp.String())
 		}
@@ -268,8 +269,7 @@ func (su *ServiceUser) CStore(ds *dicom.DataSet) error {
 	if err != nil {
 		return fmt.Errorf("C-STORE data lacks MediaStorageSOPClassUID: %v", err)
 	}
-	vlog.VI(1).Infof("DICOM abstractsyntax: %s, sopinstance: %s",
-		dicomuid.UIDString(sopClassUID), dicomuid.UIDString(sopInstanceUID))
+	vlog.VI(1).Infof("DICOM abstractsyntax: %s, sopinstance: %s", dicomuid.UIDString(sopClassUID), sopInstanceUID)
 
 	err = waitAssociationEstablishment(su)
 	if err != nil {
@@ -281,9 +281,10 @@ func (su *ServiceUser) CStore(ds *dicom.DataSet) error {
 		vlog.Errorf("C-STORE: sop class %v not found in context %v", sopClassUID, err)
 		return err
 	}
-	vlog.VI(1).Infof("C-STORE: using transfersyntax %s to send sop class %s",
+	vlog.VI(1).Infof("C-STORE: using transfersyntax %s to send sop class %s, instance %s",
 		dicomuid.UIDString(context.transferSyntaxUID),
-		dicomuid.UIDString(sopClassUID))
+		dicomuid.UIDString(sopClassUID),
+		sopInstanceUID)
 	e := dicomio.NewBytesEncoder(nil, dicomio.UnknownVR)
 	dimse.EncodeMessage(e, &dimse.C_STORE_RQ{
 		AffectedSOPClassUID:    sopClassUID,
@@ -308,7 +309,8 @@ func (su *ServiceUser) CStore(ds *dicom.DataSet) error {
 		}
 		dicom.WriteElement(bodyEncoder, elem)
 	}
-	if bodyEncoder.Error() != nil {
+	if err := bodyEncoder.Error(); err != nil {
+		vlog.Errorf("C-STORE: body encoder failed: %v", err)
 		return err
 	}
 	su.downcallCh <- stateEvent{

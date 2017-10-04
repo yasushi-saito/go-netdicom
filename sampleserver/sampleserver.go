@@ -7,10 +7,8 @@ package main
 // It starts a DICOM server and serves files under <directory>.
 
 import (
-	"encoding/binary"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
@@ -61,9 +59,25 @@ func (ss *server) onCStore(
 	defer ss.mu.Unlock()
 	ss.pathSeq++
 	path := path.Join(*outputFlag, fmt.Sprintf("image%04d.dcm", ss.pathSeq))
-
-	vlog.Infof("C-STORE: creating %s", path)
-	e := dicomio.NewBytesEncoder(binary.LittleEndian, dicomio.ExplicitVR)
+	out, err := os.Create(path)
+	if err != nil {
+		dirPath := filepath.Dir(path)
+		err := os.MkdirAll(dirPath, 0755)
+		if err != nil {
+			return dimse.Status{Status: dimse.StatusNotAuthorized, ErrorComment: err.Error()}
+		}
+		out, err = os.Create(path)
+		if err != nil {
+			vlog.Errorf("%s: create: %v", path, err)
+			return dimse.Status{Status: dimse.StatusNotAuthorized, ErrorComment: err.Error()}
+		}
+	}
+	defer func() {
+		if out != nil {
+			out.Close()
+		}
+	}()
+	e := dicomio.NewEncoderWithTransferSyntax(out, transferSyntaxUID)
 	dicom.WriteFileHeader(e,
 		[]*dicom.Element{
 			dicom.MustNewElement(dicom.TagTransferSyntaxUID, transferSyntaxUID),
@@ -72,24 +86,15 @@ func (ss *server) onCStore(
 		})
 	e.WriteBytes(data)
 	if err := e.Error(); err != nil {
-		vlog.Errorf("%s: failed to write: %v", path, err)
-		return dimse.Status{Status: dimse.StatusNotAuthorized}
+		vlog.Errorf("%s: write: %v", path, err)
+		return dimse.Status{Status: dimse.StatusNotAuthorized, ErrorComment: err.Error()}
 	}
-	bytes := e.Bytes()
-	err := ioutil.WriteFile(path, bytes, 0644)
+	err = out.Close()
+	out = nil
 	if err != nil {
-		dirPath := filepath.Dir(path)
-		err2 := os.MkdirAll(dirPath, 0755)
-		if err2 == nil {
-			vlog.Infof("Created directory %v", dirPath)
-			err = ioutil.WriteFile(path, bytes, 0644)
-		}
+		vlog.Errorf("%s: close %s", path, err)
+		return dimse.Status{Status: dimse.StatusNotAuthorized, ErrorComment: err.Error()}
 	}
-	if err != nil {
-		vlog.Errorf("%s: %s", path, err)
-		return dimse.Status{Status: dimse.StatusNotAuthorized}
-	}
-
 	// Register the new file in ss.datasets.
 	ds, err := dicom.ReadDataSetFromFile(path, dicom.ReadOptions{DropPixelData: true})
 	if err != nil {
@@ -100,6 +105,7 @@ func (ss *server) onCStore(
 	return dimse.Success
 }
 
+// Represents a match.
 type filterMatch struct {
 	path  string           // DICOM path name
 	elems []*dicom.Element // Elements within "ds" that match the filter
