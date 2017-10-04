@@ -17,32 +17,6 @@ type ServiceProviderParams struct {
 	AETitle   string            // The title of the provider. Must be nonempty
 	RemoteAEs map[string]string // Names of remote AEs and their host:ports. Used by C-MOVE.
 
-	// Max size of a message chunk (PDU) that the provider can receiuve.  If
-	// <= 0, DefaultMaxPDUSize is used.
-	MaxPDUSize int
-}
-
-const DefaultMaxPDUSize int = 4 << 20
-
-type CStoreCallback func(
-	transferSyntaxUID string,
-	sopClassUID string,
-	sopInstanceUID string,
-	data []byte) dimse.Status
-
-type CFindCallback func(
-	transferSyntaxUID string,
-	sopClassUID string,
-	filters []*dicom.Element) chan CFindResult
-
-type CMoveCallback func(
-	transferSyntaxUID string,
-	sopClassUID string,
-	filters []*dicom.Element) chan CMoveResult
-
-type CEchoCallback func() dimse.Status
-
-type ServiceProviderCallbacks struct {
 	// Called on C_ECHO request. If nil, a C-ECHO call will produce an error response.
 	CEcho CEchoCallback
 
@@ -84,13 +58,32 @@ type ServiceProviderCallbacks struct {
 	// If CStoreCallback=nil, a C-STORE call will produce an error response.
 	CStore CStoreCallback
 
-	// TODO(saito) Implement C-MOVE, C-GET, etc.
+	// TODO(saito) Implement C-GET, etc.
 }
+
+const DefaultMaxPDUSize = 4 << 20
+
+type CStoreCallback func(
+	transferSyntaxUID string,
+	sopClassUID string,
+	sopInstanceUID string,
+	data []byte) dimse.Status
+
+type CFindCallback func(
+	transferSyntaxUID string,
+	sopClassUID string,
+	filters []*dicom.Element) chan CFindResult
+
+type CMoveCallback func(
+	transferSyntaxUID string,
+	sopClassUID string,
+	filters []*dicom.Element) chan CMoveResult
+
+type CEchoCallback func() dimse.Status
 
 // Encapsulates the state for DICOM server (provider).
 type ServiceProvider struct {
-	params    ServiceProviderParams
-	callbacks ServiceProviderCallbacks
+	params ServiceProviderParams
 }
 
 func writeElementsToBytes(elems []*dicom.Element, transferSyntaxUID string) ([]byte, error) {
@@ -151,8 +144,7 @@ func onDIMSECommand(downcallCh chan stateEvent,
 	contextID byte,
 	msg dimse.Message,
 	data []byte,
-	params ServiceProviderParams,
-	callbacks ServiceProviderCallbacks) {
+	params ServiceProviderParams) {
 	context, err := cm.lookupByContextID(contextID)
 	if err != nil {
 		vlog.Infof("Invalid context ID %d: %v", contextID, err)
@@ -190,8 +182,8 @@ func onDIMSECommand(downcallCh chan stateEvent,
 	switch c := msg.(type) {
 	case *dimse.C_STORE_RQ:
 		status := dimse.Status{Status: dimse.StatusUnrecognizedOperation}
-		if callbacks.CStore != nil {
-			status = callbacks.CStore(
+		if params.CStore != nil {
+			status = params.CStore(
 				context.transferSyntaxUID,
 				c.AffectedSOPClassUID,
 				c.AffectedSOPInstanceUID,
@@ -206,7 +198,7 @@ func onDIMSECommand(downcallCh chan stateEvent,
 		}
 		sendResponse(resp)
 	case *dimse.C_FIND_RQ:
-		if callbacks.CFind == nil {
+		if params.CFind == nil {
 			sendResponse(&dimse.C_FIND_RSP{
 				AffectedSOPClassUID:       c.AffectedSOPClassUID,
 				MessageIDBeingRespondedTo: c.MessageID,
@@ -228,7 +220,7 @@ func onDIMSECommand(downcallCh chan stateEvent,
 		vlog.VI(1).Infof("C-FIND-RQ payload: %s", elementsString(elems))
 
 		status := dimse.Status{Status: dimse.StatusSuccess}
-		responseCh := callbacks.CFind(context.transferSyntaxUID, c.AffectedSOPClassUID, elems)
+		responseCh := params.CFind(context.transferSyntaxUID, c.AffectedSOPClassUID, elems)
 		for resp := range responseCh {
 			if resp.Err != nil {
 				status = dimse.Status{
@@ -273,7 +265,7 @@ func onDIMSECommand(downcallCh chan stateEvent,
 				Status:                    dimse.Status{Status: dimse.StatusUnrecognizedOperation, ErrorComment: err.Error()},
 			})
 		}
-		if callbacks.CMove == nil {
+		if params.CMove == nil {
 			sendResponse(&dimse.C_MOVE_RSP{
 				AffectedSOPClassUID:       c.AffectedSOPClassUID,
 				MessageIDBeingRespondedTo: c.MessageID,
@@ -293,7 +285,7 @@ func onDIMSECommand(downcallCh chan stateEvent,
 			break
 		}
 		vlog.VI(1).Infof("C-MOVE-RQ payload: %s", elementsString(elems))
-		responseCh := callbacks.CMove(context.transferSyntaxUID, c.AffectedSOPClassUID, elems)
+		responseCh := params.CMove(context.transferSyntaxUID, c.AffectedSOPClassUID, elems)
 		status := dimse.Status{Status: dimse.StatusSuccess}
 		var numSuccesses, numFailures uint16
 		for resp := range responseCh {
@@ -334,8 +326,8 @@ func onDIMSECommand(downcallCh chan stateEvent,
 		}
 	case *dimse.C_ECHO_RQ:
 		status := dimse.Status{Status: dimse.StatusUnrecognizedOperation}
-		if callbacks.CEcho != nil {
-			status = callbacks.CEcho()
+		if params.CEcho != nil {
+			status = params.CEcho()
 		}
 		resp := &dimse.C_ECHO_RSP{
 			MessageIDBeingRespondedTo: c.MessageID,
@@ -348,24 +340,17 @@ func onDIMSECommand(downcallCh chan stateEvent,
 	}
 }
 
-func NewServiceProvider(
-	params ServiceProviderParams,
-	callbacks ServiceProviderCallbacks) *ServiceProvider {
-	if params.MaxPDUSize <= 0 {
-		params.MaxPDUSize = DefaultMaxPDUSize
-	}
-	sp := &ServiceProvider{params: params, callbacks: callbacks}
+func NewServiceProvider(params ServiceProviderParams) *ServiceProvider {
+	sp := &ServiceProvider{params: params}
 	return sp
 }
 
 // Start threads for handling "conn". This function returns immediately; "conn"
 // will be cleaned up in the background.
-func RunProviderForConn(conn net.Conn,
-	params ServiceProviderParams,
-	callbacks ServiceProviderCallbacks) {
+func RunProviderForConn(conn net.Conn, params ServiceProviderParams) {
 	downcallCh := make(chan stateEvent, 128)
 	upcallCh := make(chan upcallEvent, 128)
-	go runStateMachineForServiceProvider(conn, params, upcallCh, downcallCh)
+	go runStateMachineForServiceProvider(conn, upcallCh, downcallCh)
 
 	handshakeCompleted := false
 	for event := range upcallCh {
@@ -379,7 +364,7 @@ func RunProviderForConn(conn net.Conn,
 		doassert(event.command != nil)
 		doassert(handshakeCompleted == true)
 		onDIMSECommand(downcallCh, event.cm, event.contextID,
-			event.command, event.data, params, callbacks)
+			event.command, event.data, params)
 	}
 	vlog.VI(2).Info("Finished provider")
 }
@@ -399,6 +384,6 @@ func (sp *ServiceProvider) Run(listenAddr string) error {
 			vlog.Errorf("Accept error: %v", err)
 			continue
 		}
-		go func() { RunProviderForConn(conn, sp.params, sp.callbacks) }()
+		go func() { RunProviderForConn(conn, sp.params) }()
 	}
 }

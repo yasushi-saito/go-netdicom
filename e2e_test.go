@@ -30,9 +30,7 @@ func initTest() {
 			vlog.Fatal(err)
 		}
 		go func() {
-			// TODO(saito) test w/ small PDU.
-			params := netdicom.ServiceProviderParams{MaxPDUSize: 4096000}
-			callbacks := netdicom.ServiceProviderCallbacks{
+			params := netdicom.ServiceProviderParams{
 				CStore: onCStoreRequest,
 				CFind:  onCFindRequest,
 			}
@@ -43,7 +41,7 @@ func initTest() {
 					continue
 				}
 				vlog.Infof("Accepted connection %v", conn)
-				netdicom.RunProviderForConn(conn, params, callbacks)
+				netdicom.RunProviderForConn(conn, params)
 			}
 		}()
 		serverAddr = listener.Addr().String()

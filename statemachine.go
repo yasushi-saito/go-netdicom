@@ -162,11 +162,10 @@ var actionAe2 = &stateAction{"AE-2", "Connection established on the user side. S
 	func(sm *stateMachine, event stateEvent) stateType {
 		doassert(event.conn != nil)
 		sm.conn = event.conn
-		go networkReaderThread(sm.netCh, event.conn, sm.userParams.MaxPDUSize, sm.label)
+		go networkReaderThread(sm.netCh, event.conn, DefaultMaxPDUSize, sm.label)
 		items := sm.contextManager.generateAssociateRequest(
 			sm.userParams.RequiredServices,
-			sm.userParams.SupportedTransferSyntaxes,
-			sm.userParams.MaxPDUSize)
+			sm.userParams.SupportedTransferSyntaxes)
 		pdu := &pdu.A_ASSOCIATE{
 			Type:            pdu.PDUTypeA_ASSOCIATE_RQ,
 			ProtocolVersion: pdu.CurrentProtocolVersion,
@@ -208,7 +207,7 @@ var actionAe5 = &stateAction{"AE-5", "Issue Transport connection response primit
 		doassert(event.conn != nil)
 		startTimer(sm)
 		go func(ch chan stateEvent, conn net.Conn) {
-			networkReaderThread(ch, conn, sm.providerParams.MaxPDUSize, sm.label)
+			networkReaderThread(ch, conn, DefaultMaxPDUSize, sm.label)
 		}(sm.netCh, event.conn)
 		return sta02
 	}}
@@ -236,7 +235,7 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 			startTimer(sm)
 			return sta13
 		}
-		responses, err := sm.contextManager.onAssociateRequest(v.Items, sm.providerParams.MaxPDUSize)
+		responses, err := sm.contextManager.onAssociateRequest(v.Items)
 		if err != nil {
 			// TODO(saito) set proper error code.
 			sm.downcallCh <- stateEvent{
@@ -692,9 +691,8 @@ type stateMachine struct {
 	label  string // For logging only
 	isUser bool   // true if service user, false if provider
 
-	// Exactly one of the below fields is nonempty.
-	userParams     ServiceUserParams     // used for client-side statemachine
-	providerParams ServiceProviderParams // used by server-side statemachine
+	// userParams is set only for a client-side statemachine
+	userParams     ServiceUserParams
 
 	// Manages mappings between one-byte contextID to the
 	// <abstractsyntaxUID, transfersyntaxuid> pair.  Filled during A_ACCEPT
@@ -926,14 +924,12 @@ func runStateMachineForServiceUser(
 
 func runStateMachineForServiceProvider(
 	conn net.Conn,
-	params ServiceProviderParams,
 	upcallCh chan upcallEvent,
 	downcallCh chan stateEvent) {
 	label := fmt.Sprintf("sm(p)-%d", atomic.AddInt32(&smSeq, 1))
 	sm := &stateMachine{
 		label:          label,
 		isUser:         false,
-		providerParams: params,
 		contextManager: newContextManager(label),
 		conn:           conn,
 		netCh:          make(chan stateEvent, 128),

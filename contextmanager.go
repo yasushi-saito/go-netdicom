@@ -64,8 +64,7 @@ func newContextManager(label string) *contextManager {
 // maxPDUSize is the maximum PDU size, in bytes, that the clients is willing to
 // receive. maxPDUSize is encoded in one of the items.
 func (m *contextManager) generateAssociateRequest(
-	services []sopclass.SOPUID, transferSyntaxUIDs []string,
-	maxPDUSize int) []pdu.SubItem {
+	services []sopclass.SOPUID, transferSyntaxUIDs []string) []pdu.SubItem {
 	items := []pdu.SubItem{
 		&pdu.ApplicationContextItem{
 			Name: pdu.DICOMApplicationContextItemName,
@@ -91,7 +90,7 @@ func (m *contextManager) generateAssociateRequest(
 	items = append(items,
 		&pdu.UserInformationItem{
 			Items: []pdu.SubItem{
-				&pdu.UserInformationMaximumLengthItem{uint32(maxPDUSize)},
+				&pdu.UserInformationMaximumLengthItem{uint32(DefaultMaxPDUSize)},
 				&pdu.ImplementationClassUIDSubItem{dicom.GoDICOMImplementationClassUID},
 				&pdu.ImplementationVersionNameSubItem{dicom.GoDICOMImplementationVersionName}}})
 
@@ -100,7 +99,7 @@ func (m *contextManager) generateAssociateRequest(
 
 // Called when A_ASSOCIATE_RQ pdu arrives, on the provider side. Returns a list of items to be sent in
 // the A_ASSOCIATE_AC pdu.
-func (m *contextManager) onAssociateRequest(requestItems []pdu.SubItem, maxPDUSize int) ([]pdu.SubItem, error) {
+func (m *contextManager) onAssociateRequest(requestItems []pdu.SubItem) ([]pdu.SubItem, error) {
 	responses := []pdu.SubItem{
 		&pdu.ApplicationContextItem{
 			Name: pdu.DICOMApplicationContextItemName,
@@ -163,7 +162,7 @@ func (m *contextManager) onAssociateRequest(requestItems []pdu.SubItem, maxPDUSi
 	}
 	responses = append(responses,
 		&pdu.UserInformationItem{
-			Items: []pdu.SubItem{&pdu.UserInformationMaximumLengthItem{MaximumLengthReceived: uint32(maxPDUSize)}}})
+			Items: []pdu.SubItem{&pdu.UserInformationMaximumLengthItem{MaximumLengthReceived: uint32(DefaultMaxPDUSize)}}})
 	vlog.VI(1).Infof("Received associate request, #contexts:%v, maxPDU:%v, implclass:%v, version:%v",
 		len(m.contextIDToAbstractSyntaxNameMap),
 		m.peerMaxPDUSize, m.peerImplementationClassUID, m.peerImplementationVersionName)
