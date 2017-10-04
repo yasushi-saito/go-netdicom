@@ -180,7 +180,7 @@ func (ss *server) onCFind(
 	return ch
 }
 
-func (ss *server) onCMove(
+func (ss *server) onCMoveOrCGet(
 	transferSyntaxUID string,
 	sopClassUID string,
 	filters []*dicom.Element) chan netdicom.CMoveResult {
@@ -322,7 +322,10 @@ func main() {
 			return ss.onCFind(transferSyntaxUID, sopClassUID, filter)
 		},
 		CMove: func(transferSyntaxUID string, sopClassUID string, filter []*dicom.Element) chan netdicom.CMoveResult {
-			return ss.onCMove(transferSyntaxUID, sopClassUID, filter)
+			return ss.onCMoveOrCGet(transferSyntaxUID, sopClassUID, filter)
+		},
+		CGet: func(transferSyntaxUID string, sopClassUID string, filter []*dicom.Element) chan netdicom.CMoveResult {
+			return ss.onCMoveOrCGet(transferSyntaxUID, sopClassUID, filter)
 		},
 		CStore: func(transferSyntaxUID string,
 			sopClassUID string,

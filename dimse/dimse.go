@@ -9,6 +9,8 @@ package dimse
 import (
 	"encoding/binary"
 	"fmt"
+	"sync/atomic"
+
 	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-dicom/dicomio"
 	"github.com/yasushi-saito/go-netdicom/pdu"
@@ -290,4 +292,12 @@ func (a *CommandAssembler) AddDataPDU(pdu *pdu.P_DATA_TF) (byte, Message, []byte
 	*a = CommandAssembler{}
 	return contextID, command, dataBytes, nil
 	// TODO(saito) Verify that there's no unread items after the last command&data.
+}
+
+// Generate a new message ID that's unique within the "su".
+var nextMessageID int32 = 123
+
+func NewMessageID() uint16 {
+	id := atomic.AddInt32(&nextMessageID, 1)
+	return uint16(id % 0x10000)
 }

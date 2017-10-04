@@ -51,6 +51,7 @@ const (
 	ItemTypeUserInformationMaximumLength = 0x51
 	ItemTypeImplementationClassUID       = 0x52
 	ItemTypeAsynchronousOperationsWindow = 0x53
+	ItemTypeRoleSelection                = 0x54
 	ItemTypeImplementationVersionName    = 0x55
 )
 
@@ -77,6 +78,8 @@ func decodeSubItem(d *dicomio.Decoder) SubItem {
 		return decodeImplementationClassUIDSubItem(d, length)
 	case ItemTypeAsynchronousOperationsWindow:
 		return decodeAsynchronousOperationsWindowSubItem(d, length)
+	case ItemTypeRoleSelection:
+		return decodeRoleSelectionSubItem(d, length)
 	case ItemTypeImplementationVersionName:
 		return decodeImplementationVersionNameSubItem(d, length)
 	default:
@@ -188,6 +191,34 @@ func (v *AsynchronousOperationsWindowSubItem) Write(e *dicomio.Encoder) {
 func (v *AsynchronousOperationsWindowSubItem) String() string {
 	return fmt.Sprintf("asynchronousopswindow{invoked: %d performed: %d}",
 		v.MaxOpsInvoked, v.MaxOpsPerformed)
+}
+
+// PS3.7 Annex D.3.3.4
+type RoleSelectionSubItem struct {
+	SOPClassUID string
+	SCURole     byte
+	SCPRole     byte
+}
+
+func decodeRoleSelectionSubItem(d *dicomio.Decoder, length uint16) *RoleSelectionSubItem {
+	uidLen := d.ReadUInt16()
+	return &RoleSelectionSubItem{
+		SOPClassUID: d.ReadString(int(uidLen)),
+		SCURole:     d.ReadByte(),
+		SCPRole:     d.ReadByte(),
+	}
+}
+
+func (v *RoleSelectionSubItem) Write(e *dicomio.Encoder) {
+	encodeSubItemHeader(e, ItemTypeRoleSelection, uint16(2 + len(v.SOPClassUID) + 1*2))
+	e.WriteUInt16(uint16(len(v.SOPClassUID)))
+	e.WriteString(v.SOPClassUID)
+	e.WriteByte(v.SCURole)
+	e.WriteByte(v.SCPRole)
+}
+
+func (v *RoleSelectionSubItem) String() string {
+	return fmt.Sprintf("roleselection{sopclassuid: %v, scu: %v, scp: %v}", v.SOPClassUID, v.SCURole, v.SCPRole)
 }
 
 // PS3.7 Annex D.3.3.2.3
