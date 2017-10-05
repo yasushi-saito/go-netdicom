@@ -38,6 +38,7 @@ func (dc *dimseCommandDispatcher) findOrCreateCommand(
 		cm:        cm,
 		params:    &dc.params,
 		context:   context,
+		upcallCh:  make(chan upcallEvent, 128),
 	}
 	dc.activeCommands[messageID] = cs
 	vlog.VI(1).Infof("Start dimse command %v", messageID)
@@ -250,13 +251,13 @@ func (cs *dimseCommandState) handleCGet(c *dimse.C_GET_RQ, data []byte) {
 			}
 			break
 		}
-		vlog.Infof("C-GET: Sending %v", resp.Path)
-
 		subCs, found := cs.parent.findOrCreateCommand(dimse.NewMessageID(), cs.cm, cs.context /*not used*/)
+		vlog.Infof("C-GET: Sending %v using subcommand wl id:%d", resp.Path, subCs.messageID)
 		if found {
 			panic(subCs)
 		}
 		err := runCStoreOnAssociation(subCs.upcallCh, subCs.parent.downcallCh, subCs.cm, subCs.messageID, resp.DataSet)
+		vlog.Infof("C-GET: Done sending %v using subcommand wl id:%d: %v", resp.Path, subCs.messageID, err)
 		defer cs.parent.deleteCommand(subCs)
 		if err != nil {
 			vlog.Errorf("C-GET: C-store of %v failed: %v", resp.Path, err)
@@ -457,10 +458,12 @@ func (dh *dimseCommandDispatcher) handleEvent(event upcallEvent) {
 	messageID := event.command.GetMessageID()
 	dc, found := dh.findOrCreateCommand(messageID, event.cm, context)
 	if found {
+		vlog.VI(1).Infof("Forwarding command to existing command: %+v", event.command, dc)
 		dc.upcallCh <- event
+		vlog.VI(1).Infof("Done forwarding command to existing command: %+v", event.command, dc)
 		return
 	}
-	vlog.VI(1).Infof("New DIMSE command: %v", event.command)
+	vlog.VI(1).Infof("Receive DIMSE command: %v", event.command)
 	go func() {
 		defer dh.deleteCommand(dc)
 		switch c := event.command.(type) {

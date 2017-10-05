@@ -68,10 +68,12 @@ func runCStoreOnAssociation(upcallCh chan upcallEvent, downcallCh chan stateEven
 		},
 	}
 	for {
+		vlog.Infof("Start reading resp w/ messageID:%v", messageID)
 		event, ok := <-upcallCh
 		if !ok {
 			return fmt.Errorf("Connection closed while waiting for C-STORE response")
 		}
+		vlog.VI(1).Infof("C-STORE resp event: %v", event.command)
 		doassert(event.eventType == upcallEventData)
 		doassert(event.command != nil)
 		resp, ok := event.command.(*dimse.C_STORE_RSP)
