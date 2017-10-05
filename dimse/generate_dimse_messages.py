@@ -16,12 +16,6 @@ Message = NamedTuple('Message',
                       ('command_field', int),
                       ('fields', List[Field])])
 
-# class Field(object):
-#     def __init__(name: str, tag, typename: str, required: bool):
-#         self.name = name
-#         self.typename = typename
-#         self.required = required
-
 MESSAGES = [
     # P3.7 9.3.1.1
     Message('C_STORE_RQ',
@@ -132,6 +126,14 @@ def generate_go_definition(m: Message, out: IO[str]):
     print('', file=out)
     print(f'func (v* {m.name}) HasData() bool {{', file=out)
     print(f'	return v.CommandDataSetType != CommandDataSetTypeNull', file=out)
+    print('}', file=out)
+
+    print('', file=out)
+    print(f'func (v* {m.name}) GetMessageID() uint16 {{', file=out)
+    if m.type == Type.REQUEST:
+        print(f'	return v.MessageID', file=out)
+    else:
+        print(f'	return v.MessageIDBeingRespondedTo', file=out)
     print('}', file=out)
 
     print('', file=out)

@@ -5,6 +5,7 @@ package netdicom
 import (
 	"fmt"
 	"net"
+	"sync"
 
 	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-dicom/dicomio"
@@ -12,6 +13,276 @@ import (
 	"github.com/yasushi-saito/go-netdicom/sopclass"
 	"v.io/x/lib/vlog"
 )
+
+// Per-TCP-connection state for dispatching commands.
+type dimseCommandDispatcher struct {
+	downcallCh chan stateEvent // for sending PDUs to the statemachine.
+	params     ServiceProviderParams
+
+	mu             sync.Mutex
+	activeCommands map[uint16]*dimseCommandState // guarded by mu
+}
+
+// Per-command-invocation state.
+type dimseCommandState struct {
+	messageID  uint16 // DIMSE MessageID
+	cm         *contextManager
+	params     *ServiceProviderParams
+	context    contextManagerEntry
+
+	// upcallCh streams DIMSE command+data for the same messageID.
+	upcallCh   chan upcallEvent
+	// For sending PDUs to the statemachine.
+	downcallCh chan stateEvent
+}
+
+func (cs *dimseCommandState) handleCStore(c *dimse.C_STORE_RQ, data []byte) {
+	status := dimse.Status{Status: dimse.StatusUnrecognizedOperation}
+	if cs.params.CStore != nil {
+		status = cs.params.CStore(
+			cs.context.transferSyntaxUID,
+			c.AffectedSOPClassUID,
+			c.AffectedSOPInstanceUID,
+			data)
+	}
+	resp := &dimse.C_STORE_RSP{
+		AffectedSOPClassUID:       c.AffectedSOPClassUID,
+		MessageIDBeingRespondedTo: c.MessageID,
+		CommandDataSetType:        dimse.CommandDataSetTypeNull,
+		AffectedSOPInstanceUID:    c.AffectedSOPInstanceUID,
+		Status:                    status,
+	}
+	cs.sendMessage(resp, nil)
+}
+
+func (cs *dimseCommandState) handleCFind(c *dimse.C_FIND_RQ, data []byte) {
+	if cs.params.CFind == nil {
+		cs.sendMessage(&dimse.C_FIND_RSP{
+			AffectedSOPClassUID:       c.AffectedSOPClassUID,
+			MessageIDBeingRespondedTo: c.MessageID,
+			CommandDataSetType:        dimse.CommandDataSetTypeNull,
+			Status:                    dimse.Status{Status: dimse.StatusUnrecognizedOperation, ErrorComment: "No callback found for C-FIND"},
+		}, nil)
+		return
+	}
+	elems, err := readElementsInBytes(data, cs.context.transferSyntaxUID)
+	if err != nil {
+		cs.sendMessage(&dimse.C_FIND_RSP{
+			AffectedSOPClassUID:       c.AffectedSOPClassUID,
+			MessageIDBeingRespondedTo: c.MessageID,
+			CommandDataSetType:        dimse.CommandDataSetTypeNull,
+			Status:                    dimse.Status{Status: dimse.StatusUnrecognizedOperation, ErrorComment: err.Error()},
+		}, nil)
+		return
+	}
+	vlog.VI(1).Infof("C-FIND-RQ payload: %s", elementsString(elems))
+
+	status := dimse.Status{Status: dimse.StatusSuccess}
+	responseCh := cs.params.CFind(cs.context.transferSyntaxUID, c.AffectedSOPClassUID, elems)
+	for resp := range responseCh {
+		if resp.Err != nil {
+			status = dimse.Status{
+				Status:       dimse.CFindUnableToProcess,
+				ErrorComment: resp.Err.Error(),
+			}
+			break
+		}
+		vlog.VI(1).Infof("C-FIND-RSP: %s", elementsString(resp.Elements))
+		payload, err := writeElementsToBytes(resp.Elements, cs.context.transferSyntaxUID)
+		if err != nil {
+			vlog.Errorf("C-FIND: encode error %v", err)
+			status = dimse.Status{
+				Status:       dimse.CFindUnableToProcess,
+				ErrorComment: err.Error(),
+			}
+			break
+		}
+		cs.sendMessage(&dimse.C_FIND_RSP{
+			AffectedSOPClassUID:       c.AffectedSOPClassUID,
+			MessageIDBeingRespondedTo: c.MessageID,
+			CommandDataSetType:        dimse.CommandDataSetTypeNonNull,
+			Status:                    dimse.Status{Status: dimse.StatusPending},
+		}, payload)
+	}
+	cs.sendMessage(&dimse.C_FIND_RSP{
+		AffectedSOPClassUID:       c.AffectedSOPClassUID,
+		MessageIDBeingRespondedTo: c.MessageID,
+		CommandDataSetType:        dimse.CommandDataSetTypeNull,
+		Status:                    status}, nil)
+	// Drain the responses in case of errors
+	for _ = range responseCh {
+	}
+}
+
+func (cs *dimseCommandState) handleCMove(c *dimse.C_MOVE_RQ, data []byte) {
+	sendError := func(err error) {
+		cs.sendMessage(&dimse.C_MOVE_RSP{
+			AffectedSOPClassUID:       c.AffectedSOPClassUID,
+			MessageIDBeingRespondedTo: c.MessageID,
+			CommandDataSetType:        dimse.CommandDataSetTypeNull,
+			Status:                    dimse.Status{Status: dimse.StatusUnrecognizedOperation, ErrorComment: err.Error()},
+		}, nil)
+	}
+	if cs.params.CMove == nil {
+		cs.sendMessage(&dimse.C_MOVE_RSP{
+			AffectedSOPClassUID:       c.AffectedSOPClassUID,
+			MessageIDBeingRespondedTo: c.MessageID,
+			CommandDataSetType:        dimse.CommandDataSetTypeNull,
+			Status:                    dimse.Status{Status: dimse.StatusUnrecognizedOperation, ErrorComment: "No callback found for C-MOVE"},
+		}, nil)
+		return
+	}
+	remoteHostPort, ok := cs.params.RemoteAEs[c.MoveDestination]
+	if !ok {
+		sendError(fmt.Errorf("C-MOVE destination '%v' not registered in the server", c.MoveDestination))
+		return
+	}
+	elems, err := readElementsInBytes(data, cs.context.transferSyntaxUID)
+	if err != nil {
+		sendError(err)
+		return
+	}
+	vlog.VI(1).Infof("C-MOVE-RQ payload: %s", elementsString(elems))
+	responseCh := cs.params.CMove(cs.context.transferSyntaxUID, c.AffectedSOPClassUID, elems)
+	status := dimse.Status{Status: dimse.StatusSuccess}
+	var numSuccesses, numFailures uint16
+	for resp := range responseCh {
+		if resp.Err != nil {
+			status = dimse.Status{
+				Status:       dimse.CFindUnableToProcess,
+				ErrorComment: resp.Err.Error(),
+			}
+			break
+		}
+		vlog.Infof("C-MOVE: Sending %v to %v(%s)", resp.Path, c.MoveDestination, remoteHostPort)
+		err := runCStoreOnNewAssociation(cs.params.AETitle, c.MoveDestination, remoteHostPort, resp.DataSet)
+		if err != nil {
+			vlog.Errorf("C-MOVE: C-store of %v to %v(%v) failed: %v", resp.Path, c.MoveDestination, remoteHostPort, err)
+			numFailures++
+		} else {
+			numSuccesses++
+		}
+		cs.sendMessage(&dimse.C_MOVE_RSP{
+			AffectedSOPClassUID:            c.AffectedSOPClassUID,
+			MessageIDBeingRespondedTo:      c.MessageID,
+			CommandDataSetType:             dimse.CommandDataSetTypeNull,
+			NumberOfRemainingSuboperations: uint16(resp.Remaining),
+			NumberOfCompletedSuboperations: numSuccesses,
+			NumberOfFailedSuboperations:    numFailures,
+			Status: dimse.Status{Status: dimse.StatusPending},
+		}, nil)
+	}
+	cs.sendMessage(&dimse.C_MOVE_RSP{
+		AffectedSOPClassUID:            c.AffectedSOPClassUID,
+		MessageIDBeingRespondedTo:      c.MessageID,
+		CommandDataSetType:             dimse.CommandDataSetTypeNull,
+		NumberOfCompletedSuboperations: numSuccesses,
+		NumberOfFailedSuboperations:    numFailures,
+		Status: status}, nil)
+	// Drain the responses in case of errors
+	for _ = range responseCh {
+	}
+}
+
+func (cs *dimseCommandState) handleCGet(c *dimse.C_GET_RQ, data []byte) {
+	sendError := func(err error) {
+		cs.sendMessage(&dimse.C_GET_RSP{
+			AffectedSOPClassUID:       c.AffectedSOPClassUID,
+			MessageIDBeingRespondedTo: c.MessageID,
+			CommandDataSetType:        dimse.CommandDataSetTypeNull,
+			Status:                    dimse.Status{Status: dimse.StatusUnrecognizedOperation, ErrorComment: err.Error()},
+		}, nil)
+	}
+	if cs.params.CGet == nil {
+		cs.sendMessage(&dimse.C_GET_RSP{
+			AffectedSOPClassUID:       c.AffectedSOPClassUID,
+			MessageIDBeingRespondedTo: c.MessageID,
+			CommandDataSetType:        dimse.CommandDataSetTypeNull,
+			Status:                    dimse.Status{Status: dimse.StatusUnrecognizedOperation, ErrorComment: "No callback found for C-GET"},
+		}, nil)
+		return
+	}
+	elems, err := readElementsInBytes(data, cs.context.transferSyntaxUID)
+	if err != nil {
+		sendError(err)
+		return
+	}
+	vlog.VI(1).Infof("C-GET-RQ payload: %s", elementsString(elems))
+	responseCh := cs.params.CGet(cs.context.transferSyntaxUID, c.AffectedSOPClassUID, elems)
+	status := dimse.Status{Status: dimse.StatusSuccess}
+	var numSuccesses, numFailures uint16
+	for resp := range responseCh {
+		if resp.Err != nil {
+			status = dimse.Status{
+				Status:       dimse.CFindUnableToProcess,
+				ErrorComment: resp.Err.Error(),
+			}
+			break
+		}
+		vlog.Infof("C-GET: Sending %v", resp.Path)
+		err := runCStoreOnAssociation(cs.upcallCh, cs.downcallCh, cs.cm, dimse.NewMessageID(), resp.DataSet)
+		if err != nil {
+			vlog.Errorf("C-GET: C-store of %v failed: %v", resp.Path, err)
+			numFailures++
+		} else {
+			vlog.Infof("C-GET: Sent %v", resp.Path)
+			numSuccesses++
+		}
+		cs.sendMessage(&dimse.C_GET_RSP{
+			AffectedSOPClassUID:            c.AffectedSOPClassUID,
+			MessageIDBeingRespondedTo:      c.MessageID,
+			CommandDataSetType:             dimse.CommandDataSetTypeNull,
+			NumberOfRemainingSuboperations: uint16(resp.Remaining),
+			NumberOfCompletedSuboperations: numSuccesses,
+			NumberOfFailedSuboperations:    numFailures,
+			Status: dimse.Status{Status: dimse.StatusPending},
+		}, nil)
+	}
+	cs.sendMessage(&dimse.C_GET_RSP{
+		AffectedSOPClassUID:            c.AffectedSOPClassUID,
+		MessageIDBeingRespondedTo:      c.MessageID,
+		CommandDataSetType:             dimse.CommandDataSetTypeNull,
+		NumberOfCompletedSuboperations: numSuccesses,
+		NumberOfFailedSuboperations:    numFailures,
+		Status: status}, nil)
+	// Drain the responses in case of errors
+	for _ = range responseCh {
+	}
+}
+
+func (cs *dimseCommandState) handleCEcho(c *dimse.C_ECHO_RQ) {
+	status := dimse.Status{Status: dimse.StatusUnrecognizedOperation}
+	if cs.params.CEcho != nil {
+		status = cs.params.CEcho()
+	}
+	resp := &dimse.C_ECHO_RSP{
+		MessageIDBeingRespondedTo: c.MessageID,
+		CommandDataSetType:        dimse.CommandDataSetTypeNull,
+		Status:                    status,
+	}
+	cs.sendMessage(resp, nil)
+}
+
+func (cs *dimseCommandState) sendMessage(resp dimse.Message, data []byte) {
+	vlog.VI(1).Infof("DIMSE resp: %v", resp)
+	e := dicomio.NewBytesEncoder(nil, dicomio.UnknownVR)
+	dimse.EncodeMessage(e, resp)
+	if e.Error() != nil {
+		vlog.Fatalf("Failed to encode message %v: %v", resp, e.Error())
+	}
+	payload := &stateEventDIMSEPayload{
+		abstractSyntaxName: cs.context.abstractSyntaxUID,
+		command:            e.Bytes()}
+	if len(data) > 0 {
+		payload.data = data
+	}
+	cs.downcallCh <- stateEvent{
+		event:        evt09,
+		pdu:          nil,
+		conn:         nil,
+		dimsePayload: payload,
+	}
+}
 
 type ServiceProviderParams struct {
 	AETitle   string            // The title of the provider. Must be nonempty
@@ -145,274 +416,52 @@ func runCStoreOnNewAssociation(myAETitle, remoteAETitle, remoteHostPort string, 
 	return err
 }
 
-func onDIMSECommand(
-	upcallCh chan upcallEvent,
-	downcallCh chan stateEvent,
-	cm *contextManager,
-	contextID byte,
-	msg dimse.Message,
-	data []byte,
-	params ServiceProviderParams) {
-	context, err := cm.lookupByContextID(contextID)
+func (dh *dimseCommandDispatcher) handleEvent(event upcallEvent) {
+	context, err := event.cm.lookupByContextID(event.contextID)
 	if err != nil {
-		vlog.Infof("Invalid context ID %d: %v", contextID, err)
-		downcallCh <- stateEvent{event: evt19, pdu: nil, err: err}
+		vlog.Infof("Invalid context ID %d: %v", event.contextID, err)
+		dh.downcallCh <- stateEvent{event: evt19, pdu: nil, err: err}
 		return
 	}
-	var sendResponse = func(resp dimse.Message, data []byte) {
-		vlog.VI(1).Infof("DIMSE resp: %v", resp)
-		e := dicomio.NewBytesEncoder(nil, dicomio.UnknownVR)
-		dimse.EncodeMessage(e, resp)
-		if e.Error() != nil {
-			vlog.Fatalf("Failed to encode message %v: %v", resp, e.Error())
-		}
-		payload := &stateEventDIMSEPayload{
-			abstractSyntaxName: context.abstractSyntaxUID,
-			command:            e.Bytes()}
-		if len(data) > 0 {
-			payload.data = data
-		}
-		downcallCh <- stateEvent{
-			event:        evt09,
-			pdu:          nil,
-			conn:         nil,
-			dimsePayload: payload,
-		}
+	messageID := event.command.GetMessageID()
+	dc, ok := dh.activeCommands[messageID]
+	if ok {
+		dc.upcallCh <- event
+		return
 	}
-	// var sendData = func(bytes []byte) {
-	// 	downcallCh <- stateEvent{
-	// 		event: evt09,
-	// 		pdu:   nil,
-	// 		conn:  nil,
-	// 		dataPayload: &stateEventDataPayload{
-	// 			abstractSyntaxName: context.abstractSyntaxUID,
-	// 			command:            false,
-	// 			data:               bytes},
-	// 	}
-	// }
-
-	vlog.VI(1).Infof("DIMSE request: %s data %d bytes context %+v", msg.String(), len(data), context)
-	switch c := msg.(type) {
-	case *dimse.C_STORE_RQ:
-		status := dimse.Status{Status: dimse.StatusUnrecognizedOperation}
-		if params.CStore != nil {
-			status = params.CStore(
-				context.transferSyntaxUID,
-				c.AffectedSOPClassUID,
-				c.AffectedSOPInstanceUID,
-				data)
-		}
-		resp := &dimse.C_STORE_RSP{
-			AffectedSOPClassUID:       c.AffectedSOPClassUID,
-			MessageIDBeingRespondedTo: c.MessageID,
-			CommandDataSetType:        dimse.CommandDataSetTypeNull,
-			AffectedSOPInstanceUID:    c.AffectedSOPInstanceUID,
-			Status:                    status,
-		}
-		sendResponse(resp, nil)
-	case *dimse.C_FIND_RQ:
-		if params.CFind == nil {
-			sendResponse(&dimse.C_FIND_RSP{
-				AffectedSOPClassUID:       c.AffectedSOPClassUID,
-				MessageIDBeingRespondedTo: c.MessageID,
-				CommandDataSetType:        dimse.CommandDataSetTypeNull,
-				Status:                    dimse.Status{Status: dimse.StatusUnrecognizedOperation, ErrorComment: "No callback found for C-FIND"},
-			}, nil)
-			break
-		}
-		elems, err := readElementsInBytes(data, context.transferSyntaxUID)
-		if err != nil {
-			sendResponse(&dimse.C_FIND_RSP{
-				AffectedSOPClassUID:       c.AffectedSOPClassUID,
-				MessageIDBeingRespondedTo: c.MessageID,
-				CommandDataSetType:        dimse.CommandDataSetTypeNull,
-				Status:                    dimse.Status{Status: dimse.StatusUnrecognizedOperation, ErrorComment: err.Error()},
-			}, nil)
-			break
-		}
-		vlog.VI(1).Infof("C-FIND-RQ payload: %s", elementsString(elems))
-
-		status := dimse.Status{Status: dimse.StatusSuccess}
-		responseCh := params.CFind(context.transferSyntaxUID, c.AffectedSOPClassUID, elems)
-		for resp := range responseCh {
-			if resp.Err != nil {
-				status = dimse.Status{
-					Status:       dimse.CFindUnableToProcess,
-					ErrorComment: resp.Err.Error(),
-				}
-				break
-			}
-			vlog.VI(1).Infof("C-FIND-RSP: %s", elementsString(resp.Elements))
-			payload, err := writeElementsToBytes(resp.Elements, context.transferSyntaxUID)
-			if err != nil {
-				vlog.Errorf("C-FIND: encode error %v", err)
-				status = dimse.Status{
-					Status:       dimse.CFindUnableToProcess,
-					ErrorComment: err.Error(),
-				}
-				break
-			}
-			sendResponse(&dimse.C_FIND_RSP{
-				AffectedSOPClassUID:       c.AffectedSOPClassUID,
-				MessageIDBeingRespondedTo: c.MessageID,
-				CommandDataSetType:        dimse.CommandDataSetTypeNonNull,
-				Status:                    dimse.Status{Status: dimse.StatusPending},
-			}, payload)
-		}
-		sendResponse(&dimse.C_FIND_RSP{
-			AffectedSOPClassUID:       c.AffectedSOPClassUID,
-			MessageIDBeingRespondedTo: c.MessageID,
-			CommandDataSetType:        dimse.CommandDataSetTypeNull,
-			Status:                    status}, nil)
-		// Drain the responses in case of errors
-		for _ = range responseCh {
-		}
-	case *dimse.C_MOVE_RQ:
-		sendError := func(err error) {
-			sendResponse(&dimse.C_MOVE_RSP{
-				AffectedSOPClassUID:       c.AffectedSOPClassUID,
-				MessageIDBeingRespondedTo: c.MessageID,
-				CommandDataSetType:        dimse.CommandDataSetTypeNull,
-				Status:                    dimse.Status{Status: dimse.StatusUnrecognizedOperation, ErrorComment: err.Error()},
-			}, nil)
-		}
-		if params.CMove == nil {
-			sendResponse(&dimse.C_MOVE_RSP{
-				AffectedSOPClassUID:       c.AffectedSOPClassUID,
-				MessageIDBeingRespondedTo: c.MessageID,
-				CommandDataSetType:        dimse.CommandDataSetTypeNull,
-				Status:                    dimse.Status{Status: dimse.StatusUnrecognizedOperation, ErrorComment: "No callback found for C-MOVE"},
-			}, nil)
-			break
-		}
-		remoteHostPort, ok := params.RemoteAEs[c.MoveDestination]
-		if !ok {
-			sendError(fmt.Errorf("C-MOVE destination '%v' not registered in the server", c.MoveDestination))
-			break
-		}
-		elems, err := readElementsInBytes(data, context.transferSyntaxUID)
-		if err != nil {
-			sendError(err)
-			break
-		}
-		vlog.VI(1).Infof("C-MOVE-RQ payload: %s", elementsString(elems))
-		responseCh := params.CMove(context.transferSyntaxUID, c.AffectedSOPClassUID, elems)
-		status := dimse.Status{Status: dimse.StatusSuccess}
-		var numSuccesses, numFailures uint16
-		for resp := range responseCh {
-			if resp.Err != nil {
-				status = dimse.Status{
-					Status:       dimse.CFindUnableToProcess,
-					ErrorComment: resp.Err.Error(),
-				}
-				break
-			}
-			vlog.Infof("C-MOVE: Sending %v to %v(%s)", resp.Path, c.MoveDestination, remoteHostPort)
-			err := runCStoreOnNewAssociation(params.AETitle, c.MoveDestination, remoteHostPort, resp.DataSet)
-			if err != nil {
-				vlog.Errorf("C-MOVE: C-store of %v to %v(%v) failed: %v", resp.Path, c.MoveDestination, remoteHostPort, err)
-				numFailures++
-			} else {
-				numSuccesses++
-			}
-			sendResponse(&dimse.C_MOVE_RSP{
-				AffectedSOPClassUID:            c.AffectedSOPClassUID,
-				MessageIDBeingRespondedTo:      c.MessageID,
-				CommandDataSetType:             dimse.CommandDataSetTypeNull,
-				NumberOfRemainingSuboperations: uint16(resp.Remaining),
-				NumberOfCompletedSuboperations: numSuccesses,
-				NumberOfFailedSuboperations:    numFailures,
-				Status: dimse.Status{Status: dimse.StatusPending},
-			}, nil)
-		}
-		sendResponse(&dimse.C_MOVE_RSP{
-			AffectedSOPClassUID:            c.AffectedSOPClassUID,
-			MessageIDBeingRespondedTo:      c.MessageID,
-			CommandDataSetType:             dimse.CommandDataSetTypeNull,
-			NumberOfCompletedSuboperations: numSuccesses,
-			NumberOfFailedSuboperations:    numFailures,
-			Status: status}, nil)
-		// Drain the responses in case of errors
-		for _ = range responseCh {
-		}
-	case *dimse.C_GET_RQ:
-		sendError := func(err error) {
-			sendResponse(&dimse.C_GET_RSP{
-				AffectedSOPClassUID:       c.AffectedSOPClassUID,
-				MessageIDBeingRespondedTo: c.MessageID,
-				CommandDataSetType:        dimse.CommandDataSetTypeNull,
-				Status:                    dimse.Status{Status: dimse.StatusUnrecognizedOperation, ErrorComment: err.Error()},
-			}, nil)
-		}
-		if params.CGet == nil {
-			sendResponse(&dimse.C_GET_RSP{
-				AffectedSOPClassUID:       c.AffectedSOPClassUID,
-				MessageIDBeingRespondedTo: c.MessageID,
-				CommandDataSetType:        dimse.CommandDataSetTypeNull,
-				Status:                    dimse.Status{Status: dimse.StatusUnrecognizedOperation, ErrorComment: "No callback found for C-GET"},
-			}, nil)
-			break
-		}
-		elems, err := readElementsInBytes(data, context.transferSyntaxUID)
-		if err != nil {
-			sendError(err)
-			break
-		}
-		vlog.VI(1).Infof("C-GET-RQ payload: %s", elementsString(elems))
-		responseCh := params.CGet(context.transferSyntaxUID, c.AffectedSOPClassUID, elems)
-		status := dimse.Status{Status: dimse.StatusSuccess}
-		var numSuccesses, numFailures uint16
-		for resp := range responseCh {
-			if resp.Err != nil {
-				status = dimse.Status{
-					Status:       dimse.CFindUnableToProcess,
-					ErrorComment: resp.Err.Error(),
-				}
-				break
-			}
-			vlog.Infof("C-GET: Sending %v", resp.Path)
-			err := runCStoreOnAssociation(upcallCh, downcallCh, cm, dimse.NewMessageID(), resp.DataSet)
-			if err != nil {
-				vlog.Errorf("C-GET: C-store of %v failed: %v", resp.Path, err)
-				numFailures++
-			} else {
-				vlog.Infof("C-GET: Sent %v", resp.Path)
-				numSuccesses++
-			}
-			sendResponse(&dimse.C_GET_RSP{
-				AffectedSOPClassUID:            c.AffectedSOPClassUID,
-				MessageIDBeingRespondedTo:      c.MessageID,
-				CommandDataSetType:             dimse.CommandDataSetTypeNull,
-				NumberOfRemainingSuboperations: uint16(resp.Remaining),
-				NumberOfCompletedSuboperations: numSuccesses,
-				NumberOfFailedSuboperations:    numFailures,
-				Status: dimse.Status{Status: dimse.StatusPending},
-			}, nil)
-		}
-		sendResponse(&dimse.C_GET_RSP{
-			AffectedSOPClassUID:            c.AffectedSOPClassUID,
-			MessageIDBeingRespondedTo:      c.MessageID,
-			CommandDataSetType:             dimse.CommandDataSetTypeNull,
-			NumberOfCompletedSuboperations: numSuccesses,
-			NumberOfFailedSuboperations:    numFailures,
-			Status: status}, nil)
-		// Drain the responses in case of errors
-		for _ = range responseCh {
-		}
-	case *dimse.C_ECHO_RQ:
-		status := dimse.Status{Status: dimse.StatusUnrecognizedOperation}
-		if params.CEcho != nil {
-			status = params.CEcho()
-		}
-		resp := &dimse.C_ECHO_RSP{
-			MessageIDBeingRespondedTo: c.MessageID,
-			CommandDataSetType:        dimse.CommandDataSetTypeNull,
-			Status:                    status,
-		}
-		sendResponse(resp, nil)
-	default:
-		vlog.Fatalf("UNknown DIMSE message type: %v", c)
+	dc = &dimseCommandState{
+		messageID:  messageID,
+		cm:         event.cm,
+		context:    context,
+		upcallCh:   make(chan upcallEvent, 128),
+		downcallCh: dh.downcallCh,
+		params:     &dh.params,
 	}
+	dh.mu.Lock()
+	dh.activeCommands[messageID] = dc
+	dh.mu.Unlock()
+	vlog.VI(1).Infof("Start DIMSE command: %v", event.command)
+	go func() {
+		switch c := event.command.(type) {
+		case *dimse.C_STORE_RQ:
+			dc.handleCStore(c, event.data)
+		case *dimse.C_FIND_RQ:
+			dc.handleCFind(c, event.data)
+		case *dimse.C_MOVE_RQ:
+			dc.handleCMove(c, event.data)
+		case *dimse.C_GET_RQ:
+			dc.handleCGet(c, event.data)
+		case *dimse.C_ECHO_RQ:
+			dc.handleCEcho(c)
+		default:
+			// TODO: handle errors properly.
+			vlog.Fatalf("Unknown DIMSE message type: %v", c)
+		}
+		vlog.VI(1).Infof("Finished DIMSE command: %v", event.command)
+		dh.mu.Lock()
+		delete(dh.activeCommands, messageID)
+		dh.mu.Unlock()
+	}()
 }
 
 func NewServiceProvider(params ServiceProviderParams) *ServiceProvider {
@@ -423,10 +472,14 @@ func NewServiceProvider(params ServiceProviderParams) *ServiceProvider {
 // Start threads for handling "conn". This function returns immediately; "conn"
 // will be cleaned up in the background.
 func RunProviderForConn(conn net.Conn, params ServiceProviderParams) {
-	downcallCh := make(chan stateEvent, 128)
 	upcallCh := make(chan upcallEvent, 128)
-	go runStateMachineForServiceProvider(conn, upcallCh, downcallCh)
+	dc := dimseCommandDispatcher{
+		downcallCh:     make(chan stateEvent, 128),
+		params:         params,
+		activeCommands: make(map[uint16]*dimseCommandState),
+	}
 
+	go runStateMachineForServiceProvider(conn, upcallCh, dc.downcallCh)
 	handshakeCompleted := false
 	for event := range upcallCh {
 		if event.eventType == upcallEventHandshakeCompleted {
@@ -438,8 +491,9 @@ func RunProviderForConn(conn net.Conn, params ServiceProviderParams) {
 		doassert(event.eventType == upcallEventData)
 		doassert(event.command != nil)
 		doassert(handshakeCompleted == true)
-		onDIMSECommand(upcallCh, downcallCh, event.cm, event.contextID,
-			event.command, event.data, params)
+		//onDIMSECommand(upcallCh, downcallCh, event.cm, event.contextID,
+		//event.command, event.data, params)
+		dc.handleEvent(event)
 	}
 	vlog.VI(2).Info("Finished provider")
 }

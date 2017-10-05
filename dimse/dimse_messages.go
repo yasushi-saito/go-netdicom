@@ -40,6 +40,10 @@ func (v* C_STORE_RQ) HasData() bool {
 	return v.CommandDataSetType != CommandDataSetTypeNull
 }
 
+func (v* C_STORE_RQ) GetMessageID() uint16 {
+	return v.MessageID
+}
+
 func (v* C_STORE_RQ) String() string {
 	return fmt.Sprintf("C_STORE_RQ{AffectedSOPClassUID:%v MessageID:%v Priority:%v CommandDataSetType:%v AffectedSOPInstanceUID:%v MoveOriginatorApplicationEntityTitle:%v MoveOriginatorMessageID:%v", v.AffectedSOPClassUID, v.MessageID, v.Priority, v.CommandDataSetType, v.AffectedSOPInstanceUID, v.MoveOriginatorApplicationEntityTitle, v.MoveOriginatorMessageID)
 }
@@ -81,6 +85,10 @@ func (v* C_STORE_RSP) HasData() bool {
 	return v.CommandDataSetType != CommandDataSetTypeNull
 }
 
+func (v* C_STORE_RSP) GetMessageID() uint16 {
+	return v.MessageIDBeingRespondedTo
+}
+
 func (v* C_STORE_RSP) String() string {
 	return fmt.Sprintf("C_STORE_RSP{AffectedSOPClassUID:%v MessageIDBeingRespondedTo:%v CommandDataSetType:%v AffectedSOPInstanceUID:%v Status:%v", v.AffectedSOPClassUID, v.MessageIDBeingRespondedTo, v.CommandDataSetType, v.AffectedSOPInstanceUID, v.Status)
 }
@@ -116,6 +124,10 @@ func (v* C_FIND_RQ) Encode(e *dicomio.Encoder) {
 
 func (v* C_FIND_RQ) HasData() bool {
 	return v.CommandDataSetType != CommandDataSetTypeNull
+}
+
+func (v* C_FIND_RQ) GetMessageID() uint16 {
+	return v.MessageID
 }
 
 func (v* C_FIND_RQ) String() string {
@@ -154,6 +166,10 @@ func (v* C_FIND_RSP) HasData() bool {
 	return v.CommandDataSetType != CommandDataSetTypeNull
 }
 
+func (v* C_FIND_RSP) GetMessageID() uint16 {
+	return v.MessageIDBeingRespondedTo
+}
+
 func (v* C_FIND_RSP) String() string {
 	return fmt.Sprintf("C_FIND_RSP{AffectedSOPClassUID:%v MessageIDBeingRespondedTo:%v CommandDataSetType:%v Status:%v", v.AffectedSOPClassUID, v.MessageIDBeingRespondedTo, v.CommandDataSetType, v.Status)
 }
@@ -188,6 +204,10 @@ func (v* C_GET_RQ) Encode(e *dicomio.Encoder) {
 
 func (v* C_GET_RQ) HasData() bool {
 	return v.CommandDataSetType != CommandDataSetTypeNull
+}
+
+func (v* C_GET_RQ) GetMessageID() uint16 {
+	return v.MessageID
 }
 
 func (v* C_GET_RQ) String() string {
@@ -242,6 +262,10 @@ func (v* C_GET_RSP) HasData() bool {
 	return v.CommandDataSetType != CommandDataSetTypeNull
 }
 
+func (v* C_GET_RSP) GetMessageID() uint16 {
+	return v.MessageIDBeingRespondedTo
+}
+
 func (v* C_GET_RSP) String() string {
 	return fmt.Sprintf("C_GET_RSP{AffectedSOPClassUID:%v MessageIDBeingRespondedTo:%v CommandDataSetType:%v NumberOfRemainingSuboperations:%v NumberOfCompletedSuboperations:%v NumberOfFailedSuboperations:%v NumberOfWarningSuboperations:%v Status:%v", v.AffectedSOPClassUID, v.MessageIDBeingRespondedTo, v.CommandDataSetType, v.NumberOfRemainingSuboperations, v.NumberOfCompletedSuboperations, v.NumberOfFailedSuboperations, v.NumberOfWarningSuboperations, v.Status)
 }
@@ -282,6 +306,10 @@ func (v* C_MOVE_RQ) Encode(e *dicomio.Encoder) {
 
 func (v* C_MOVE_RQ) HasData() bool {
 	return v.CommandDataSetType != CommandDataSetTypeNull
+}
+
+func (v* C_MOVE_RQ) GetMessageID() uint16 {
+	return v.MessageID
 }
 
 func (v* C_MOVE_RQ) String() string {
@@ -337,6 +365,10 @@ func (v* C_MOVE_RSP) HasData() bool {
 	return v.CommandDataSetType != CommandDataSetTypeNull
 }
 
+func (v* C_MOVE_RSP) GetMessageID() uint16 {
+	return v.MessageIDBeingRespondedTo
+}
+
 func (v* C_MOVE_RSP) String() string {
 	return fmt.Sprintf("C_MOVE_RSP{AffectedSOPClassUID:%v MessageIDBeingRespondedTo:%v CommandDataSetType:%v NumberOfRemainingSuboperations:%v NumberOfCompletedSuboperations:%v NumberOfFailedSuboperations:%v NumberOfWarningSuboperations:%v Status:%v", v.AffectedSOPClassUID, v.MessageIDBeingRespondedTo, v.CommandDataSetType, v.NumberOfRemainingSuboperations, v.NumberOfCompletedSuboperations, v.NumberOfFailedSuboperations, v.NumberOfWarningSuboperations, v.Status)
 }
@@ -373,6 +405,10 @@ func (v* C_ECHO_RQ) HasData() bool {
 	return v.CommandDataSetType != CommandDataSetTypeNull
 }
 
+func (v* C_ECHO_RQ) GetMessageID() uint16 {
+	return v.MessageID
+}
+
 func (v* C_ECHO_RQ) String() string {
 	return fmt.Sprintf("C_ECHO_RQ{MessageID:%v CommandDataSetType:%v", v.MessageID, v.CommandDataSetType)
 }
@@ -403,6 +439,10 @@ func (v* C_ECHO_RSP) Encode(e *dicomio.Encoder) {
 
 func (v* C_ECHO_RSP) HasData() bool {
 	return v.CommandDataSetType != CommandDataSetTypeNull
+}
+
+func (v* C_ECHO_RSP) GetMessageID() uint16 {
+	return v.MessageIDBeingRespondedTo
 }
 
 func (v* C_ECHO_RSP) String() string {
