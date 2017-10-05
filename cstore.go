@@ -34,7 +34,6 @@ func runCStoreOnAssociation(upcallCh chan upcallEvent, downcallCh chan stateEven
 		return fmt.Errorf("C-STORE data lacks MediaStorageSOPClassUID: %v", err)
 	}
 	vlog.VI(1).Infof("DICOM abstractsyntax: %s, sopinstance: %s", dicomuid.UIDString(sopClassUID), sopInstanceUID)
-
 	context, err := cm.lookupByAbstractSyntaxUID(sopClassUID)
 	if err != nil {
 		vlog.Errorf("C-STORE: sop class %v not found in context %v", sopClassUID, err)
@@ -44,16 +43,6 @@ func runCStoreOnAssociation(upcallCh chan upcallEvent, downcallCh chan stateEven
 		dicomuid.UIDString(context.transferSyntaxUID),
 		dicomuid.UIDString(sopClassUID),
 		sopInstanceUID)
-	cmdEncoder := dicomio.NewBytesEncoder(nil, dicomio.UnknownVR)
-	dimse.EncodeMessage(cmdEncoder, &dimse.C_STORE_RQ{
-		AffectedSOPClassUID:    sopClassUID,
-		MessageID:              messageID,
-		CommandDataSetType:     dimse.CommandDataSetTypeNonNull,
-		AffectedSOPInstanceUID: sopInstanceUID,
-	})
-	if err := cmdEncoder.Error(); err != nil {
-		return err
-	}
 	bodyEncoder := dicomio.NewBytesEncoderWithTransferSyntax(context.transferSyntaxUID)
 	for _, elem := range ds.Elements {
 		if elem.Tag.Group == dicom.TagMetadataGroup {
@@ -65,12 +54,16 @@ func runCStoreOnAssociation(upcallCh chan upcallEvent, downcallCh chan stateEven
 		vlog.Errorf("C-STORE: body encoder failed: %v", err)
 		return err
 	}
-
 	downcallCh <- stateEvent{
 		event: evt09,
 		dimsePayload: &stateEventDIMSEPayload{
 			abstractSyntaxName: sopClassUID,
-			command:   cmdEncoder.Bytes(),
+			command: &dimse.C_STORE_RQ{
+				AffectedSOPClassUID:    sopClassUID,
+				MessageID:              messageID,
+				CommandDataSetType:     dimse.CommandDataSetTypeNonNull,
+				AffectedSOPInstanceUID: sopInstanceUID,
+			},
 			data: bodyEncoder.Bytes(),
 		},
 	}

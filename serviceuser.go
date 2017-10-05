@@ -195,22 +195,17 @@ func (su *ServiceUser) CStoreRaw(data []byte) error {
 	if err != nil {
 		return err
 	}
-	e := dicomio.NewBytesEncoder(nil, dicomio.UnknownVR)
-	dimse.EncodeMessage(e, &dimse.C_STORE_RQ{
-		AffectedSOPClassUID:    sopClassUID,
-		MessageID:              dimse.NewMessageID(),
-		CommandDataSetType:     dimse.CommandDataSetTypeNonNull,
-		AffectedSOPInstanceUID: sopInstanceUID,
-	})
-	if err := e.Error(); err != nil {
-		return err
-	}
 	su.downcallCh <- stateEvent{
 		event: evt09,
 		dimsePayload: &stateEventDIMSEPayload{
 			abstractSyntaxName: sopClassUID,
-			command:            e.Bytes(),
-			data:               body}}
+			command: &dimse.C_STORE_RQ{
+				AffectedSOPClassUID:    sopClassUID,
+				MessageID:              dimse.NewMessageID(),
+				CommandDataSetType:     dimse.CommandDataSetTypeNonNull,
+				AffectedSOPInstanceUID: sopInstanceUID,
+			},
+			data: body}}
 	for {
 		event, ok := <-su.upcallCh
 		if !ok {
@@ -284,7 +279,6 @@ func (su *ServiceUser) CFind(qrLevel CFindQRLevel, filter []*dicom.Element) chan
 	}
 
 	// Encode the C-FIND DIMSE command.
-	cmdEncoder := dicomio.NewBytesEncoder(nil, dicomio.UnknownVR)
 	context, err := su.cm.lookupByAbstractSyntaxUID(sopClassUID)
 	if err != nil {
 		// This happens when the user passed a wrong sopclass list in
@@ -294,17 +288,6 @@ func (su *ServiceUser) CFind(qrLevel CFindQRLevel, filter []*dicom.Element) chan
 		close(ch)
 		return ch
 	}
-	dimse.EncodeMessage(cmdEncoder, &dimse.C_FIND_RQ{
-		AffectedSOPClassUID: sopClassUID,
-		MessageID:           dimse.NewMessageID(),
-		CommandDataSetType:  dimse.CommandDataSetTypeNonNull,
-	})
-	if err := cmdEncoder.Error(); err != nil {
-		ch <- CFindResult{Err: err}
-		close(ch)
-		return ch
-	}
-
 	// Encode the data payload containing the filtering conditions.
 	dataEncoder := dicomio.NewBytesEncoderWithTransferSyntax(context.transferSyntaxUID)
 	dicom.WriteElement(dataEncoder, dicom.MustNewElement(dicom.TagQueryRetrieveLevel, qrLevelString))
@@ -328,7 +311,11 @@ func (su *ServiceUser) CFind(qrLevel CFindQRLevel, filter []*dicom.Element) chan
 			event: evt09,
 			dimsePayload: &stateEventDIMSEPayload{
 				abstractSyntaxName: sopClassUID,
-				command:            cmdEncoder.Bytes(),
+				command: &dimse.C_FIND_RQ{
+					AffectedSOPClassUID: sopClassUID,
+					MessageID:           dimse.NewMessageID(),
+					CommandDataSetType:  dimse.CommandDataSetTypeNonNull,
+				},
 				data:               dataEncoder.Bytes()}}
 		for {
 			event, ok := <-su.upcallCh

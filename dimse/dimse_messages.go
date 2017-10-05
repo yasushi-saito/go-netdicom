@@ -45,7 +45,7 @@ func (v* C_STORE_RQ) GetMessageID() uint16 {
 }
 
 func (v* C_STORE_RQ) String() string {
-	return fmt.Sprintf("C_STORE_RQ{AffectedSOPClassUID:%v MessageID:%v Priority:%v CommandDataSetType:%v AffectedSOPInstanceUID:%v MoveOriginatorApplicationEntityTitle:%v MoveOriginatorMessageID:%v", v.AffectedSOPClassUID, v.MessageID, v.Priority, v.CommandDataSetType, v.AffectedSOPInstanceUID, v.MoveOriginatorApplicationEntityTitle, v.MoveOriginatorMessageID)
+	return fmt.Sprintf("C_STORE_RQ{AffectedSOPClassUID:%v MessageID:%v Priority:%v CommandDataSetType:%v AffectedSOPInstanceUID:%v MoveOriginatorApplicationEntityTitle:%v MoveOriginatorMessageID:%v}}", v.AffectedSOPClassUID, v.MessageID, v.Priority, v.CommandDataSetType, v.AffectedSOPInstanceUID, v.MoveOriginatorApplicationEntityTitle, v.MoveOriginatorMessageID)
 }
 
 func decodeC_STORE_RQ(d *messageDecoder) *C_STORE_RQ {
@@ -90,7 +90,7 @@ func (v* C_STORE_RSP) GetMessageID() uint16 {
 }
 
 func (v* C_STORE_RSP) String() string {
-	return fmt.Sprintf("C_STORE_RSP{AffectedSOPClassUID:%v MessageIDBeingRespondedTo:%v CommandDataSetType:%v AffectedSOPInstanceUID:%v Status:%v", v.AffectedSOPClassUID, v.MessageIDBeingRespondedTo, v.CommandDataSetType, v.AffectedSOPInstanceUID, v.Status)
+	return fmt.Sprintf("C_STORE_RSP{AffectedSOPClassUID:%v MessageIDBeingRespondedTo:%v CommandDataSetType:%v AffectedSOPInstanceUID:%v Status:%v}}", v.AffectedSOPClassUID, v.MessageIDBeingRespondedTo, v.CommandDataSetType, v.AffectedSOPInstanceUID, v.Status)
 }
 
 func decodeC_STORE_RSP(d *messageDecoder) *C_STORE_RSP {
@@ -131,7 +131,7 @@ func (v* C_FIND_RQ) GetMessageID() uint16 {
 }
 
 func (v* C_FIND_RQ) String() string {
-	return fmt.Sprintf("C_FIND_RQ{AffectedSOPClassUID:%v MessageID:%v Priority:%v CommandDataSetType:%v", v.AffectedSOPClassUID, v.MessageID, v.Priority, v.CommandDataSetType)
+	return fmt.Sprintf("C_FIND_RQ{AffectedSOPClassUID:%v MessageID:%v Priority:%v CommandDataSetType:%v}}", v.AffectedSOPClassUID, v.MessageID, v.Priority, v.CommandDataSetType)
 }
 
 func decodeC_FIND_RQ(d *messageDecoder) *C_FIND_RQ {
@@ -171,7 +171,7 @@ func (v* C_FIND_RSP) GetMessageID() uint16 {
 }
 
 func (v* C_FIND_RSP) String() string {
-	return fmt.Sprintf("C_FIND_RSP{AffectedSOPClassUID:%v MessageIDBeingRespondedTo:%v CommandDataSetType:%v Status:%v", v.AffectedSOPClassUID, v.MessageIDBeingRespondedTo, v.CommandDataSetType, v.Status)
+	return fmt.Sprintf("C_FIND_RSP{AffectedSOPClassUID:%v MessageIDBeingRespondedTo:%v CommandDataSetType:%v Status:%v}}", v.AffectedSOPClassUID, v.MessageIDBeingRespondedTo, v.CommandDataSetType, v.Status)
 }
 
 func decodeC_FIND_RSP(d *messageDecoder) *C_FIND_RSP {
@@ -211,7 +211,7 @@ func (v* C_GET_RQ) GetMessageID() uint16 {
 }
 
 func (v* C_GET_RQ) String() string {
-	return fmt.Sprintf("C_GET_RQ{AffectedSOPClassUID:%v MessageID:%v Priority:%v CommandDataSetType:%v", v.AffectedSOPClassUID, v.MessageID, v.Priority, v.CommandDataSetType)
+	return fmt.Sprintf("C_GET_RQ{AffectedSOPClassUID:%v MessageID:%v Priority:%v CommandDataSetType:%v}}", v.AffectedSOPClassUID, v.MessageID, v.Priority, v.CommandDataSetType)
 }
 
 func decodeC_GET_RQ(d *messageDecoder) *C_GET_RQ {
@@ -267,7 +267,7 @@ func (v* C_GET_RSP) GetMessageID() uint16 {
 }
 
 func (v* C_GET_RSP) String() string {
-	return fmt.Sprintf("C_GET_RSP{AffectedSOPClassUID:%v MessageIDBeingRespondedTo:%v CommandDataSetType:%v NumberOfRemainingSuboperations:%v NumberOfCompletedSuboperations:%v NumberOfFailedSuboperations:%v NumberOfWarningSuboperations:%v Status:%v", v.AffectedSOPClassUID, v.MessageIDBeingRespondedTo, v.CommandDataSetType, v.NumberOfRemainingSuboperations, v.NumberOfCompletedSuboperations, v.NumberOfFailedSuboperations, v.NumberOfWarningSuboperations, v.Status)
+	return fmt.Sprintf("C_GET_RSP{AffectedSOPClassUID:%v MessageIDBeingRespondedTo:%v CommandDataSetType:%v NumberOfRemainingSuboperations:%v NumberOfCompletedSuboperations:%v NumberOfFailedSuboperations:%v NumberOfWarningSuboperations:%v Status:%v}}", v.AffectedSOPClassUID, v.MessageIDBeingRespondedTo, v.CommandDataSetType, v.NumberOfRemainingSuboperations, v.NumberOfCompletedSuboperations, v.NumberOfFailedSuboperations, v.NumberOfWarningSuboperations, v.Status)
 }
 
 func decodeC_GET_RSP(d *messageDecoder) *C_GET_RSP {
@@ -313,7 +313,7 @@ func (v* C_MOVE_RQ) GetMessageID() uint16 {
 }
 
 func (v* C_MOVE_RQ) String() string {
-	return fmt.Sprintf("C_MOVE_RQ{AffectedSOPClassUID:%v MessageID:%v Priority:%v MoveDestination:%v CommandDataSetType:%v", v.AffectedSOPClassUID, v.MessageID, v.Priority, v.MoveDestination, v.CommandDataSetType)
+	return fmt.Sprintf("C_MOVE_RQ{AffectedSOPClassUID:%v MessageID:%v Priority:%v MoveDestination:%v CommandDataSetType:%v}}", v.AffectedSOPClassUID, v.MessageID, v.Priority, v.MoveDestination, v.CommandDataSetType)
 }
 
 func decodeC_MOVE_RQ(d *messageDecoder) *C_MOVE_RQ {
@@ -370,7 +370,7 @@ func (v* C_MOVE_RSP) GetMessageID() uint16 {
 }
 
 func (v* C_MOVE_RSP) String() string {
-	return fmt.Sprintf("C_MOVE_RSP{AffectedSOPClassUID:%v MessageIDBeingRespondedTo:%v CommandDataSetType:%v NumberOfRemainingSuboperations:%v NumberOfCompletedSuboperations:%v NumberOfFailedSuboperations:%v NumberOfWarningSuboperations:%v Status:%v", v.AffectedSOPClassUID, v.MessageIDBeingRespondedTo, v.CommandDataSetType, v.NumberOfRemainingSuboperations, v.NumberOfCompletedSuboperations, v.NumberOfFailedSuboperations, v.NumberOfWarningSuboperations, v.Status)
+	return fmt.Sprintf("C_MOVE_RSP{AffectedSOPClassUID:%v MessageIDBeingRespondedTo:%v CommandDataSetType:%v NumberOfRemainingSuboperations:%v NumberOfCompletedSuboperations:%v NumberOfFailedSuboperations:%v NumberOfWarningSuboperations:%v Status:%v}}", v.AffectedSOPClassUID, v.MessageIDBeingRespondedTo, v.CommandDataSetType, v.NumberOfRemainingSuboperations, v.NumberOfCompletedSuboperations, v.NumberOfFailedSuboperations, v.NumberOfWarningSuboperations, v.Status)
 }
 
 func decodeC_MOVE_RSP(d *messageDecoder) *C_MOVE_RSP {
@@ -410,7 +410,7 @@ func (v* C_ECHO_RQ) GetMessageID() uint16 {
 }
 
 func (v* C_ECHO_RQ) String() string {
-	return fmt.Sprintf("C_ECHO_RQ{MessageID:%v CommandDataSetType:%v", v.MessageID, v.CommandDataSetType)
+	return fmt.Sprintf("C_ECHO_RQ{MessageID:%v CommandDataSetType:%v}}", v.MessageID, v.CommandDataSetType)
 }
 
 func decodeC_ECHO_RQ(d *messageDecoder) *C_ECHO_RQ {
@@ -446,7 +446,7 @@ func (v* C_ECHO_RSP) GetMessageID() uint16 {
 }
 
 func (v* C_ECHO_RSP) String() string {
-	return fmt.Sprintf("C_ECHO_RSP{MessageIDBeingRespondedTo:%v CommandDataSetType:%v Status:%v", v.MessageIDBeingRespondedTo, v.CommandDataSetType, v.Status)
+	return fmt.Sprintf("C_ECHO_RSP{MessageIDBeingRespondedTo:%v CommandDataSetType:%v Status:%v}}", v.MessageIDBeingRespondedTo, v.CommandDataSetType, v.Status)
 }
 
 func decodeC_ECHO_RSP(d *messageDecoder) *C_ECHO_RSP {

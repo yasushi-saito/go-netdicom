@@ -149,6 +149,7 @@ def generate_go_definition(m: Message, out: IO[str]):
         fmt += f'{f.name}:%v'
         args += f'v.{f.name}'
         i += 1
+    fmt += "}}"
     print(f'	return fmt.Sprintf("{fmt}", {args})', file=out)
     print('}', file=out)
 

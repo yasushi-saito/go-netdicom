@@ -23,17 +23,48 @@ type dimseCommandDispatcher struct {
 	activeCommands map[uint16]*dimseCommandState // guarded by mu
 }
 
+func (dc *dimseCommandDispatcher) findOrCreateCommand(
+	messageID uint16,
+	cm *contextManager,
+	context contextManagerEntry) (*dimseCommandState, bool) {
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+	if cs, ok := dc.activeCommands[messageID]; ok {
+		return cs, true
+	}
+	cs := &dimseCommandState{
+		parent:    dc,
+		messageID: messageID,
+		cm:        cm,
+		params:    &dc.params,
+		context:   context,
+	}
+	dc.activeCommands[messageID] = cs
+	vlog.VI(1).Infof("Start dimse command %v", messageID)
+	return cs, false
+}
+
+func (dc *dimseCommandDispatcher) deleteCommand(cs *dimseCommandState) {
+	dc.mu.Lock()
+	vlog.VI(1).Infof("Finish dimse command %v", cs.messageID)
+	if _, ok := dc.activeCommands[cs.messageID]; !ok {
+		panic(fmt.Sprintf("cs %+v", cs))
+	}
+	delete(dc.activeCommands, cs.messageID)
+	dc.mu.Unlock()
+}
+
 // Per-command-invocation state.
 type dimseCommandState struct {
-	messageID  uint16 // DIMSE MessageID
-	cm         *contextManager
-	params     *ServiceProviderParams
-	context    contextManagerEntry
+	parent *dimseCommandDispatcher // parent dispatcher
+
+	messageID uint16 // DIMSE MessageID
+	cm        *contextManager
+	params    *ServiceProviderParams
+	context   contextManagerEntry
 
 	// upcallCh streams DIMSE command+data for the same messageID.
-	upcallCh   chan upcallEvent
-	// For sending PDUs to the statemachine.
-	downcallCh chan stateEvent
+	upcallCh chan upcallEvent
 }
 
 func (cs *dimseCommandState) handleCStore(c *dimse.C_STORE_RQ, data []byte) {
@@ -220,7 +251,13 @@ func (cs *dimseCommandState) handleCGet(c *dimse.C_GET_RQ, data []byte) {
 			break
 		}
 		vlog.Infof("C-GET: Sending %v", resp.Path)
-		err := runCStoreOnAssociation(cs.upcallCh, cs.downcallCh, cs.cm, dimse.NewMessageID(), resp.DataSet)
+
+		subCs, found := cs.parent.findOrCreateCommand(dimse.NewMessageID(), cs.cm, cs.context /*not used*/)
+		if found {
+			panic(subCs)
+		}
+		err := runCStoreOnAssociation(subCs.upcallCh, subCs.parent.downcallCh, subCs.cm, subCs.messageID, resp.DataSet)
+		defer cs.parent.deleteCommand(subCs)
 		if err != nil {
 			vlog.Errorf("C-GET: C-store of %v failed: %v", resp.Path, err)
 			numFailures++
@@ -264,19 +301,13 @@ func (cs *dimseCommandState) handleCEcho(c *dimse.C_ECHO_RQ) {
 }
 
 func (cs *dimseCommandState) sendMessage(resp dimse.Message, data []byte) {
-	vlog.VI(1).Infof("DIMSE resp: %v", resp)
-	e := dicomio.NewBytesEncoder(nil, dicomio.UnknownVR)
-	dimse.EncodeMessage(e, resp)
-	if e.Error() != nil {
-		vlog.Fatalf("Failed to encode message %v: %v", resp, e.Error())
-	}
+	vlog.VI(1).Infof("Sending DIMSE message: %v %v", resp, cs.parent)
 	payload := &stateEventDIMSEPayload{
 		abstractSyntaxName: cs.context.abstractSyntaxUID,
-		command:            e.Bytes()}
-	if len(data) > 0 {
-		payload.data = data
+		command:            resp,
+		data:               data,
 	}
-	cs.downcallCh <- stateEvent{
+	cs.parent.downcallCh <- stateEvent{
 		event:        evt09,
 		pdu:          nil,
 		conn:         nil,
@@ -424,24 +455,14 @@ func (dh *dimseCommandDispatcher) handleEvent(event upcallEvent) {
 		return
 	}
 	messageID := event.command.GetMessageID()
-	dc, ok := dh.activeCommands[messageID]
-	if ok {
+	dc, found := dh.findOrCreateCommand(messageID, event.cm, context)
+	if found {
 		dc.upcallCh <- event
 		return
 	}
-	dc = &dimseCommandState{
-		messageID:  messageID,
-		cm:         event.cm,
-		context:    context,
-		upcallCh:   make(chan upcallEvent, 128),
-		downcallCh: dh.downcallCh,
-		params:     &dh.params,
-	}
-	dh.mu.Lock()
-	dh.activeCommands[messageID] = dc
-	dh.mu.Unlock()
-	vlog.VI(1).Infof("Start DIMSE command: %v", event.command)
+	vlog.VI(1).Infof("New DIMSE command: %v", event.command)
 	go func() {
+		defer dh.deleteCommand(dc)
 		switch c := event.command.(type) {
 		case *dimse.C_STORE_RQ:
 			dc.handleCStore(c, event.data)
@@ -458,9 +479,6 @@ func (dh *dimseCommandDispatcher) handleEvent(event upcallEvent) {
 			vlog.Fatalf("Unknown DIMSE message type: %v", c)
 		}
 		vlog.VI(1).Infof("Finished DIMSE command: %v", event.command)
-		dh.mu.Lock()
-		delete(dh.activeCommands, messageID)
-		dh.mu.Unlock()
 	}()
 }
 
@@ -491,9 +509,9 @@ func RunProviderForConn(conn net.Conn, params ServiceProviderParams) {
 		doassert(event.eventType == upcallEventData)
 		doassert(event.command != nil)
 		doassert(handshakeCompleted == true)
-		//onDIMSECommand(upcallCh, downcallCh, event.cm, event.contextID,
-		//event.command, event.data, params)
+		vlog.Infof("Handle event: %v", event.command)
 		dc.handleEvent(event)
+		vlog.Infof("Finish handle event: %v", event.command)
 	}
 	vlog.VI(2).Info("Finished provider")
 }

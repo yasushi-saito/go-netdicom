@@ -5,6 +5,7 @@ package netdicom
 
 import (
 	"fmt"
+	"github.com/yasushi-saito/go-dicom/dicomio"
 	"github.com/yasushi-saito/go-dicom/dicomuid"
 	"github.com/yasushi-saito/go-netdicom/dimse"
 	"github.com/yasushi-saito/go-netdicom/pdu"
@@ -318,16 +319,27 @@ func splitDataIntoPDUs(sm *stateMachine, abstractSyntaxName string, command bool
 var actionDt1 = &stateAction{"DT-1", "Send P-DATA-TF PDU",
 	func(sm *stateMachine, event stateEvent) stateType {
 		doassert(event.dimsePayload != nil)
-		doassert(len(event.dimsePayload.command) > 0)
-		pdus := splitDataIntoPDUs(sm, event.dimsePayload.abstractSyntaxName, true /*command*/, event.dimsePayload.command)
+		command := event.dimsePayload.command
+		doassert(command != nil)
+		e := dicomio.NewBytesEncoder(nil, dicomio.UnknownVR)
+		dimse.EncodeMessage(e, command)
+		if e.Error() != nil {
+			vlog.Fatalf("Failed to encode DIMSE cmd %v: %v", command, e.Error())
+		}
+		vlog.Infof("Send DIMSE msg: %v", command)
+		pdus := splitDataIntoPDUs(sm, event.dimsePayload.abstractSyntaxName, true /*command*/, e.Bytes())
 		for _, pdu := range pdus {
 			sendPDU(sm, &pdu)
 		}
-		if len(event.dimsePayload.data) > 0 {
+		if command.HasData() {
+			vlog.Infof("Send DIMSE data of %d bytes", len(event.dimsePayload.data))
 			pdus := splitDataIntoPDUs(sm, event.dimsePayload.abstractSyntaxName, false /*data*/, event.dimsePayload.data)
 			for _, pdu := range pdus {
 				sendPDU(sm, &pdu)
 			}
+		} else {
+			vlog.Infof("Skip DIMSE data", len(event.dimsePayload.data))
+			doassert(len(event.dimsePayload.data) == 0)
 		}
 		return sta06
 	}}
@@ -391,16 +403,24 @@ var actionAr6 = &stateAction{"AR-6", "Issue P-DATA indication",
 var actionAr7 = &stateAction{"AR-7", "Issue P-DATA-TF PDU",
 	func(sm *stateMachine, event stateEvent) stateType {
 		doassert(event.dimsePayload != nil)
-		doassert(len(event.dimsePayload.command) > 0)
-		pdus := splitDataIntoPDUs(sm, event.dimsePayload.abstractSyntaxName, true /*command*/, event.dimsePayload.command)
+		command := event.dimsePayload.command
+		doassert(command != nil)
+		e := dicomio.NewBytesEncoder(nil, dicomio.UnknownVR)
+		dimse.EncodeMessage(e, command)
+		if e.Error() != nil {
+			vlog.Fatalf("Failed to encode DIMSE cmd %v: %v", command, e.Error())
+		}
+		pdus := splitDataIntoPDUs(sm, event.dimsePayload.abstractSyntaxName, true /*command*/, e.Bytes())
 		for _, pdu := range pdus {
 			sendPDU(sm, &pdu)
 		}
-		if len(event.dimsePayload.data) > 0 {
+		if command.HasData() {
 			pdus := splitDataIntoPDUs(sm, event.dimsePayload.abstractSyntaxName, false /*data*/, event.dimsePayload.data)
 			for _, pdu := range pdus {
 				sendPDU(sm, &pdu)
 			}
+		} else {
+			doassert(len(event.dimsePayload.data) == 0)
 		}
 		sm.downcallCh <- stateEvent{event: evt14}
 		return sta08
@@ -530,11 +550,10 @@ type stateEventDIMSEPayload struct {
 
 	// Command to send. len(command) may exceed the max PDU size, in which case it
 	// will be split into multiple PresentationDataValueItems.
-	//
-	// REQUIRES: len(command) > 0
-	command []byte
+	command dimse.Message
+
 	// Ditto, but for the data payload. The data PDU is sent iff.
-	// len(data)>0.
+	// command.HasData()==true.
 	data []byte
 }
 
