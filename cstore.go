@@ -44,23 +44,16 @@ func runCStoreOnAssociation(upcallCh chan upcallEvent, downcallCh chan stateEven
 		dicomuid.UIDString(context.transferSyntaxUID),
 		dicomuid.UIDString(sopClassUID),
 		sopInstanceUID)
-	e := dicomio.NewBytesEncoder(nil, dicomio.UnknownVR)
-	dimse.EncodeMessage(e, &dimse.C_STORE_RQ{
+	cmdEncoder := dicomio.NewBytesEncoder(nil, dicomio.UnknownVR)
+	dimse.EncodeMessage(cmdEncoder, &dimse.C_STORE_RQ{
 		AffectedSOPClassUID:    sopClassUID,
 		MessageID:              messageID,
 		CommandDataSetType:     dimse.CommandDataSetTypeNonNull,
 		AffectedSOPInstanceUID: sopInstanceUID,
 	})
-	if err := e.Error(); err != nil {
+	if err := cmdEncoder.Error(); err != nil {
 		return err
 	}
-	req := e.Bytes()
-	downcallCh <- stateEvent{
-		event: evt09,
-		dataPayload: &stateEventDataPayload{abstractSyntaxName: sopClassUID,
-			command: true,
-			data:    req}}
-
 	bodyEncoder := dicomio.NewBytesEncoderWithTransferSyntax(context.transferSyntaxUID)
 	for _, elem := range ds.Elements {
 		if elem.Tag.Group == dicom.TagMetadataGroup {
@@ -72,11 +65,15 @@ func runCStoreOnAssociation(upcallCh chan upcallEvent, downcallCh chan stateEven
 		vlog.Errorf("C-STORE: body encoder failed: %v", err)
 		return err
 	}
+
 	downcallCh <- stateEvent{
 		event: evt09,
-		dataPayload: &stateEventDataPayload{abstractSyntaxName: sopClassUID,
-			command: false,
-			data:    bodyEncoder.Bytes()}}
+		dimsePayload: &stateEventDIMSEPayload{
+			abstractSyntaxName: sopClassUID,
+			command:   cmdEncoder.Bytes(),
+			data: bodyEncoder.Bytes(),
+		},
+	}
 	for {
 		event, ok := <-upcallCh
 		if !ok {

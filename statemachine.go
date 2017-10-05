@@ -317,10 +317,17 @@ func splitDataIntoPDUs(sm *stateMachine, abstractSyntaxName string, command bool
 // Data transfer related actions
 var actionDt1 = &stateAction{"DT-1", "Send P-DATA-TF PDU",
 	func(sm *stateMachine, event stateEvent) stateType {
-		doassert(event.dataPayload != nil)
-		pdus := splitDataIntoPDUs(sm, event.dataPayload.abstractSyntaxName, event.dataPayload.command, event.dataPayload.data)
+		doassert(event.dimsePayload != nil)
+		doassert(len(event.dimsePayload.command) > 0)
+		pdus := splitDataIntoPDUs(sm, event.dimsePayload.abstractSyntaxName, true /*command*/, event.dimsePayload.command)
 		for _, pdu := range pdus {
 			sendPDU(sm, &pdu)
+		}
+		if len(event.dimsePayload.data) > 0 {
+			pdus := splitDataIntoPDUs(sm, event.dimsePayload.abstractSyntaxName, false /*data*/, event.dimsePayload.data)
+			for _, pdu := range pdus {
+				sendPDU(sm, &pdu)
+			}
 		}
 		return sta06
 	}}
@@ -383,10 +390,17 @@ var actionAr6 = &stateAction{"AR-6", "Issue P-DATA indication",
 
 var actionAr7 = &stateAction{"AR-7", "Issue P-DATA-TF PDU",
 	func(sm *stateMachine, event stateEvent) stateType {
-		doassert(event.dataPayload != nil)
-		pdus := splitDataIntoPDUs(sm, event.dataPayload.abstractSyntaxName, event.dataPayload.command, event.dataPayload.data)
+		doassert(event.dimsePayload != nil)
+		doassert(len(event.dimsePayload.command) > 0)
+		pdus := splitDataIntoPDUs(sm, event.dimsePayload.abstractSyntaxName, true /*command*/, event.dimsePayload.command)
 		for _, pdu := range pdus {
 			sendPDU(sm, &pdu)
+		}
+		if len(event.dimsePayload.data) > 0 {
+			pdus := splitDataIntoPDUs(sm, event.dimsePayload.abstractSyntaxName, false /*data*/, event.dimsePayload.data)
+			for _, pdu := range pdus {
+				sendPDU(sm, &pdu)
+			}
 		}
 		sm.downcallCh <- stateEvent{event: evt14}
 		return sta08
@@ -483,7 +497,7 @@ func (e *upcallEventType) String() string {
 	case upcallEventData:
 		description = "P_DATA_TF PDU received"
 	default:
-		vlog.Fatalf("Unknown event type %v", e)
+		vlog.Fatalf("Unknown event type %v", int(*e))
 	}
 	return fmt.Sprintf("upcall%02d(%s)", *e, description)
 }
@@ -510,15 +524,17 @@ type upcallEvent struct {
 	data    []byte
 }
 
-type stateEventDataPayload struct {
+type stateEventDIMSEPayload struct {
 	// The syntax UID of the data to be sent.
 	abstractSyntaxName string
 
-	// Is the data command or data? E.g., true for C_STORE, false for C_FIND.
-	command bool
-
-	// Data to send. len(data) may exceed the max PDU size, in which case it
+	// Command to send. len(command) may exceed the max PDU size, in which case it
 	// will be split into multiple PresentationDataValueItems.
+	//
+	// REQUIRES: len(command) > 0
+	command []byte
+	// Ditto, but for the data payload. The data PDU is sent iff.
+	// len(data)>0.
 	data []byte
 }
 
@@ -532,8 +548,8 @@ type stateEvent struct {
 	err   error
 	conn  net.Conn
 
-	dataPayload *stateEventDataPayload // set iff event==evt09.
-	debug       *stateEventDebugInfo
+	dimsePayload *stateEventDIMSEPayload // set iff event==evt09.
+	debug        *stateEventDebugInfo
 }
 
 func (e *stateEvent) String() string {
@@ -692,7 +708,7 @@ type stateMachine struct {
 	isUser bool   // true if service user, false if provider
 
 	// userParams is set only for a client-side statemachine
-	userParams     ServiceUserParams
+	userParams ServiceUserParams
 
 	// Manages mappings between one-byte contextID to the
 	// <abstractsyntaxUID, transfersyntaxuid> pair.  Filled during A_ACCEPT

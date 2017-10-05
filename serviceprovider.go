@@ -159,32 +159,37 @@ func onDIMSECommand(
 		downcallCh <- stateEvent{event: evt19, pdu: nil, err: err}
 		return
 	}
-	var sendResponse = func(resp dimse.Message) {
+	var sendResponse = func(resp dimse.Message, data []byte) {
 		vlog.VI(1).Infof("DIMSE resp: %v", resp)
 		e := dicomio.NewBytesEncoder(nil, dicomio.UnknownVR)
 		dimse.EncodeMessage(e, resp)
-		bytes := e.Bytes()
+		if e.Error() != nil {
+			vlog.Fatalf("Failed to encode message %v: %v", resp, e.Error())
+		}
+		payload := &stateEventDIMSEPayload{
+			abstractSyntaxName: context.abstractSyntaxUID,
+			command:            e.Bytes()}
+		if len(data) > 0 {
+			payload.data = data
+		}
 		downcallCh <- stateEvent{
-			event: evt09,
-			pdu:   nil,
-			conn:  nil,
-			dataPayload: &stateEventDataPayload{
-				abstractSyntaxName: context.abstractSyntaxUID,
-				command:            true,
-				data:               bytes},
+			event:        evt09,
+			pdu:          nil,
+			conn:         nil,
+			dimsePayload: payload,
 		}
 	}
-	var sendData = func(bytes []byte) {
-		downcallCh <- stateEvent{
-			event: evt09,
-			pdu:   nil,
-			conn:  nil,
-			dataPayload: &stateEventDataPayload{
-				abstractSyntaxName: context.abstractSyntaxUID,
-				command:            false,
-				data:               bytes},
-		}
-	}
+	// var sendData = func(bytes []byte) {
+	// 	downcallCh <- stateEvent{
+	// 		event: evt09,
+	// 		pdu:   nil,
+	// 		conn:  nil,
+	// 		dataPayload: &stateEventDataPayload{
+	// 			abstractSyntaxName: context.abstractSyntaxUID,
+	// 			command:            false,
+	// 			data:               bytes},
+	// 	}
+	// }
 
 	vlog.VI(1).Infof("DIMSE request: %s data %d bytes context %+v", msg.String(), len(data), context)
 	switch c := msg.(type) {
@@ -204,7 +209,7 @@ func onDIMSECommand(
 			AffectedSOPInstanceUID:    c.AffectedSOPInstanceUID,
 			Status:                    status,
 		}
-		sendResponse(resp)
+		sendResponse(resp, nil)
 	case *dimse.C_FIND_RQ:
 		if params.CFind == nil {
 			sendResponse(&dimse.C_FIND_RSP{
@@ -212,7 +217,7 @@ func onDIMSECommand(
 				MessageIDBeingRespondedTo: c.MessageID,
 				CommandDataSetType:        dimse.CommandDataSetTypeNull,
 				Status:                    dimse.Status{Status: dimse.StatusUnrecognizedOperation, ErrorComment: "No callback found for C-FIND"},
-			})
+			}, nil)
 			break
 		}
 		elems, err := readElementsInBytes(data, context.transferSyntaxUID)
@@ -222,7 +227,7 @@ func onDIMSECommand(
 				MessageIDBeingRespondedTo: c.MessageID,
 				CommandDataSetType:        dimse.CommandDataSetTypeNull,
 				Status:                    dimse.Status{Status: dimse.StatusUnrecognizedOperation, ErrorComment: err.Error()},
-			})
+			}, nil)
 			break
 		}
 		vlog.VI(1).Infof("C-FIND-RQ payload: %s", elementsString(elems))
@@ -252,18 +257,16 @@ func onDIMSECommand(
 				MessageIDBeingRespondedTo: c.MessageID,
 				CommandDataSetType:        dimse.CommandDataSetTypeNonNull,
 				Status:                    dimse.Status{Status: dimse.StatusPending},
-			})
-			sendData(payload)
+			}, payload)
 		}
 		sendResponse(&dimse.C_FIND_RSP{
 			AffectedSOPClassUID:       c.AffectedSOPClassUID,
 			MessageIDBeingRespondedTo: c.MessageID,
 			CommandDataSetType:        dimse.CommandDataSetTypeNull,
-			Status:                    status})
+			Status:                    status}, nil)
 		// Drain the responses in case of errors
 		for _ = range responseCh {
 		}
-
 	case *dimse.C_MOVE_RQ:
 		sendError := func(err error) {
 			sendResponse(&dimse.C_MOVE_RSP{
@@ -271,7 +274,7 @@ func onDIMSECommand(
 				MessageIDBeingRespondedTo: c.MessageID,
 				CommandDataSetType:        dimse.CommandDataSetTypeNull,
 				Status:                    dimse.Status{Status: dimse.StatusUnrecognizedOperation, ErrorComment: err.Error()},
-			})
+			}, nil)
 		}
 		if params.CMove == nil {
 			sendResponse(&dimse.C_MOVE_RSP{
@@ -279,7 +282,7 @@ func onDIMSECommand(
 				MessageIDBeingRespondedTo: c.MessageID,
 				CommandDataSetType:        dimse.CommandDataSetTypeNull,
 				Status:                    dimse.Status{Status: dimse.StatusUnrecognizedOperation, ErrorComment: "No callback found for C-MOVE"},
-			})
+			}, nil)
 			break
 		}
 		remoteHostPort, ok := params.RemoteAEs[c.MoveDestination]
@@ -320,7 +323,7 @@ func onDIMSECommand(
 				NumberOfCompletedSuboperations: numSuccesses,
 				NumberOfFailedSuboperations:    numFailures,
 				Status: dimse.Status{Status: dimse.StatusPending},
-			})
+			}, nil)
 		}
 		sendResponse(&dimse.C_MOVE_RSP{
 			AffectedSOPClassUID:            c.AffectedSOPClassUID,
@@ -328,7 +331,7 @@ func onDIMSECommand(
 			CommandDataSetType:             dimse.CommandDataSetTypeNull,
 			NumberOfCompletedSuboperations: numSuccesses,
 			NumberOfFailedSuboperations:    numFailures,
-			Status: status})
+			Status: status}, nil)
 		// Drain the responses in case of errors
 		for _ = range responseCh {
 		}
@@ -339,7 +342,7 @@ func onDIMSECommand(
 				MessageIDBeingRespondedTo: c.MessageID,
 				CommandDataSetType:        dimse.CommandDataSetTypeNull,
 				Status:                    dimse.Status{Status: dimse.StatusUnrecognizedOperation, ErrorComment: err.Error()},
-			})
+			}, nil)
 		}
 		if params.CGet == nil {
 			sendResponse(&dimse.C_GET_RSP{
@@ -347,7 +350,7 @@ func onDIMSECommand(
 				MessageIDBeingRespondedTo: c.MessageID,
 				CommandDataSetType:        dimse.CommandDataSetTypeNull,
 				Status:                    dimse.Status{Status: dimse.StatusUnrecognizedOperation, ErrorComment: "No callback found for C-GET"},
-			})
+			}, nil)
 			break
 		}
 		elems, err := readElementsInBytes(data, context.transferSyntaxUID)
@@ -384,7 +387,7 @@ func onDIMSECommand(
 				NumberOfCompletedSuboperations: numSuccesses,
 				NumberOfFailedSuboperations:    numFailures,
 				Status: dimse.Status{Status: dimse.StatusPending},
-			})
+			}, nil)
 		}
 		sendResponse(&dimse.C_GET_RSP{
 			AffectedSOPClassUID:            c.AffectedSOPClassUID,
@@ -392,7 +395,7 @@ func onDIMSECommand(
 			CommandDataSetType:             dimse.CommandDataSetTypeNull,
 			NumberOfCompletedSuboperations: numSuccesses,
 			NumberOfFailedSuboperations:    numFailures,
-			Status: status})
+			Status: status}, nil)
 		// Drain the responses in case of errors
 		for _ = range responseCh {
 		}
@@ -406,7 +409,7 @@ func onDIMSECommand(
 			CommandDataSetType:        dimse.CommandDataSetTypeNull,
 			Status:                    status,
 		}
-		sendResponse(resp)
+		sendResponse(resp, nil)
 	default:
 		vlog.Fatalf("UNknown DIMSE message type: %v", c)
 	}

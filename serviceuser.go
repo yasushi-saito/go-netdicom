@@ -26,10 +26,10 @@ const (
 
 // Encapsulates the state for DICOM client (user).
 type ServiceUser struct {
-	status        serviceUserStatus
-	downcallCh    chan stateEvent
-	upcallCh      chan upcallEvent
-	cm            *contextManager // Set only after the handshake completes.
+	status     serviceUserStatus
+	downcallCh chan stateEvent
+	upcallCh   chan upcallEvent
+	cm         *contextManager // Set only after the handshake completes.
 }
 
 type ServiceUserParams struct {
@@ -85,8 +85,8 @@ func NewServiceUser(params ServiceUserParams) *ServiceUser {
 	su := &ServiceUser{
 		status: serviceUserInitial,
 		// sm: NewStateMachineForServiceUser(params, nil, nil),
-		downcallCh:    make(chan stateEvent, 128),
-		upcallCh:      make(chan upcallEvent, 128),
+		downcallCh: make(chan stateEvent, 128),
+		upcallCh:   make(chan upcallEvent, 128),
 	}
 	go runStateMachineForServiceUser(params, su.upcallCh, su.downcallCh)
 	return su
@@ -205,17 +205,12 @@ func (su *ServiceUser) CStoreRaw(data []byte) error {
 	if err := e.Error(); err != nil {
 		return err
 	}
-	req := e.Bytes()
 	su.downcallCh <- stateEvent{
 		event: evt09,
-		dataPayload: &stateEventDataPayload{abstractSyntaxName: sopClassUID,
-			command: true,
-			data:    req}}
-	su.downcallCh <- stateEvent{
-		event: evt09,
-		dataPayload: &stateEventDataPayload{abstractSyntaxName: sopClassUID,
-			command: false,
-			data:    body}}
+		dimsePayload: &stateEventDIMSEPayload{
+			abstractSyntaxName: sopClassUID,
+			command:            e.Bytes(),
+			data:               body}}
 	for {
 		event, ok := <-su.upcallCh
 		if !ok {
@@ -232,7 +227,6 @@ func (su *ServiceUser) CStoreRaw(data []byte) error {
 		}
 		return nil
 	}
-	panic("should not reach here")
 }
 
 func (su *ServiceUser) CStore(ds *dicom.DataSet) error {
@@ -332,15 +326,10 @@ func (su *ServiceUser) CFind(qrLevel CFindQRLevel, filter []*dicom.Element) chan
 		defer close(ch)
 		su.downcallCh <- stateEvent{
 			event: evt09,
-			dataPayload: &stateEventDataPayload{abstractSyntaxName: sopClassUID,
-				command: true,
-				data:    cmdEncoder.Bytes()}}
-
-		su.downcallCh <- stateEvent{
-			event: evt09,
-			dataPayload: &stateEventDataPayload{abstractSyntaxName: sopClassUID,
-				command: false,
-				data:    dataEncoder.Bytes()}}
+			dimsePayload: &stateEventDIMSEPayload{
+				abstractSyntaxName: sopClassUID,
+				command:            cmdEncoder.Bytes(),
+				data:               dataEncoder.Bytes()}}
 		for {
 			event, ok := <-su.upcallCh
 			if !ok {
