@@ -9,7 +9,6 @@ import (
 	"github.com/yasushi-saito/go-netdicom"
 	"github.com/yasushi-saito/go-netdicom/dimse"
 	"github.com/yasushi-saito/go-netdicom/sopclass"
-	"io/ioutil"
 	"net"
 	"sync"
 	"testing"
@@ -145,30 +144,25 @@ func getCStoreData() (*dicom.DataSet, error) {
 	return f, nil
 }
 
-func readDICOMFile(path string) ([]byte, string) {
-	data, err := ioutil.ReadFile(path)
+func readDICOMFile(path string) *dicom.DataSet {
+	dataset, err := dicom.ReadDataSetFromFile(path, dicom.ReadOptions{})
 	if err != nil {
 		vlog.Fatal(err)
 	}
-	transferSyntaxUID, err := netdicom.GetTransferSyntaxUIDInBytes(data)
-	if err != nil {
-		vlog.Fatal(err)
-	}
-	return data, transferSyntaxUID
+	return dataset
 }
 
 func TestStoreSingleFile(t *testing.T) {
 	initTest()
-	data, transferSyntaxUID := readDICOMFile("testdata/IM-0001-0003.dcm")
+	dataset := readDICOMFile("testdata/IM-0001-0003.dcm")
 	params, err := netdicom.NewServiceUserParams(
-		"dontcare", "testclient", sopclass.StorageClasses,
-		[]string{transferSyntaxUID})
+		"dontcare", "testclient", sopclass.StorageClasses, nil)
 	if err != nil {
 		vlog.Fatal(err)
 	}
 	su := netdicom.NewServiceUser(params)
 	su.Connect(serverAddr)
-	err = su.CStoreRaw(data)
+	err = su.CStore(dataset)
 	if err != nil {
 		vlog.Fatal(err)
 	}
@@ -179,11 +173,7 @@ func TestStoreSingleFile(t *testing.T) {
 	if err != nil {
 		vlog.Fatal(err)
 	}
-	in, err := dicom.ReadDataSetInBytes(data, dicom.ReadOptions{})
-	if err != nil {
-		vlog.Fatal(err)
-	}
-	checkFileBodiesEqual(t, in, out)
+	checkFileBodiesEqual(t, dataset, out)
 }
 
 func TestFind(t *testing.T) {
@@ -221,16 +211,15 @@ func TestFind(t *testing.T) {
 
 func TestNonexistentServer(t *testing.T) {
 	initTest()
-	data, transferSyntaxUID := readDICOMFile("testdata/IM-0001-0003.dcm")
+	dataset := readDICOMFile("testdata/IM-0001-0003.dcm")
 	params, err := netdicom.NewServiceUserParams(
-		"dontcare", "testclient", sopclass.StorageClasses,
-		[]string{transferSyntaxUID})
+		"dontcare", "testclient", sopclass.StorageClasses, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	su := netdicom.NewServiceUser(params)
 	su.Connect(":99999")
-	err = su.CStoreRaw(data)
+	err = su.CStore(dataset)
 	if err == nil || err.Error() != "Connection failed" {
 		vlog.Fatalf("Expect CStore to fail: %v", err)
 	}

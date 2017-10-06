@@ -15,39 +15,38 @@ import (
 )
 
 // Per-TCP-connection state for dispatching commands.
-type dimseCommandDispatcher struct {
+type providerCommandDispatcher struct {
 	downcallCh chan stateEvent // for sending PDUs to the statemachine.
 	params     ServiceProviderParams
 
 	mu             sync.Mutex
-	activeCommands map[uint16]*dimseCommandState // guarded by mu
+	activeCommands map[uint16]*providerCommandState // guarded by mu
 }
 
-func (dc *dimseCommandDispatcher) findOrCreateCommand(
+func (dc *providerCommandDispatcher) findOrCreateCommand(
 	messageID uint16,
 	cm *contextManager,
-	context contextManagerEntry) (*dimseCommandState, bool) {
+	context contextManagerEntry) (*providerCommandState, bool) {
 	dc.mu.Lock()
 	defer dc.mu.Unlock()
 	if cs, ok := dc.activeCommands[messageID]; ok {
 		return cs, true
 	}
-	cs := &dimseCommandState{
+	cs := &providerCommandState{
 		parent:    dc,
 		messageID: messageID,
 		cm:        cm,
-		params:    &dc.params,
 		context:   context,
 		upcallCh:  make(chan upcallEvent, 128),
 	}
 	dc.activeCommands[messageID] = cs
-	vlog.VI(1).Infof("Start dimse command %v", messageID)
+	vlog.VI(1).Infof("Start provider command %v", messageID)
 	return cs, false
 }
 
-func (dc *dimseCommandDispatcher) deleteCommand(cs *dimseCommandState) {
+func (dc *providerCommandDispatcher) deleteCommand(cs *providerCommandState) {
 	dc.mu.Lock()
-	vlog.VI(1).Infof("Finish dimse command %v", cs.messageID)
+	vlog.VI(1).Infof("Finish provider command %v", cs.messageID)
 	if _, ok := dc.activeCommands[cs.messageID]; !ok {
 		panic(fmt.Sprintf("cs %+v", cs))
 	}
@@ -56,22 +55,20 @@ func (dc *dimseCommandDispatcher) deleteCommand(cs *dimseCommandState) {
 }
 
 // Per-command-invocation state.
-type dimseCommandState struct {
-	parent *dimseCommandDispatcher // parent dispatcher
+type providerCommandState struct {
+	parent    *providerCommandDispatcher // parent dispatcher
+	messageID uint16                  // PROVIDER MessageID
+	context   contextManagerEntry     // the transfersyntax/sopclass for this command.
+	cm        *contextManager         // For looking up context -> transfersyntax/sopclass mappings
 
-	messageID uint16 // DIMSE MessageID
-	cm        *contextManager
-	params    *ServiceProviderParams
-	context   contextManagerEntry
-
-	// upcallCh streams DIMSE command+data for the same messageID.
+	// upcallCh streams PROVIDER command+data for the given messageID.
 	upcallCh chan upcallEvent
 }
 
-func (cs *dimseCommandState) handleCStore(c *dimse.C_STORE_RQ, data []byte) {
+func (cs *providerCommandState) handleCStore(c *dimse.C_STORE_RQ, data []byte) {
 	status := dimse.Status{Status: dimse.StatusUnrecognizedOperation}
-	if cs.params.CStore != nil {
-		status = cs.params.CStore(
+	if cs.parent.params.CStore != nil {
+		status = cs.parent.params.CStore(
 			cs.context.transferSyntaxUID,
 			c.AffectedSOPClassUID,
 			c.AffectedSOPInstanceUID,
@@ -87,8 +84,8 @@ func (cs *dimseCommandState) handleCStore(c *dimse.C_STORE_RQ, data []byte) {
 	cs.sendMessage(resp, nil)
 }
 
-func (cs *dimseCommandState) handleCFind(c *dimse.C_FIND_RQ, data []byte) {
-	if cs.params.CFind == nil {
+func (cs *providerCommandState) handleCFind(c *dimse.C_FIND_RQ, data []byte) {
+	if cs.parent.params.CFind == nil {
 		cs.sendMessage(&dimse.C_FIND_RSP{
 			AffectedSOPClassUID:       c.AffectedSOPClassUID,
 			MessageIDBeingRespondedTo: c.MessageID,
@@ -110,7 +107,7 @@ func (cs *dimseCommandState) handleCFind(c *dimse.C_FIND_RQ, data []byte) {
 	vlog.VI(1).Infof("C-FIND-RQ payload: %s", elementsString(elems))
 
 	status := dimse.Status{Status: dimse.StatusSuccess}
-	responseCh := cs.params.CFind(cs.context.transferSyntaxUID, c.AffectedSOPClassUID, elems)
+	responseCh := cs.parent.params.CFind(cs.context.transferSyntaxUID, c.AffectedSOPClassUID, elems)
 	for resp := range responseCh {
 		if resp.Err != nil {
 			status = dimse.Status{
@@ -146,7 +143,7 @@ func (cs *dimseCommandState) handleCFind(c *dimse.C_FIND_RQ, data []byte) {
 	}
 }
 
-func (cs *dimseCommandState) handleCMove(c *dimse.C_MOVE_RQ, data []byte) {
+func (cs *providerCommandState) handleCMove(c *dimse.C_MOVE_RQ, data []byte) {
 	sendError := func(err error) {
 		cs.sendMessage(&dimse.C_MOVE_RSP{
 			AffectedSOPClassUID:       c.AffectedSOPClassUID,
@@ -155,7 +152,7 @@ func (cs *dimseCommandState) handleCMove(c *dimse.C_MOVE_RQ, data []byte) {
 			Status:                    dimse.Status{Status: dimse.StatusUnrecognizedOperation, ErrorComment: err.Error()},
 		}, nil)
 	}
-	if cs.params.CMove == nil {
+	if cs.parent.params.CMove == nil {
 		cs.sendMessage(&dimse.C_MOVE_RSP{
 			AffectedSOPClassUID:       c.AffectedSOPClassUID,
 			MessageIDBeingRespondedTo: c.MessageID,
@@ -164,7 +161,7 @@ func (cs *dimseCommandState) handleCMove(c *dimse.C_MOVE_RQ, data []byte) {
 		}, nil)
 		return
 	}
-	remoteHostPort, ok := cs.params.RemoteAEs[c.MoveDestination]
+	remoteHostPort, ok := cs.parent.params.RemoteAEs[c.MoveDestination]
 	if !ok {
 		sendError(fmt.Errorf("C-MOVE destination '%v' not registered in the server", c.MoveDestination))
 		return
@@ -175,7 +172,7 @@ func (cs *dimseCommandState) handleCMove(c *dimse.C_MOVE_RQ, data []byte) {
 		return
 	}
 	vlog.VI(1).Infof("C-MOVE-RQ payload: %s", elementsString(elems))
-	responseCh := cs.params.CMove(cs.context.transferSyntaxUID, c.AffectedSOPClassUID, elems)
+	responseCh := cs.parent.params.CMove(cs.context.transferSyntaxUID, c.AffectedSOPClassUID, elems)
 	status := dimse.Status{Status: dimse.StatusSuccess}
 	var numSuccesses, numFailures uint16
 	for resp := range responseCh {
@@ -187,7 +184,7 @@ func (cs *dimseCommandState) handleCMove(c *dimse.C_MOVE_RQ, data []byte) {
 			break
 		}
 		vlog.Infof("C-MOVE: Sending %v to %v(%s)", resp.Path, c.MoveDestination, remoteHostPort)
-		err := runCStoreOnNewAssociation(cs.params.AETitle, c.MoveDestination, remoteHostPort, resp.DataSet)
+		err := runCStoreOnNewAssociation(cs.parent.params.AETitle, c.MoveDestination, remoteHostPort, resp.DataSet)
 		if err != nil {
 			vlog.Errorf("C-MOVE: C-store of %v to %v(%v) failed: %v", resp.Path, c.MoveDestination, remoteHostPort, err)
 			numFailures++
@@ -216,7 +213,7 @@ func (cs *dimseCommandState) handleCMove(c *dimse.C_MOVE_RQ, data []byte) {
 	}
 }
 
-func (cs *dimseCommandState) handleCGet(c *dimse.C_GET_RQ, data []byte) {
+func (cs *providerCommandState) handleCGet(c *dimse.C_GET_RQ, data []byte) {
 	sendError := func(err error) {
 		cs.sendMessage(&dimse.C_GET_RSP{
 			AffectedSOPClassUID:       c.AffectedSOPClassUID,
@@ -225,7 +222,7 @@ func (cs *dimseCommandState) handleCGet(c *dimse.C_GET_RQ, data []byte) {
 			Status:                    dimse.Status{Status: dimse.StatusUnrecognizedOperation, ErrorComment: err.Error()},
 		}, nil)
 	}
-	if cs.params.CGet == nil {
+	if cs.parent.params.CGet == nil {
 		cs.sendMessage(&dimse.C_GET_RSP{
 			AffectedSOPClassUID:       c.AffectedSOPClassUID,
 			MessageIDBeingRespondedTo: c.MessageID,
@@ -240,7 +237,7 @@ func (cs *dimseCommandState) handleCGet(c *dimse.C_GET_RQ, data []byte) {
 		return
 	}
 	vlog.VI(1).Infof("C-GET-RQ payload: %s", elementsString(elems))
-	responseCh := cs.params.CGet(cs.context.transferSyntaxUID, c.AffectedSOPClassUID, elems)
+	responseCh := cs.parent.params.CGet(cs.context.transferSyntaxUID, c.AffectedSOPClassUID, elems)
 	status := dimse.Status{Status: dimse.StatusSuccess}
 	var numSuccesses, numFailures uint16
 	for resp := range responseCh {
@@ -288,10 +285,10 @@ func (cs *dimseCommandState) handleCGet(c *dimse.C_GET_RQ, data []byte) {
 	}
 }
 
-func (cs *dimseCommandState) handleCEcho(c *dimse.C_ECHO_RQ) {
+func (cs *providerCommandState) handleCEcho(c *dimse.C_ECHO_RQ) {
 	status := dimse.Status{Status: dimse.StatusUnrecognizedOperation}
-	if cs.params.CEcho != nil {
-		status = cs.params.CEcho()
+	if cs.parent.params.CEcho != nil {
+		status = cs.parent.params.CEcho()
 	}
 	resp := &dimse.C_ECHO_RSP{
 		MessageIDBeingRespondedTo: c.MessageID,
@@ -301,8 +298,8 @@ func (cs *dimseCommandState) handleCEcho(c *dimse.C_ECHO_RQ) {
 	cs.sendMessage(resp, nil)
 }
 
-func (cs *dimseCommandState) sendMessage(resp dimse.Message, data []byte) {
-	vlog.VI(1).Infof("Sending DIMSE message: %v %v", resp, cs.parent)
+func (cs *providerCommandState) sendMessage(resp dimse.Message, data []byte) {
+	vlog.VI(1).Infof("Sending PROVIDER message: %v %v", resp, cs.parent)
 	payload := &stateEventDIMSEPayload{
 		abstractSyntaxName: cs.context.abstractSyntaxUID,
 		command:            resp,
@@ -317,7 +314,7 @@ func (cs *dimseCommandState) sendMessage(resp dimse.Message, data []byte) {
 }
 
 type ServiceProviderParams struct {
-	AETitle   string            // The title of the provider. Must be nonempty
+	AETitle   string            // The title of the dimse. Must be nonempty
 	RemoteAEs map[string]string // Names of remote AEs and their host:ports. Used by C-MOVE.
 
 	// Called on C_ECHO request. If nil, a C-ECHO call will produce an error response.
@@ -448,7 +445,7 @@ func runCStoreOnNewAssociation(myAETitle, remoteAETitle, remoteHostPort string, 
 	return err
 }
 
-func (dh *dimseCommandDispatcher) handleEvent(event upcallEvent) {
+func (dh *providerCommandDispatcher) handleEvent(event upcallEvent) {
 	context, err := event.cm.lookupByContextID(event.contextID)
 	if err != nil {
 		vlog.Infof("Invalid context ID %d: %v", event.contextID, err)
@@ -463,7 +460,7 @@ func (dh *dimseCommandDispatcher) handleEvent(event upcallEvent) {
 		vlog.VI(1).Infof("Done forwarding command to existing command: %+v", event.command, dc)
 		return
 	}
-	vlog.VI(1).Infof("Receive DIMSE command: %v", event.command)
+	vlog.VI(1).Infof("Receive PROVIDER command: %v", event.command)
 	go func() {
 		defer dh.deleteCommand(dc)
 		switch c := event.command.(type) {
@@ -479,9 +476,9 @@ func (dh *dimseCommandDispatcher) handleEvent(event upcallEvent) {
 			dc.handleCEcho(c)
 		default:
 			// TODO: handle errors properly.
-			vlog.Fatalf("Unknown DIMSE message type: %v", c)
+			vlog.Fatalf("Unknown PROVIDER message type: %v", c)
 		}
-		vlog.VI(1).Infof("Finished DIMSE command: %v", event.command)
+		vlog.VI(1).Infof("Finished PROVIDER command: %v", event.command)
 	}()
 }
 
@@ -494,10 +491,10 @@ func NewServiceProvider(params ServiceProviderParams) *ServiceProvider {
 // will be cleaned up in the background.
 func RunProviderForConn(conn net.Conn, params ServiceProviderParams) {
 	upcallCh := make(chan upcallEvent, 128)
-	dc := dimseCommandDispatcher{
+	dc := providerCommandDispatcher{
 		downcallCh:     make(chan stateEvent, 128),
 		params:         params,
-		activeCommands: make(map[uint16]*dimseCommandState),
+		activeCommands: make(map[uint16]*providerCommandState),
 	}
 
 	go runStateMachineForServiceProvider(conn, upcallCh, dc.downcallCh)

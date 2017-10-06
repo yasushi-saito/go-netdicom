@@ -1,8 +1,6 @@
 package netdicom
 
 import (
-	"bytes"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
@@ -140,91 +138,11 @@ func (su *ServiceUser) SetConn(conn net.Conn) {
 	su.status = serviceUserHandshaking
 }
 
-// Issue a C-STORE request; blocks until the server responds, or an error
-// happens. "data" is a DICOM file. Its transfer syntax must match the one
-// established in during DICOM A_ASSOCIATE handshake.
-//
-// TODO(saito) Re-encode the data using the valid transfer syntax.
-//
-//
-// TODO(saito) Remove this function. Use CStore instead.
-func (su *ServiceUser) CStoreRaw(data []byte) error {
-	// Parse the beginning of file, extract syntax UIDs to fill in the
-	// C-STORE request.
-	decoder := dicomio.NewDecoder(
-		bytes.NewBuffer(data),
-		int64(len(data)),
-		binary.LittleEndian,
-		dicomio.ExplicitVR)
-	meta := dicom.ParseFileHeader(decoder)
-	if decoder.Error() != nil {
-		return decoder.Error()
-	}
-	var getElement = func(meta []*dicom.Element, tag dicom.Tag) (string, error) {
-		elem, err := dicom.FindElementByTag(meta, tag)
-		if err != nil {
-			return "", fmt.Errorf("C-STORE data lacks %s: %v", tag.String(), err)
-		}
-		s, err := elem.GetString()
-		if err != nil {
-			return "", err
-		}
-		return s, nil
-	}
-	sopInstanceUID, err := getElement(meta, dicom.TagMediaStorageSOPInstanceUID)
-	if err != nil {
-		return fmt.Errorf("C-STORE data lacks SOPInstanceUID: %v", err)
-	}
-	transferSyntaxUID, err := getElement(meta, dicom.TagTransferSyntaxUID)
-	if err != nil {
-		return fmt.Errorf("C-STORE data lacks TransferSyntaxUID: %v", err)
-	}
-	sopClassUID, err := getElement(meta, dicom.TagMediaStorageSOPClassUID)
-	if err != nil {
-		return fmt.Errorf("C-STORE data lacks MediaStorageSOPClassUID: %v", err)
-	}
-	vlog.VI(1).Infof("DICOM transfersyntax:%s, abstractsyntax: %s, sopinstance: %s",
-		transferSyntaxUID, sopClassUID, sopInstanceUID)
-
-	// The remainder of the file becomes the actual C-STORE payload.
-	body := decoder.ReadBytes(int(decoder.Len()))
-	if decoder.Error() != nil {
-		return decoder.Error()
-	}
-	err = waitAssociationEstablishment(su)
+func (su *ServiceUser) CStore(ds *dicom.DataSet) error {
+	err := waitAssociationEstablishment(su)
 	if err != nil {
 		return err
 	}
-	su.downcallCh <- stateEvent{
-		event: evt09,
-		dimsePayload: &stateEventDIMSEPayload{
-			abstractSyntaxName: sopClassUID,
-			command: &dimse.C_STORE_RQ{
-				AffectedSOPClassUID:    sopClassUID,
-				MessageID:              dimse.NewMessageID(),
-				CommandDataSetType:     dimse.CommandDataSetTypeNonNull,
-				AffectedSOPInstanceUID: sopInstanceUID,
-			},
-			data: body}}
-	for {
-		event, ok := <-su.upcallCh
-		if !ok {
-			su.status = serviceUserClosed
-			return fmt.Errorf("Connection closed while waiting for C-STORE response")
-		}
-		doassert(event.eventType == upcallEventData)
-		doassert(event.command != nil)
-		resp, ok := event.command.(*dimse.C_STORE_RSP)
-		doassert(ok) // TODO(saito)
-		vlog.VI(1).Infof("C-STORE: got resp: %v", resp)
-		if resp.Status.Status != 0 {
-			return fmt.Errorf("C_STORE failed: %v", resp.String())
-		}
-		return nil
-	}
-}
-
-func (su *ServiceUser) CStore(ds *dicom.DataSet) error {
 	return runCStoreOnAssociation(su.upcallCh, su.downcallCh, su.cm, dimse.NewMessageID(), ds)
 }
 
@@ -316,7 +234,7 @@ func (su *ServiceUser) CFind(qrLevel CFindQRLevel, filter []*dicom.Element) chan
 					MessageID:           dimse.NewMessageID(),
 					CommandDataSetType:  dimse.CommandDataSetTypeNonNull,
 				},
-				data:               dataEncoder.Bytes()}}
+				data: dataEncoder.Bytes()}}
 		for {
 			event, ok := <-su.upcallCh
 			if !ok {

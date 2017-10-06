@@ -2,10 +2,10 @@ package fuzze2e
 
 import (
 	"flag"
+	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-netdicom"
 	"github.com/yasushi-saito/go-netdicom/dimse"
 	"github.com/yasushi-saito/go-netdicom/sopclass"
-	"io/ioutil"
 	"log"
 	"net"
 )
@@ -41,24 +41,21 @@ func startServer(faults *netdicom.FaultInjector) net.Listener {
 }
 
 func runClient(serverAddr string, faults *netdicom.FaultInjector) {
-	data, err := ioutil.ReadFile("../testdata/reportsi.dcm")
-	if err != nil {
-		log.Fatal(err)
-	}
-	transferSyntaxUID, err := netdicom.GetTransferSyntaxUIDInBytes(data)
+	dataset, err := dicom.ReadDataSetFromFile(
+		"../testdata/reportsi.dcm",
+		dicom.ReadOptions{})
 	if err != nil {
 		log.Fatal(err)
 	}
 	netdicom.SetUserFaultInjector(faults)
 	params, err := netdicom.NewServiceUserParams(
-		"dontcare", "testclient", sopclass.StorageClasses,
-		[]string{transferSyntaxUID})
+		"dontcare", "testclient", sopclass.StorageClasses, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 	su := netdicom.NewServiceUser(params)
 	su.Connect(serverAddr)
-	err = su.CStoreRaw(data)
+	err = su.CStore(dataset)
 	log.Printf("Store done with status: %v", err)
 	su.Release()
 }

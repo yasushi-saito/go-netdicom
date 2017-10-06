@@ -2,12 +2,9 @@
 package main
 
 import (
-	"encoding/binary"
 	"flag"
-	"io/ioutil"
 
 	"github.com/yasushi-saito/go-dicom"
-	"github.com/yasushi-saito/go-dicom/dicomio"
 	"github.com/yasushi-saito/go-dicom/dicomuid"
 	"github.com/yasushi-saito/go-netdicom"
 	"github.com/yasushi-saito/go-netdicom/sopclass"
@@ -21,22 +18,12 @@ var (
 )
 
 func cStore(server, inPath string) {
-	data, err := ioutil.ReadFile(inPath)
+	dataset, err := dicom.ReadDataSetFromFile(inPath, dicom.ReadOptions{})
 	if err != nil {
 		vlog.Fatalf("%s: %v", inPath, err)
 	}
-	decoder := dicomio.NewBytesDecoder(data, binary.LittleEndian, dicomio.ExplicitVR)
-	meta := dicom.ParseFileHeader(decoder)
-	if decoder.Error() != nil {
-		vlog.Fatalf("%s: failed to parse as DICOM: %v", inPath, decoder.Error())
-	}
-	transferSyntaxUID, err := dicom.FindElementByTag(meta, dicom.TagTransferSyntaxUID)
-	if err != nil {
-		vlog.Fatal(err)
-	}
 	params, err := netdicom.NewServiceUserParams(
-		"dontcare", "testclient", sopclass.StorageClasses,
-		[]string{transferSyntaxUID.MustGetString()})
+		"dontcare", "testclient", sopclass.StorageClasses, nil)
 	if err != nil {
 		vlog.Fatal(err)
 	}
@@ -44,7 +31,7 @@ func cStore(server, inPath string) {
 	defer su.Release()
 	su.Connect(server)
 
-	err = su.CStoreRaw(data)
+	err = su.CStore(dataset)
 	if err != nil {
 		vlog.Fatalf("%s: cstore failed: %v", inPath, err)
 	}
