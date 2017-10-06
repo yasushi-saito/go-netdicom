@@ -1,9 +1,11 @@
+// This file implements the ServiceUser (i.e., a DICOM client) class.
 package netdicom
 
 import (
 	"errors"
 	"fmt"
 	"net"
+	"sync"
 
 	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-dicom/dicomio"
@@ -17,17 +19,79 @@ type serviceUserStatus int
 
 const (
 	serviceUserInitial = iota
-	serviceUserHandshaking
 	serviceUserAssociationActive
 	serviceUserClosed
 )
 
-// Encapsulates the state for DICOM client (user).
+// ServiceUser encapsulates implements the client side of DICOM network protocol.
+//
+//  params, err := netdicom.NewServiceUserParams(
+//     "dontcare" /*remote app-entity title*/,
+//     "testclient" /*this app-entity title*/,
+//     sopclass.QRFindClasses, /* SOP classes to use in the requests*/
+//     nil /* transfer syntaxes to use; unually nil suffices */)
+//  user := netdicom.NewServiceUser(params)
+//  // Connect to server 1.2.3.4, port 8888
+//  user.Connect("1.2.3.4:8888")
+//  // Send test.dcm to the server
+//  ds, err := dicom.ReadDataSetFromFile("test.dcm", dicom.ReadOptions{})
+//  err := user.CStore(ds)
+//  // Disconnect
+//  user.Release()
 type ServiceUser struct {
-	status     serviceUserStatus
 	downcallCh chan stateEvent
 	upcallCh   chan upcallEvent
-	cm         *contextManager // Set only after the handshake completes.
+
+	mu   *sync.Mutex
+	cond *sync.Cond // Broadcast when status changes.
+
+	// Following fields are guarded by mu.
+	status         serviceUserStatus
+	cm             *contextManager              // Set only after the handshake completes.
+	activeCommands map[uint16]*userCommandState // List of commands running
+}
+
+func (su *ServiceUser) createCommand(messageID uint16) *userCommandState {
+	su.mu.Lock()
+	defer su.mu.Unlock()
+	if _, ok := su.activeCommands[messageID]; ok {
+		panic(messageID)
+	}
+	cs := &userCommandState{
+		parent:    su,
+		messageID: messageID,
+		upcallCh:  make(chan upcallEvent, 128),
+	}
+	su.activeCommands[messageID] = cs
+	return cs
+}
+
+func (su *ServiceUser) findCommand(messageID uint16) *userCommandState {
+	su.mu.Lock()
+	defer su.mu.Unlock()
+	if cs, ok := su.activeCommands[messageID]; ok {
+		return cs
+	}
+	return nil
+}
+
+func (su *ServiceUser) deleteCommand(cs *userCommandState) {
+	su.mu.Lock()
+	if _, ok := su.activeCommands[cs.messageID]; !ok {
+		panic(fmt.Sprintf("cs %+v", cs))
+	}
+	delete(su.activeCommands, cs.messageID)
+	su.mu.Unlock()
+}
+
+// Per-command-invocation state.
+type userCommandState struct {
+	parent    *ServiceUser // parent dispatcher
+	messageID uint16       // PROVIDER MessageID
+	// context   contextManagerEntry // the transfersyntax/sopclass for this command.
+
+	// upcallCh streams PROVIDER command+data for the given messageID.
+	upcallCh chan upcallEvent
 }
 
 type ServiceUserParams struct {
@@ -48,7 +112,11 @@ type ServiceUserParams struct {
 	SupportedTransferSyntaxes []string
 }
 
-// If transferSyntaxUIDs is empty, the standard list of syntax is used.
+// NewServiceUserParams creates a ServiceUserParams.  requiredServices is the
+// abstract syntaxes (SOP classes) that the client wishes to use in the
+// requests.  It's usually one of the lists defined in the sopclass package.  If
+// transferSyntaxUIDs is empty, the exhaustive list of syntaxes defined in the
+// DICOM standard is used.
 func NewServiceUserParams(
 	calledAETitle string,
 	callingAETitle string,
@@ -79,71 +147,101 @@ func NewServiceUserParams(
 	}, nil
 }
 
+func (su *ServiceUser) handleEvent(event upcallEvent) {
+	messageID := event.command.GetMessageID()
+	cs := su.findCommand(messageID)
+	if cs == nil {
+		vlog.Errorf("Dropping message for non-existent ID: %v", event.command)
+		return
+	}
+	cs.upcallCh <- event
+}
+
+// NewServiceUser creates a new ServiceUser. The caller must call either
+// Connect() or SetConn() before calling any other method, such as Cstore.
 func NewServiceUser(params ServiceUserParams) *ServiceUser {
+	mu := &sync.Mutex{}
 	su := &ServiceUser{
-		status: serviceUserInitial,
 		// sm: NewStateMachineForServiceUser(params, nil, nil),
 		downcallCh: make(chan stateEvent, 128),
 		upcallCh:   make(chan upcallEvent, 128),
+
+		mu:             mu,
+		cond:           sync.NewCond(mu),
+		status:         serviceUserInitial,
+		activeCommands: make(map[uint16]*userCommandState),
 	}
 	go runStateMachineForServiceUser(params, su.upcallCh, su.downcallCh)
+	go func() {
+		for event := range su.upcallCh {
+			if event.eventType == upcallEventHandshakeCompleted {
+				su.mu.Lock()
+				doassert(su.cm == nil)
+				su.status = serviceUserAssociationActive
+				su.cond.Broadcast()
+				su.cm = event.cm
+				doassert(su.cm != nil)
+				su.mu.Unlock()
+				continue
+			}
+			doassert(event.eventType == upcallEventData)
+			su.handleEvent(event)
+		}
+		vlog.Infof("Service user dispatcher finished")
+		su.mu.Lock()
+		su.cond.Broadcast()
+		su.status = serviceUserClosed
+		su.mu.Unlock()
+	}()
 	return su
 }
 
-func waitAssociationEstablishment(su *ServiceUser) error {
-	if su.status < serviceUserHandshaking {
-		vlog.Fatal("ServiceUser.Start() not yet called")
-	}
-	for su.status < serviceUserAssociationActive {
-		event, ok := <-su.upcallCh
-		if !ok {
-			su.status = serviceUserClosed
-			su.cm = nil
-			break
-		}
-		if event.eventType == upcallEventHandshakeCompleted {
-			su.status = serviceUserAssociationActive
-			su.cm = event.cm
-			doassert(su.cm != nil)
-			break
-		}
-		vlog.Fatalf("Illegal upcall event during handshake: %v", event)
+func (su *ServiceUser) waitUntilReady() error {
+	su.mu.Lock()
+	defer su.mu.Unlock()
+	for su.status <= serviceUserInitial {
+		su.cond.Wait()
 	}
 	if su.status != serviceUserAssociationActive {
+		// Will get an error when waiting for a response.
+		vlog.Errorf("Connection failed")
 		return fmt.Errorf("Connection failed")
 	}
 	return nil
 }
 
-// Connect to the server at the given "host:port". Either Connect or SetConn
-// must be before calling CStore, etc.
+// Connect connects to the server at the given "host:port". Either Connect or
+// SetConn must be before calling CStore, etc.
 func (su *ServiceUser) Connect(serverAddr string) {
 	doassert(su.status == serviceUserInitial)
 	conn, err := net.Dial("tcp", serverAddr)
 	if err != nil {
 		vlog.Infof("Connect(%s): %v", serverAddr, err)
 		su.downcallCh <- stateEvent{event: evt17, pdu: nil, err: err}
-		close(su.downcallCh)
 	} else {
 		su.downcallCh <- stateEvent{event: evt02, pdu: nil, err: nil, conn: conn}
 	}
-	su.status = serviceUserHandshaking
 }
 
-// Use the given connection to talk to the server. Either Connect or SetConn
-// must be before calling CStore, etc.
+// SetConn instructs ServiceUser to use the given network connection to talk to
+// the server. Either Connect or SetConn must be before calling CStore, etc.
 func (su *ServiceUser) SetConn(conn net.Conn) {
 	doassert(su.status == serviceUserInitial)
 	su.downcallCh <- stateEvent{event: evt02, pdu: nil, err: nil, conn: conn}
-	su.status = serviceUserHandshaking
 }
 
+// CStore issues a C-STORE request to transfer "ds" in remove peer.  It blocks
+// until the operation finishes.
+//
+// REQUIRES: Connect() or SetConn has been called.
 func (su *ServiceUser) CStore(ds *dicom.DataSet) error {
-	err := waitAssociationEstablishment(su)
+	err := su.waitUntilReady()
 	if err != nil {
 		return err
 	}
-	return runCStoreOnAssociation(su.upcallCh, su.downcallCh, su.cm, dimse.NewMessageID(), ds)
+	doassert(su.cm != nil)
+	cs := su.createCommand(dimse.NewMessageID())
+	return runCStoreOnAssociation(cs.upcallCh, su.downcallCh, su.cm, cs.messageID, ds)
 }
 
 type CFindQRLevel int
@@ -172,14 +270,17 @@ type CMoveResult struct {
 //
 // The param sopClassUID is one of the UIDs defined in sopclass.QRFindClasses.
 // filter is the list of elements to match and retrieve.
+//
+// REQUIRES: Connect() or SetConn has been called.
 func (su *ServiceUser) CFind(qrLevel CFindQRLevel, filter []*dicom.Element) chan CFindResult {
 	ch := make(chan CFindResult, 128)
-	err := waitAssociationEstablishment(su)
+	err := su.waitUntilReady()
 	if err != nil {
 		ch <- CFindResult{Err: err}
 		close(ch)
 		return ch
 	}
+	cs := su.createCommand(dimse.NewMessageID())
 	// Translate qrLevel to the sopclass and QRLevel elem.
 	var sopClassUID string
 	var qrLevelString string
@@ -225,18 +326,19 @@ func (su *ServiceUser) CFind(qrLevel CFindQRLevel, filter []*dicom.Element) chan
 	}
 	go func() {
 		defer close(ch)
+		defer su.deleteCommand(cs)
 		su.downcallCh <- stateEvent{
 			event: evt09,
 			dimsePayload: &stateEventDIMSEPayload{
 				abstractSyntaxName: sopClassUID,
 				command: &dimse.C_FIND_RQ{
 					AffectedSOPClassUID: sopClassUID,
-					MessageID:           dimse.NewMessageID(),
+					MessageID:           cs.messageID,
 					CommandDataSetType:  dimse.CommandDataSetTypeNonNull,
 				},
 				data: dataEncoder.Bytes()}}
 		for {
-			event, ok := <-su.upcallCh
+			event, ok := <-cs.upcallCh
 			if !ok {
 				su.status = serviceUserClosed
 				ch <- CFindResult{Err: fmt.Errorf("Connection closed while waiting for C-FIND response")}
@@ -268,18 +370,17 @@ func (su *ServiceUser) CFind(qrLevel CFindQRLevel, filter []*dicom.Element) chan
 	return ch
 }
 
+// Release shuts down the connection. It must be called exactly once.  After
+// Release(), no other operation can be performed on the ServiceUser object.
 func (su *ServiceUser) Release() {
-	err := waitAssociationEstablishment(su)
-	if err != nil {
-		return
-	}
+	su.waitUntilReady()
 	su.downcallCh <- stateEvent{event: evt11}
-	for {
-		event, ok := <-su.upcallCh
-		if !ok {
-			su.status = serviceUserClosed
-			break
-		}
-		vlog.Fatalf("No event expected after release, but received %v", event)
+
+	su.mu.Lock()
+	defer su.mu.Unlock()
+	su.status = serviceUserClosed
+	su.cond.Broadcast()
+	for _, cs := range su.activeCommands {
+		close(cs.upcallCh)
 	}
 }

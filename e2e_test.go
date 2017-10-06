@@ -17,7 +17,6 @@ import (
 
 var serverAddr string
 var cstoreData []byte
-
 var once sync.Once
 
 func initTest() {
@@ -64,13 +63,12 @@ func onCStoreRequest(
 			dicom.MustNewElement(dicom.TagMediaStorageSOPInstanceUID, sopInstanceUID),
 		})
 	e.WriteBytes(data)
-
 	if cstoreData != nil {
 		vlog.Fatal("Received C-STORE data twice")
 	}
 	cstoreData = e.Bytes()
 	vlog.Infof("Received C-STORE request")
-	return dimse.Status{Status: dimse.StatusSuccess}
+	return dimse.Success
 }
 
 func onCFindRequest(

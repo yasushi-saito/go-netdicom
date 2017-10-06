@@ -1,6 +1,6 @@
-package netdicom
+o// This file defines ServiceProvider (i.e., a DICOM server).
 
-// This file defines ServiceProvider (i.e., a DICOM server).
+package netdicom
 
 import (
 	"fmt"
@@ -57,9 +57,9 @@ func (dc *providerCommandDispatcher) deleteCommand(cs *providerCommandState) {
 // Per-command-invocation state.
 type providerCommandState struct {
 	parent    *providerCommandDispatcher // parent dispatcher
-	messageID uint16                  // PROVIDER MessageID
-	context   contextManagerEntry     // the transfersyntax/sopclass for this command.
-	cm        *contextManager         // For looking up context -> transfersyntax/sopclass mappings
+	messageID uint16                     // PROVIDER MessageID
+	context   contextManagerEntry        // the transfersyntax/sopclass for this command.
+	cm        *contextManager            // For looking up context -> transfersyntax/sopclass mappings
 
 	// upcallCh streams PROVIDER command+data for the given messageID.
 	upcallCh chan upcallEvent
@@ -314,80 +314,93 @@ func (cs *providerCommandState) sendMessage(resp dimse.Message, data []byte) {
 }
 
 type ServiceProviderParams struct {
-	AETitle   string            // The title of the dimse. Must be nonempty
-	RemoteAEs map[string]string // Names of remote AEs and their host:ports. Used by C-MOVE.
+	// The application-entity title of the server. Must be nonempty
+	AETitle string
+
+	// Names of remote AEs and their host:ports. Used only by C-MOVE. This
+	// map should be nonempty iff the server supports CMove.
+	RemoteAEs map[string]string
 
 	// Called on C_ECHO request. If nil, a C-ECHO call will produce an error response.
+	//
+	// TODO(saito) Support a default C-ECHO callback?
 	CEcho CEchoCallback
 
-	// Called on C_FIND request. It should create and return a channel that
-	// streams CFindResult objects. To report a matched DICOM dataset, the
-	// callback should send one CFindResult with nonempty Element field. To
-	// report multiple DICOM-dataset matches, the callback should send
-	// multiple CFindResult objects, one for each dataset.  The callback
-	// must close the channel after it produces all the responses.
-	//
+	// Called on C_FIND request.
 	// If CFindCallback=nil, a C-FIND call will produce an error response.
 	CFind CFindCallback
 
-	// CMove is called on C_MOVE request. On return:
-	//
-	// - numMatches should be either the total number of datasets to be
-	// sent, or -1 when the number is unknown.
-	//
-	// - ch should be a channel that streams datasets to be sent to the
-	// remoteAEHostPort.  The callback must close the channel after it
-	// produces all the datasets.
+	// CMove is called on C_MOVE request.
 	CMove CMoveCallback
 
 	// CGet is called on C_GET request. The only difference between cmove
 	// and cget is that cget uses the same connection to send images back to
-	// the requester. Thus, it's ok to set the same callback for CMove and
-	// CGet.
+	// the requester. Generally you shuold set the same function to CMove
+	// and CGet.
 	CGet CMoveCallback
 
-	// Called on receiving a C_STORE_RQ message.  sopClassUID and
-	// sopInstanceUID are the IDs of the data. They are from the C-STORE
-	// request packat.
-	//
-	// "data" is the payload, i.e., a sequence of serialized
-	// dicom.DataElement objects.  Note that "data" usually does not contain
-	// metadata elements (elements whose tag.group=2 -- those include
-	// TransferSyntaxUID and MediaStorageSOPClassUID), since they are
-	// stripped by the requstor (two key metadata are passed as
-	// sop{Class,Instance)UID).
-	//
-	// The handler should store encode the sop{Class,InstanceUID} as the
-	// DICOM header, followed by data. It should return either 0 on success,
-	// or one of CStoreStatus* error codes.
-	//
 	// If CStoreCallback=nil, a C-STORE call will produce an error response.
 	CStore CStoreCallback
-
-	// TODO(saito) Implement C-GET, etc.
 }
 
 const DefaultMaxPDUSize = 4 << 20
 
+// CStoreCallback is called C-STORE request.  sopInstanceUID are the IDs of the
+// data.  sopClassUID is the data type requested
+// (e.g.,"1.2.840.10008.5.1.4.1.1.1.2"), and transferSyntaxUID is the data
+// encoding requested (e.g., "1.2.840.10008.1.2.1").  These args come from the
+// request packat.
+//
+// "data" is the payload, i.e., a sequence of serialized
+// dicom.DataElement objects.  Note that "data" usually does not contain
+// metadata elements (elements whose tag.group=2 -- those include
+// TransferSyntaxUID and MediaStorageSOPClassUID), since they are
+// stripped by the requstor (two key metadata are passed as
+// sop{Class,Instance)UID).
+//
+// The handler should store encode the sop{Class,InstanceUID} as the
+//DICOM header, followed by data. It should return either 0 on success,
+//or one of CStoreStatus* error codes.
 type CStoreCallback func(
 	transferSyntaxUID string,
 	sopClassUID string,
 	sopInstanceUID string,
 	data []byte) dimse.Status
 
+// CFindCallback implements a C-FIND handler.  sopClassUID is the data type
+// requested (e.g.,"1.2.840.10008.5.1.4.1.1.1.2"), and transferSyntaxUID is the
+// data encoding requested (e.g., "1.2.840.10008.1.2.1").  hese args come from
+// the request packat.
+//
+// This function should create and return a
+// channel that streams CFindResult objects. To report a matched DICOM dataset,
+// the callback should send one CFindResult with nonempty Element field. To
+// report multiple DICOM-dataset matches, the callback should send multiple
+// CFindResult objects, one for each dataset.  The callback must close the
+// channel after it produces all the responses.
 type CFindCallback func(
 	transferSyntaxUID string,
 	sopClassUID string,
 	filters []*dicom.Element) chan CFindResult
 
+// CMoveCallback implements C-MOVE or C-GET handler.  sopClassUID is the data
+// type requested (e.g.,"1.2.840.10008.5.1.4.1.1.1.2"), and transferSyntaxUID is
+// the data encoding requested (e.g., "1.2.840.10008.1.2.1").  hese args come
+// from the request packat.
+//
+// On return, it should return a channel that streams
+// datasets to be sent to the remote client.  The callback must close the
+// channel after it produces all the datasets.
 type CMoveCallback func(
 	transferSyntaxUID string,
 	sopClassUID string,
 	filters []*dicom.Element) chan CMoveResult
 
+// CEchoCallback implements C-ECHO callback. It typically just returns
+// dimse.Success.
 type CEchoCallback func() dimse.Status
 
-// Encapsulates the state for DICOM server (provider).
+// ServiceProvider encapsulates the state for DICOM server (provider).
 type ServiceProvider struct {
 	params ServiceProviderParams
 }
@@ -408,7 +421,7 @@ func readElementsInBytes(data []byte, transferSyntaxUID string) ([]*dicom.Elemen
 	var elems []*dicom.Element
 	for decoder.Len() > 0 {
 		elem := dicom.ReadElement(decoder, dicom.ReadOptions{})
-		vlog.Infof("C-FIND: Read elem: %v, err %v", elem, decoder.Error())
+		vlog.VI(1).Infof("C-FIND: Read elem: %v, err %v", elem, decoder.Error())
 		if decoder.Error() != nil {
 			break
 		}
@@ -441,7 +454,7 @@ func runCStoreOnNewAssociation(myAETitle, remoteAETitle, remoteHostPort string, 
 	defer su.Release()
 	su.Connect(remoteHostPort)
 	err = su.CStore(ds)
-	vlog.Infof("C-STORE subop done: %v", err)
+	vlog.VI(1).Infof("C-STORE subop done: %v", err)
 	return err
 }
 
@@ -460,7 +473,6 @@ func (dh *providerCommandDispatcher) handleEvent(event upcallEvent) {
 		vlog.VI(1).Infof("Done forwarding command to existing command: %+v", event.command, dc)
 		return
 	}
-	vlog.VI(1).Infof("Receive PROVIDER command: %v", event.command)
 	go func() {
 		defer dh.deleteCommand(dc)
 		switch c := event.command.(type) {
@@ -478,17 +490,18 @@ func (dh *providerCommandDispatcher) handleEvent(event upcallEvent) {
 			// TODO: handle errors properly.
 			vlog.Fatalf("Unknown PROVIDER message type: %v", c)
 		}
-		vlog.VI(1).Infof("Finished PROVIDER command: %v", event.command)
 	}()
 }
 
+// NewServiceProvider creates a new DICOM server object. Run() will actually
+// start running the service.
 func NewServiceProvider(params ServiceProviderParams) *ServiceProvider {
 	sp := &ServiceProvider{params: params}
 	return sp
 }
 
-// Start threads for handling "conn". This function returns immediately; "conn"
-// will be cleaned up in the background.
+// RunProviderForConn starts threads for running a DICOM server on "conn". This
+// function returns immediately; "conn" will be cleaned up in the background.
 func RunProviderForConn(conn net.Conn, params ServiceProviderParams) {
 	upcallCh := make(chan upcallEvent, 128)
 	dc := providerCommandDispatcher{
@@ -503,23 +516,20 @@ func RunProviderForConn(conn net.Conn, params ServiceProviderParams) {
 		if event.eventType == upcallEventHandshakeCompleted {
 			doassert(!handshakeCompleted)
 			handshakeCompleted = true
-			vlog.VI(2).Infof("handshake completed")
 			continue
 		}
 		doassert(event.eventType == upcallEventData)
 		doassert(event.command != nil)
 		doassert(handshakeCompleted == true)
-		vlog.Infof("Handle event: %v", event.command)
 		dc.handleEvent(event)
-		vlog.Infof("Finish handle event: %v", event.command)
 	}
 	vlog.VI(2).Info("Finished provider")
 }
 
-// Listen to incoming connections, accept them, and run the DICOM protocol. This
-// function never returns unless it fails to listen.  "listenAddr" is the TCP
-// address to listen to. E.g., ":1234" will listen to port 1234 at all the IP
-// address that this machine can bind to.
+// Run listens to incoming connections, accepts them, and runs the DICOM
+// protocol. This function never returns unless it fails to listen.
+// "listenAddr" is the TCP address to listen to. E.g., ":1234" will listen to
+// port 1234 at all the IP address that this machine can bind to.
 func (sp *ServiceProvider) Run(listenAddr string) error {
 	listener, err := net.Listen("tcp", listenAddr)
 	if err != nil {

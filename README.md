@@ -1,6 +1,7 @@
 Golang implementation of DICOM network protocol.
 
-See storeclient and storeserver for example.
+See doc.go for (incomplete) documentation.  See storeclient and storeserver for
+examples.
 
 Inspired by https://github.com/pydicom/pynetdicom3.
 
