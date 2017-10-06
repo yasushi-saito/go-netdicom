@@ -1,4 +1,4 @@
-o// This file defines ServiceProvider (i.e., a DICOM server).
+// This file defines ServiceProvider (i.e., a DICOM server).
 
 package netdicom
 
