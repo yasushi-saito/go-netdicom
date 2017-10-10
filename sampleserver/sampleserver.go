@@ -155,67 +155,61 @@ func (ss *server) findMatchingFiles(filters []*dicom.Element) ([]filterMatch, er
 func (ss *server) onCFind(
 	transferSyntaxUID string,
 	sopClassUID string,
-	filters []*dicom.Element) chan netdicom.CFindResult {
+	filters []*dicom.Element,
+	ch chan netdicom.CFindResult) {
 	for _, filter := range filters {
 		vlog.Infof("CFind: filter %v", filter)
 	}
-	ch := make(chan netdicom.CFindResult, 128)
 	vlog.Infof("CFind: transfersyntax: %v, classuid: %v",
 		dicomuid.UIDString(transferSyntaxUID),
 		dicomuid.UIDString(sopClassUID))
 	// Match the filter against every file. This is just for demonstration
-	go func() {
-		matches, err := ss.findMatchingFiles(filters)
-		vlog.Infof("C-FIND: found %d matches, err %v", len(matches), err)
-		if err != nil {
-			ch <- netdicom.CFindResult{Err: err}
-		} else {
-			for _, match := range matches {
-				vlog.VI(1).Infof("C-FIND resp %s: %v", match.path, match.elems)
-				ch <- netdicom.CFindResult{Elements: match.elems}
-			}
+	matches, err := ss.findMatchingFiles(filters)
+	vlog.Infof("C-FIND: found %d matches, err %v", len(matches), err)
+	if err != nil {
+		ch <- netdicom.CFindResult{Err: err}
+	} else {
+		for _, match := range matches {
+			vlog.VI(1).Infof("C-FIND resp %s: %v", match.path, match.elems)
+			ch <- netdicom.CFindResult{Elements: match.elems}
 		}
-		close(ch)
-	}()
-	return ch
+	}
+	close(ch)
 }
 
 func (ss *server) onCMoveOrCGet(
 	transferSyntaxUID string,
 	sopClassUID string,
-	filters []*dicom.Element) chan netdicom.CMoveResult {
+	filters []*dicom.Element,
+	ch chan netdicom.CMoveResult) {
 	vlog.Infof("C-MOVE: transfersyntax: %v, classuid: %v",
 		dicomuid.UIDString(transferSyntaxUID),
 		dicomuid.UIDString(sopClassUID))
 	for _, filter := range filters {
 		vlog.Infof("C-MOVE: filter %v", filter)
 	}
-	ch := make(chan netdicom.CMoveResult, 128)
-	go func() {
-		matches, err := ss.findMatchingFiles(filters)
-		vlog.Infof("C-MOVE: found %d matches, err %v", len(matches), err)
-		if err != nil {
-			ch <- netdicom.CMoveResult{Err: err}
-		} else {
-			for i, match := range matches {
-				vlog.VI(1).Infof("C-MOVE resp %d %s: %v", i, match.path, match.elems)
-				// Read the file; the one in ss.datasets lack the PixelData.
-				ds, err := dicom.ReadDataSetFromFile(match.path, dicom.ReadOptions{})
-				resp := netdicom.CMoveResult{
-					Remaining: len(matches) - i - 1,
-					Path:      match.path,
-				}
-				if err != nil {
-					resp.Err = err
-				} else {
-					resp.DataSet = ds
-				}
-				ch <- resp
+
+	matches, err := ss.findMatchingFiles(filters)
+	vlog.Infof("C-MOVE: found %d matches, err %v", len(matches), err)
+	if err != nil {
+		ch <- netdicom.CMoveResult{Err: err}
+	} else {
+		for i, match := range matches {
+			vlog.VI(1).Infof("C-MOVE resp %d %s: %v", i, match.path, match.elems)
+			// Read the file; the one in ss.datasets lack the PixelData.
+			ds, err := dicom.ReadDataSetFromFile(match.path, dicom.ReadOptions{})
+			resp := netdicom.CMoveResult{
+				Remaining: len(matches) - i - 1,
+				Path:      match.path,
 			}
+			if err != nil {
+				resp.Err = err
+			} else {
+				resp.DataSet = ds
+			}
+			ch <- resp
 		}
-		close(ch)
-	}()
-	return ch
+	}
 }
 
 // Find DICOM files in or under "dir" and read its attributes. The return value
@@ -318,14 +312,14 @@ func main() {
 			vlog.Info("Received C-ECHO")
 			return dimse.Success
 		},
-		CFind: func(transferSyntaxUID string, sopClassUID string, filter []*dicom.Element) chan netdicom.CFindResult {
-			return ss.onCFind(transferSyntaxUID, sopClassUID, filter)
+		CFind: func(transferSyntaxUID string, sopClassUID string, filter []*dicom.Element, ch chan netdicom.CFindResult) {
+			ss.onCFind(transferSyntaxUID, sopClassUID, filter, ch)
 		},
-		CMove: func(transferSyntaxUID string, sopClassUID string, filter []*dicom.Element) chan netdicom.CMoveResult {
-			return ss.onCMoveOrCGet(transferSyntaxUID, sopClassUID, filter)
+		CMove: func(transferSyntaxUID string, sopClassUID string, filter []*dicom.Element, ch chan netdicom.CMoveResult) {
+			ss.onCMoveOrCGet(transferSyntaxUID, sopClassUID, filter, ch)
 		},
-		CGet: func(transferSyntaxUID string, sopClassUID string, filter []*dicom.Element) chan netdicom.CMoveResult {
-			return ss.onCMoveOrCGet(transferSyntaxUID, sopClassUID, filter)
+		CGet: func(transferSyntaxUID string, sopClassUID string, filter []*dicom.Element, ch chan netdicom.CMoveResult) {
+			ss.onCMoveOrCGet(transferSyntaxUID, sopClassUID, filter, ch)
 		},
 		CStore: func(transferSyntaxUID string,
 			sopClassUID string,

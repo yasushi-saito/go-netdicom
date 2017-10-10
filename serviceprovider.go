@@ -107,7 +107,10 @@ func (cs *providerCommandState) handleCFind(c *dimse.C_FIND_RQ, data []byte) {
 	vlog.VI(1).Infof("C-FIND-RQ payload: %s", elementsString(elems))
 
 	status := dimse.Status{Status: dimse.StatusSuccess}
-	responseCh := cs.parent.params.CFind(cs.context.transferSyntaxUID, c.AffectedSOPClassUID, elems)
+	responseCh := make(chan CFindResult, 128)
+	go func() {
+		cs.parent.params.CFind(cs.context.transferSyntaxUID, c.AffectedSOPClassUID, elems, responseCh)
+	}()
 	for resp := range responseCh {
 		if resp.Err != nil {
 			status = dimse.Status{
@@ -172,7 +175,11 @@ func (cs *providerCommandState) handleCMove(c *dimse.C_MOVE_RQ, data []byte) {
 		return
 	}
 	vlog.VI(1).Infof("C-MOVE-RQ payload: %s", elementsString(elems))
-	responseCh := cs.parent.params.CMove(cs.context.transferSyntaxUID, c.AffectedSOPClassUID, elems)
+	responseCh := make(chan CMoveResult, 128)
+	go func() {
+		cs.parent.params.CMove(cs.context.transferSyntaxUID, c.AffectedSOPClassUID, elems, responseCh)
+	}()
+	// responseCh :=
 	status := dimse.Status{Status: dimse.StatusSuccess}
 	var numSuccesses, numFailures uint16
 	for resp := range responseCh {
@@ -237,7 +244,10 @@ func (cs *providerCommandState) handleCGet(c *dimse.C_GET_RQ, data []byte) {
 		return
 	}
 	vlog.VI(1).Infof("C-GET-RQ payload: %s", elementsString(elems))
-	responseCh := cs.parent.params.CGet(cs.context.transferSyntaxUID, c.AffectedSOPClassUID, elems)
+	responseCh := make(chan CMoveResult, 128)
+	go func() {
+		cs.parent.params.CGet(cs.context.transferSyntaxUID, c.AffectedSOPClassUID, elems, responseCh)
+	}()
 	status := dimse.Status{Status: dimse.StatusSuccess}
 	var numSuccesses, numFailures uint16
 	for resp := range responseCh {
@@ -372,29 +382,31 @@ type CStoreCallback func(
 // data encoding requested (e.g., "1.2.840.10008.1.2.1").  hese args come from
 // the request packat.
 //
-// This function should create and return a
-// channel that streams CFindResult objects. To report a matched DICOM dataset,
-// the callback should send one CFindResult with nonempty Element field. To
-// report multiple DICOM-dataset matches, the callback should send multiple
-// CFindResult objects, one for each dataset.  The callback must close the
-// channel after it produces all the responses.
+// This function stream CFindResult objects through "ch". The function may
+// block.  To report a matched DICOM dataset, the callback should send one
+// CFindResult with nonempty Element field. To report multiple DICOM-dataset
+// matches, the callback should send multiple CFindResult objects, one for each
+// dataset.  The callback must close the channel after it produces all the
+// responses.
 type CFindCallback func(
 	transferSyntaxUID string,
 	sopClassUID string,
-	filters []*dicom.Element) chan CFindResult
+	filters []*dicom.Element,
+	ch chan CFindResult)
 
 // CMoveCallback implements C-MOVE or C-GET handler.  sopClassUID is the data
 // type requested (e.g.,"1.2.840.10008.5.1.4.1.1.1.2"), and transferSyntaxUID is
 // the data encoding requested (e.g., "1.2.840.10008.1.2.1").  hese args come
 // from the request packat.
 //
-// On return, it should return a channel that streams
-// datasets to be sent to the remote client.  The callback must close the
-// channel after it produces all the datasets.
+// The callback must stream datasets or error to "ch". The callback may
+// block. The callback must close the channel after it produces all the
+// datasets.
 type CMoveCallback func(
 	transferSyntaxUID string,
 	sopClassUID string,
-	filters []*dicom.Element) chan CMoveResult
+	filters []*dicom.Element,
+	ch chan CMoveResult)
 
 // CEchoCallback implements C-ECHO callback. It typically just returns
 // dimse.Success.

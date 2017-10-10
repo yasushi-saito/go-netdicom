@@ -74,8 +74,8 @@ func onCStoreRequest(
 func onCFindRequest(
 	transferSyntaxUID string,
 	sopClassUID string,
-	filters []*dicom.Element) chan netdicom.CFindResult {
-	ch := make(chan netdicom.CFindResult, 128)
+	filters []*dicom.Element,
+	ch chan netdicom.CFindResult) {
 	vlog.Infof("Received cfind request")
 	found := 0
 	for _, elem := range filters {
@@ -103,7 +103,6 @@ func onCFindRequest(
 		Elements: []*dicom.Element{dicom.MustNewElement(dicom.TagPatientName, "johndoe2")},
 	}
 	close(ch)
-	return ch
 }
 
 func checkFileBodiesEqual(t *testing.T, in, out *dicom.DataSet) {
