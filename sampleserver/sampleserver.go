@@ -95,6 +95,7 @@ func (ss *server) onCStore(
 		vlog.Errorf("%s: close %s", path, err)
 		return dimse.Status{Status: dimse.StatusNotAuthorized, ErrorComment: err.Error()}
 	}
+	vlog.Infof("C-STORE: Created %v", path)
 	// Register the new file in ss.datasets.
 	ds, err := dicom.ReadDataSetFromFile(path, dicom.ReadOptions{DropPixelData: true})
 	if err != nil {

@@ -332,14 +332,13 @@ var actionDt1 = &stateAction{"DT-1", "Send P-DATA-TF PDU",
 			sendPDU(sm, &pdu)
 		}
 		if command.HasData() {
-			vlog.Infof("Send DIMSE data of %d bytes", len(event.dimsePayload.data))
+			vlog.Infof("Send DIMSE data of %db, command: %v", len(event.dimsePayload.data), command)
 			pdus := splitDataIntoPDUs(sm, event.dimsePayload.abstractSyntaxName, false /*data*/, event.dimsePayload.data)
 			for _, pdu := range pdus {
 				sendPDU(sm, &pdu)
 			}
-		} else {
-			vlog.Infof("Skip DIMSE data", len(event.dimsePayload.data))
-			doassert(len(event.dimsePayload.data) == 0)
+		} else if len(event.dimsePayload.data) > 0 {
+			vlog.Fatalf("Found DIMSE data of %db, command: %v", len(event.dimsePayload.data), command)
 		}
 		return sta06
 	}}
