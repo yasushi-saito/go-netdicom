@@ -329,9 +329,9 @@ func main() {
 			return ss.onCStore(transferSyntaxUID, sopClassUID, sopInstanceUID, data)
 		},
 	}
-	sp := netdicom.NewServiceProvider(params)
-	err = sp.Run(port)
+	sp, err := netdicom.NewServiceProvider(params, port)
 	if err != nil {
 		panic(err)
 	}
+	sp.Run()
 }

@@ -1,4 +1,4 @@
-// This file implements the ServiceUser (i.e., a DICOM client) class.
+// This file implements the ServiceUser (i.e., a DICOM DIMSE client) class.
 package netdicom
 
 import (
@@ -38,6 +38,10 @@ const (
 //  err := user.CStore(ds)
 //  // Disconnect
 //  user.Release()
+//
+// The ServiceUser class is thread compatible. That is, you cannot call C*
+// methods concurrently - say two CStore requests - from two goroutines.  You
+// must wait for one CStore to finish before issuing another one.
 type ServiceUser struct {
 	downcallCh chan stateEvent
 	upcallCh   chan upcallEvent
@@ -82,6 +86,7 @@ func (su *ServiceUser) deleteCommand(cs *userCommandState) {
 	}
 	delete(su.activeCommands, cs.messageID)
 	su.mu.Unlock()
+	close(cs.upcallCh)
 }
 
 // Per-command-invocation state.
@@ -228,6 +233,38 @@ func (su *ServiceUser) Connect(serverAddr string) {
 func (su *ServiceUser) SetConn(conn net.Conn) {
 	doassert(su.status == serviceUserInitial)
 	su.downcallCh <- stateEvent{event: evt02, pdu: nil, err: nil, conn: conn}
+}
+
+// Send a C-ECHO request to the remote AE. Returns nil iff the remote AE
+// responds ok.
+func (su *ServiceUser) CEcho() error {
+	err := su.waitUntilReady()
+	if err != nil {
+		return err
+	}
+	cs := su.createCommand(dimse.NewMessageID())
+	defer su.deleteCommand(cs)
+	su.downcallCh <- stateEvent{
+		event: evt09,
+		dimsePayload: &stateEventDIMSEPayload{
+			abstractSyntaxName: dicomuid.VerificationSOPClass,
+			command: &dimse.C_ECHO_RQ{
+				MessageID:          cs.messageID,
+				CommandDataSetType: dimse.CommandDataSetTypeNull,
+			},
+			data: nil}}
+	event, ok := <-cs.upcallCh
+	if !ok {
+		return fmt.Errorf("Failed to receive C-ECHO response")
+	}
+	resp, ok := event.command.(*dimse.C_ECHO_RSP)
+	if !ok {
+		return fmt.Errorf("Invalid response for C-ECHO: %v", event.command)
+	}
+	if resp.Status.Status != dimse.StatusSuccess {
+		err = fmt.Errorf("Non-OK status in C-ECHO response: %v", resp.Status)
+	}
+	return nil
 }
 
 // CStore issues a C-STORE request to transfer "ds" in remove peer.  It blocks

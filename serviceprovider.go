@@ -300,6 +300,7 @@ func (cs *providerCommandState) handleCEcho(c *dimse.C_ECHO_RQ) {
 	if cs.parent.params.CEcho != nil {
 		status = cs.parent.params.CEcho()
 	}
+	vlog.Infof("Received E-ECHO: context: %+v", cs.context)
 	resp := &dimse.C_ECHO_RSP{
 		MessageIDBeingRespondedTo: c.MessageID,
 		CommandDataSetType:        dimse.CommandDataSetTypeNull,
@@ -414,7 +415,8 @@ type CEchoCallback func() dimse.Status
 
 // ServiceProvider encapsulates the state for DICOM server (provider).
 type ServiceProvider struct {
-	params ServiceProviderParams
+	params   ServiceProviderParams
+	listener net.Listener
 }
 
 func writeElementsToBytes(elems []*dicom.Element, transferSyntaxUID string) ([]byte, error) {
@@ -505,11 +507,18 @@ func (dh *providerCommandDispatcher) handleEvent(event upcallEvent) {
 	}()
 }
 
-// NewServiceProvider creates a new DICOM server object. Run() will actually
-// start running the service.
-func NewServiceProvider(params ServiceProviderParams) *ServiceProvider {
+// NewServiceProvider creates a new DICOM server object.  "listenAddr" is the
+// TCP address to listen to. E.g., ":1234" will listen to port 1234 at all the
+// IP address that this machine can bind to.  Run() will actually start running
+// the service.
+func NewServiceProvider(params ServiceProviderParams, port string) (*ServiceProvider, error) {
 	sp := &ServiceProvider{params: params}
-	return sp
+	var err error
+	sp.listener, err = net.Listen("tcp", port)
+	if err != nil {
+		return nil, err
+	}
+	return sp, nil
 }
 
 // RunProviderForConn starts threads for running a DICOM server on "conn". This
@@ -539,20 +548,21 @@ func RunProviderForConn(conn net.Conn, params ServiceProviderParams) {
 }
 
 // Run listens to incoming connections, accepts them, and runs the DICOM
-// protocol. This function never returns unless it fails to listen.
-// "listenAddr" is the TCP address to listen to. E.g., ":1234" will listen to
-// port 1234 at all the IP address that this machine can bind to.
-func (sp *ServiceProvider) Run(listenAddr string) error {
-	listener, err := net.Listen("tcp", listenAddr)
-	if err != nil {
-		return err
-	}
+// protocol. This function never returns.
+func (sp *ServiceProvider) Run() {
 	for {
-		conn, err := listener.Accept()
+		conn, err := sp.listener.Accept()
 		if err != nil {
 			vlog.Errorf("Accept error: %v", err)
 			continue
 		}
 		go func() { RunProviderForConn(conn, sp.params) }()
 	}
+}
+
+// Return the TCP address that the server is listening on. It is the address
+// passed to the NewServiceProvider(), except that if value was of form
+// <name>:0, the ":0" part is replaced by the actual port numwber.
+func (sp *ServiceProvider) ListenAddr() net.Addr {
+	return sp.listener.Addr()
 }
