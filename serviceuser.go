@@ -43,60 +43,18 @@ const (
 // methods concurrently - say two CStore requests - from two goroutines.  You
 // must wait for one CStore to finish before issuing another one.
 type ServiceUser struct {
-	downcallCh chan stateEvent
-	upcallCh   chan upcallEvent
+	// downcallCh chan stateEvent
+	upcallCh chan upcallEvent
 
 	mu   *sync.Mutex
 	cond *sync.Cond // Broadcast when status changes.
 
+	disp *serviceDispatcher
+
 	// Following fields are guarded by mu.
-	status         serviceUserStatus
-	cm             *contextManager              // Set only after the handshake completes.
-	activeCommands map[uint16]*userCommandState // List of commands running
-}
-
-func (su *ServiceUser) createCommand(messageID uint16) *userCommandState {
-	su.mu.Lock()
-	defer su.mu.Unlock()
-	if _, ok := su.activeCommands[messageID]; ok {
-		panic(messageID)
-	}
-	cs := &userCommandState{
-		parent:    su,
-		messageID: messageID,
-		upcallCh:  make(chan upcallEvent, 128),
-	}
-	su.activeCommands[messageID] = cs
-	return cs
-}
-
-func (su *ServiceUser) findCommand(messageID uint16) *userCommandState {
-	su.mu.Lock()
-	defer su.mu.Unlock()
-	if cs, ok := su.activeCommands[messageID]; ok {
-		return cs
-	}
-	return nil
-}
-
-func (su *ServiceUser) deleteCommand(cs *userCommandState) {
-	su.mu.Lock()
-	if _, ok := su.activeCommands[cs.messageID]; !ok {
-		panic(fmt.Sprintf("cs %+v", cs))
-	}
-	delete(su.activeCommands, cs.messageID)
-	su.mu.Unlock()
-	close(cs.upcallCh)
-}
-
-// Per-command-invocation state.
-type userCommandState struct {
-	parent    *ServiceUser // parent dispatcher
-	messageID uint16       // PROVIDER MessageID
-	// context   contextManagerEntry // the transfersyntax/sopclass for this command.
-
-	// upcallCh streams PROVIDER command+data for the given messageID.
-	upcallCh chan upcallEvent
+	status serviceUserStatus
+	cm     *contextManager // Set only after the handshake completes.
+	// activeCommands map[uint16]*userCommandState // List of commands running
 }
 
 type ServiceUserParams struct {
@@ -152,31 +110,21 @@ func NewServiceUserParams(
 	}, nil
 }
 
-func (su *ServiceUser) handleEvent(event upcallEvent) {
-	messageID := event.command.GetMessageID()
-	cs := su.findCommand(messageID)
-	if cs == nil {
-		vlog.Errorf("Dropping message for non-existent ID: %v", event.command)
-		return
-	}
-	cs.upcallCh <- event
-}
-
 // NewServiceUser creates a new ServiceUser. The caller must call either
 // Connect() or SetConn() before calling any other method, such as Cstore.
 func NewServiceUser(params ServiceUserParams) *ServiceUser {
 	mu := &sync.Mutex{}
 	su := &ServiceUser{
 		// sm: NewStateMachineForServiceUser(params, nil, nil),
-		downcallCh: make(chan stateEvent, 128),
-		upcallCh:   make(chan upcallEvent, 128),
-
-		mu:             mu,
-		cond:           sync.NewCond(mu),
-		status:         serviceUserInitial,
-		activeCommands: make(map[uint16]*userCommandState),
+		// downcallCh: make(chan stateEvent, 128),
+		upcallCh: make(chan upcallEvent, 128),
+		disp:     newServiceDispatcher(),
+		mu:       mu,
+		cond:     sync.NewCond(mu),
+		status:   serviceUserInitial,
+		// activeCommands: make(map[uint16]*userCommandState),
 	}
-	go runStateMachineForServiceUser(params, su.upcallCh, su.downcallCh)
+	go runStateMachineForServiceUser(params, su.upcallCh, su.disp.downcallCh)
 	go func() {
 		for event := range su.upcallCh {
 			if event.eventType == upcallEventHandshakeCompleted {
@@ -190,7 +138,7 @@ func NewServiceUser(params ServiceUserParams) *ServiceUser {
 				continue
 			}
 			doassert(event.eventType == upcallEventData)
-			su.handleEvent(event)
+			su.disp.handleEvent(event)
 		}
 		vlog.Infof("Service user dispatcher finished")
 		su.mu.Lock()
@@ -222,9 +170,9 @@ func (su *ServiceUser) Connect(serverAddr string) {
 	conn, err := net.Dial("tcp", serverAddr)
 	if err != nil {
 		vlog.Infof("Connect(%s): %v", serverAddr, err)
-		su.downcallCh <- stateEvent{event: evt17, pdu: nil, err: err}
+		su.disp.downcallCh <- stateEvent{event: evt17, pdu: nil, err: err}
 	} else {
-		su.downcallCh <- stateEvent{event: evt02, pdu: nil, err: nil, conn: conn}
+		su.disp.downcallCh <- stateEvent{event: evt02, pdu: nil, err: nil, conn: conn}
 	}
 }
 
@@ -232,7 +180,7 @@ func (su *ServiceUser) Connect(serverAddr string) {
 // the server. Either Connect or SetConn must be before calling CStore, etc.
 func (su *ServiceUser) SetConn(conn net.Conn) {
 	doassert(su.status == serviceUserInitial)
-	su.downcallCh <- stateEvent{event: evt02, pdu: nil, err: nil, conn: conn}
+	su.disp.downcallCh <- stateEvent{event: evt02, pdu: nil, err: nil, conn: conn}
 }
 
 // Send a C-ECHO request to the remote AE. Returns nil iff the remote AE
@@ -242,17 +190,17 @@ func (su *ServiceUser) CEcho() error {
 	if err != nil {
 		return err
 	}
-	cs := su.createCommand(dimse.NewMessageID())
-	defer su.deleteCommand(cs)
-	su.downcallCh <- stateEvent{
-		event: evt09,
-		dimsePayload: &stateEventDIMSEPayload{
-			abstractSyntaxName: dicomuid.VerificationSOPClass,
-			command: &dimse.C_ECHO_RQ{
-				MessageID:          cs.messageID,
-				CommandDataSetType: dimse.CommandDataSetTypeNull,
-			},
-			data: nil}}
+	context, err := su.cm.lookupByAbstractSyntaxUID(dicomuid.VerificationSOPClass)
+	if err != nil {
+		return err
+	}
+	cs, found := su.disp.findOrCreateCommand(dimse.NewMessageID(), su.cm, context)
+	doassert(!found)
+	defer su.disp.deleteCommand(cs)
+	cs.sendMessage(
+		&dimse.C_ECHO_RQ{MessageID: cs.messageID,
+			CommandDataSetType: dimse.CommandDataSetTypeNull,
+		}, nil)
 	event, ok := <-cs.upcallCh
 	if !ok {
 		return fmt.Errorf("Failed to receive C-ECHO response")
@@ -262,9 +210,9 @@ func (su *ServiceUser) CEcho() error {
 		return fmt.Errorf("Invalid response for C-ECHO: %v", event.command)
 	}
 	if resp.Status.Status != dimse.StatusSuccess {
-		err = fmt.Errorf("Non-OK status in C-ECHO response: %v", resp.Status)
+		err = fmt.Errorf("Non-OK status in C-ECHO response: %+v", resp.Status)
 	}
-	return nil
+	return err
 }
 
 // CStore issues a C-STORE request to transfer "ds" in remove peer.  It blocks
@@ -277,8 +225,25 @@ func (su *ServiceUser) CStore(ds *dicom.DataSet) error {
 		return err
 	}
 	doassert(su.cm != nil)
-	cs := su.createCommand(dimse.NewMessageID())
-	return runCStoreOnAssociation(cs.upcallCh, su.downcallCh, su.cm, cs.messageID, ds)
+
+	var sopClassUID string
+	if sopClassUIDElem, err := ds.FindElementByTag(dicom.TagMediaStorageSOPClassUID); err != nil {
+		return err
+	} else if sopClassUID, err = sopClassUIDElem.GetString(); err != nil {
+		return err
+	}
+	context, err := su.cm.lookupByAbstractSyntaxUID(sopClassUID)
+	if err != nil {
+		return err
+	}
+	cs, found := su.disp.findOrCreateCommand(dimse.NewMessageID(), su.cm, context)
+	doassert(!found)
+	if err != nil {
+		vlog.Errorf("C-STORE: sop class %v not found in context %v", sopClassUID, err)
+		return err
+	}
+	defer su.disp.deleteCommand(cs)
+	return runCStoreOnAssociation(cs.upcallCh, su.disp.downcallCh, su.cm, cs.messageID, ds)
 }
 
 type CFindQRLevel int
@@ -301,6 +266,45 @@ type CMoveResult struct {
 	DataSet   *dicom.DataSet // Contents of the file.
 }
 
+func encodeCFindPayload(qrLevel CFindQRLevel, filter []*dicom.Element, cm *contextManager) (contextManagerEntry, []byte, error) {
+	var sopClassUID string
+	var qrLevelString string
+	switch qrLevel {
+	case CFindPatientQRLevel:
+		sopClassUID = dicomuid.PatientRootQRFind
+		qrLevelString = "PATIENT"
+	case CFindStudyQRLevel:
+		sopClassUID = dicomuid.StudyRootQRFind
+		qrLevelString = "STUDY"
+	default:
+		return contextManagerEntry{}, nil, fmt.Errorf("Invalid C-FIND QR lever: %d", qrLevel)
+	}
+
+	// Translate qrLevel to the sopclass and QRLevel elem.
+	// Encode the C-FIND DIMSE command.
+	context, err := cm.lookupByAbstractSyntaxUID(sopClassUID)
+	if err != nil {
+		// This happens when the user passed a wrong sopclass list in
+		// A-ASSOCIATE handshake.
+		return context, nil, err
+	}
+
+	// Encode the data payload containing the filtering conditions.
+	dataEncoder := dicomio.NewBytesEncoderWithTransferSyntax(context.transferSyntaxUID)
+	dicom.WriteElement(dataEncoder, dicom.MustNewElement(dicom.TagQueryRetrieveLevel, qrLevelString))
+	for _, elem := range filter {
+		if elem.Tag == dicom.TagQueryRetrieveLevel {
+			// This tag is auto-computed from qrlevel.
+			return context, nil, fmt.Errorf("%v: tag must not be in the C-FIND payload (it is derived from qrLevel)", elem.Tag)
+		}
+		dicom.WriteElement(dataEncoder, elem)
+	}
+	if err := dataEncoder.Error(); err != nil {
+		return context, nil, err
+	}
+	return context, dataEncoder.Bytes(), err
+}
+
 // CFind issues a C-FIND request. Returns a channel that streams sequence of
 // either an error or a dataset found. The caller MUST read all responses from
 // the channel before issuing any other DIMSE command (C-FIND, C-STORE, etc).
@@ -317,63 +321,24 @@ func (su *ServiceUser) CFind(qrLevel CFindQRLevel, filter []*dicom.Element) chan
 		close(ch)
 		return ch
 	}
-	cs := su.createCommand(dimse.NewMessageID())
-	// Translate qrLevel to the sopclass and QRLevel elem.
-	var sopClassUID string
-	var qrLevelString string
-	switch qrLevel {
-	case CFindPatientQRLevel:
-		sopClassUID = dicomuid.PatientRootQRFind
-		qrLevelString = "PATIENT"
-	case CFindStudyQRLevel:
-		sopClassUID = dicomuid.StudyRootQRFind
-		qrLevelString = "STUDY"
-	default:
-		ch <- CFindResult{Err: fmt.Errorf("Invalid C-FIND QR lever: %d", qrLevel)}
-		close(ch)
-		return ch
-	}
-
-	// Encode the C-FIND DIMSE command.
-	context, err := su.cm.lookupByAbstractSyntaxUID(sopClassUID)
+	context, payload, err := encodeCFindPayload(qrLevel, filter, su.cm)
 	if err != nil {
-		// This happens when the user passed a wrong sopclass list in
-		// A-ASSOCIATE handshake.
-		vlog.Errorf("Failed to lookup sopclass %v: %v", sopClassUID, err)
 		ch <- CFindResult{Err: err}
 		close(ch)
 		return ch
 	}
-	// Encode the data payload containing the filtering conditions.
-	dataEncoder := dicomio.NewBytesEncoderWithTransferSyntax(context.transferSyntaxUID)
-	dicom.WriteElement(dataEncoder, dicom.MustNewElement(dicom.TagQueryRetrieveLevel, qrLevelString))
-	for _, elem := range filter {
-		if elem.Tag == dicom.TagQueryRetrieveLevel {
-			// This tag is auto-computed from qrlevel.
-			ch <- CFindResult{Err: fmt.Errorf("%v: tag must not be in the C-FIND payload (it is derived from qrLevel)", elem.Tag)}
-			close(ch)
-			return ch
-		}
-		dicom.WriteElement(dataEncoder, elem)
-	}
-	if err := dataEncoder.Error(); err != nil {
-		ch <- CFindResult{Err: err}
-		close(ch)
-		return ch
-	}
+	cs, found := su.disp.findOrCreateCommand(dimse.NewMessageID(), su.cm, context)
+	doassert(!found)
 	go func() {
 		defer close(ch)
-		defer su.deleteCommand(cs)
-		su.downcallCh <- stateEvent{
-			event: evt09,
-			dimsePayload: &stateEventDIMSEPayload{
-				abstractSyntaxName: sopClassUID,
-				command: &dimse.C_FIND_RQ{
-					AffectedSOPClassUID: sopClassUID,
-					MessageID:           cs.messageID,
-					CommandDataSetType:  dimse.CommandDataSetTypeNonNull,
-				},
-				data: dataEncoder.Bytes()}}
+		defer su.disp.deleteCommand(cs)
+		cs.sendMessage(
+			&dimse.C_FIND_RQ{
+				AffectedSOPClassUID: context.abstractSyntaxUID,
+				MessageID:           cs.messageID,
+				CommandDataSetType:  dimse.CommandDataSetTypeNonNull,
+			},
+			payload)
 		for {
 			event, ok := <-cs.upcallCh
 			if !ok {
@@ -407,17 +372,80 @@ func (su *ServiceUser) CFind(qrLevel CFindQRLevel, filter []*dicom.Element) chan
 	return ch
 }
 
+// CGet runs a C-GET command. It calls "cb" for every dataset received. "cb"
+// should return dimse.Success iff the data was successfully and stably written. This
+// function blocks until it receives all datasets and the command finishes.
+func (su *ServiceUser) CGet(qrLevel CFindQRLevel, filter []*dicom.Element,
+	cb func(transferSyntaxUID, SOPClassUID, sopInstanceUID string, data []byte) dimse.Status) error {
+	err := su.waitUntilReady()
+	if err != nil {
+		return err
+	}
+	context, payload, err := encodeCFindPayload(qrLevel, filter, su.cm)
+	if err != nil {
+		return err
+	}
+	cs, found := su.disp.findOrCreateCommand(dimse.NewMessageID(), su.cm, context)
+	doassert(!found)
+	defer su.disp.deleteCommand(cs)
+
+	handleCStore := func(msg dimse.Message, data []byte, cs *serviceCommandState) {
+		c := msg.(*dimse.C_STORE_RQ)
+		status := cb(
+			context.transferSyntaxUID,
+			c.AffectedSOPClassUID,
+			c.AffectedSOPInstanceUID,
+			data)
+		resp := &dimse.C_STORE_RSP{
+			AffectedSOPClassUID:       c.AffectedSOPClassUID,
+			MessageIDBeingRespondedTo: c.MessageID,
+			CommandDataSetType:        dimse.CommandDataSetTypeNull,
+			AffectedSOPInstanceUID:    c.AffectedSOPInstanceUID,
+			Status:                    status,
+		}
+		cs.sendMessage(resp, nil)
+	}
+	su.disp.registerCallback(dimse.CommandFieldC_STORE_RQ, handleCStore)
+	defer su.disp.unregisterCallback(dimse.CommandFieldC_STORE_RQ)
+	cs.sendMessage(
+		&dimse.C_GET_RQ{
+			AffectedSOPClassUID: context.abstractSyntaxUID,
+			MessageID:           cs.messageID,
+			CommandDataSetType:  dimse.CommandDataSetTypeNonNull,
+		},
+		payload)
+	for {
+		event, ok := <-cs.upcallCh
+		if !ok {
+			su.status = serviceUserClosed
+			return fmt.Errorf("Connection closed while waiting for C-FIND response")
+		}
+		doassert(event.eventType == upcallEventData)
+		doassert(event.command != nil)
+		resp, ok := event.command.(*dimse.C_GET_RSP)
+		if !ok {
+			return fmt.Errorf("Found wrong response for C-FIND: %v", event.command)
+		}
+		if resp.Status.Status != dimse.StatusPending {
+			if resp.Status.Status != 0 {
+				// TODO: report error if status!= 0
+				panic(resp)
+			}
+			break
+		}
+	}
+	return nil
+}
+
 // Release shuts down the connection. It must be called exactly once.  After
 // Release(), no other operation can be performed on the ServiceUser object.
 func (su *ServiceUser) Release() {
 	su.waitUntilReady()
-	su.downcallCh <- stateEvent{event: evt11}
+	su.disp.downcallCh <- stateEvent{event: evt11}
 
 	su.mu.Lock()
 	defer su.mu.Unlock()
 	su.status = serviceUserClosed
 	su.cond.Broadcast()
-	for _, cs := range su.activeCommands {
-		close(cs.upcallCh)
-	}
+	su.disp.close()
 }

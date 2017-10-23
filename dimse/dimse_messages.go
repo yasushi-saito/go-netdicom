@@ -40,6 +40,10 @@ func (v* C_STORE_RQ) HasData() bool {
 	return v.CommandDataSetType != CommandDataSetTypeNull
 }
 
+func (v* C_STORE_RQ) CommandField() int {
+	return 1
+}
+
 func (v* C_STORE_RQ) GetMessageID() uint16 {
 	return v.MessageID
 }
@@ -85,6 +89,10 @@ func (v* C_STORE_RSP) HasData() bool {
 	return v.CommandDataSetType != CommandDataSetTypeNull
 }
 
+func (v* C_STORE_RSP) CommandField() int {
+	return 32769
+}
+
 func (v* C_STORE_RSP) GetMessageID() uint16 {
 	return v.MessageIDBeingRespondedTo
 }
@@ -124,6 +132,10 @@ func (v* C_FIND_RQ) Encode(e *dicomio.Encoder) {
 
 func (v* C_FIND_RQ) HasData() bool {
 	return v.CommandDataSetType != CommandDataSetTypeNull
+}
+
+func (v* C_FIND_RQ) CommandField() int {
+	return 32
 }
 
 func (v* C_FIND_RQ) GetMessageID() uint16 {
@@ -166,6 +178,10 @@ func (v* C_FIND_RSP) HasData() bool {
 	return v.CommandDataSetType != CommandDataSetTypeNull
 }
 
+func (v* C_FIND_RSP) CommandField() int {
+	return 32800
+}
+
 func (v* C_FIND_RSP) GetMessageID() uint16 {
 	return v.MessageIDBeingRespondedTo
 }
@@ -204,6 +220,10 @@ func (v* C_GET_RQ) Encode(e *dicomio.Encoder) {
 
 func (v* C_GET_RQ) HasData() bool {
 	return v.CommandDataSetType != CommandDataSetTypeNull
+}
+
+func (v* C_GET_RQ) CommandField() int {
+	return 16
 }
 
 func (v* C_GET_RQ) GetMessageID() uint16 {
@@ -262,6 +282,10 @@ func (v* C_GET_RSP) HasData() bool {
 	return v.CommandDataSetType != CommandDataSetTypeNull
 }
 
+func (v* C_GET_RSP) CommandField() int {
+	return 32784
+}
+
 func (v* C_GET_RSP) GetMessageID() uint16 {
 	return v.MessageIDBeingRespondedTo
 }
@@ -306,6 +330,10 @@ func (v* C_MOVE_RQ) Encode(e *dicomio.Encoder) {
 
 func (v* C_MOVE_RQ) HasData() bool {
 	return v.CommandDataSetType != CommandDataSetTypeNull
+}
+
+func (v* C_MOVE_RQ) CommandField() int {
+	return 33
 }
 
 func (v* C_MOVE_RQ) GetMessageID() uint16 {
@@ -365,6 +393,10 @@ func (v* C_MOVE_RSP) HasData() bool {
 	return v.CommandDataSetType != CommandDataSetTypeNull
 }
 
+func (v* C_MOVE_RSP) CommandField() int {
+	return 32801
+}
+
 func (v* C_MOVE_RSP) GetMessageID() uint16 {
 	return v.MessageIDBeingRespondedTo
 }
@@ -405,6 +437,10 @@ func (v* C_ECHO_RQ) HasData() bool {
 	return v.CommandDataSetType != CommandDataSetTypeNull
 }
 
+func (v* C_ECHO_RQ) CommandField() int {
+	return 48
+}
+
 func (v* C_ECHO_RQ) GetMessageID() uint16 {
 	return v.MessageID
 }
@@ -441,6 +477,10 @@ func (v* C_ECHO_RSP) HasData() bool {
 	return v.CommandDataSetType != CommandDataSetTypeNull
 }
 
+func (v* C_ECHO_RSP) CommandField() int {
+	return 32816
+}
+
 func (v* C_ECHO_RSP) GetMessageID() uint16 {
 	return v.MessageIDBeingRespondedTo
 }
@@ -457,6 +497,16 @@ func decodeC_ECHO_RSP(d *messageDecoder) *C_ECHO_RSP {
 	v.Extra = d.unparsedElements()
 	return v
 }
+const CommandFieldC_STORE_RQ = 1
+const CommandFieldC_STORE_RSP = 32769
+const CommandFieldC_FIND_RQ = 32
+const CommandFieldC_FIND_RSP = 32800
+const CommandFieldC_GET_RQ = 16
+const CommandFieldC_GET_RSP = 32784
+const CommandFieldC_MOVE_RQ = 33
+const CommandFieldC_MOVE_RSP = 32801
+const CommandFieldC_ECHO_RQ = 48
+const CommandFieldC_ECHO_RSP = 32816
 func decodeMessageForType(d* messageDecoder, commandField uint16) Message {
 	switch commandField {
 	case 0x1:

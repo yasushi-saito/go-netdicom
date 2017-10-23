@@ -326,13 +326,13 @@ var actionDt1 = &stateAction{"DT-1", "Send P-DATA-TF PDU",
 		if e.Error() != nil {
 			vlog.Fatalf("Failed to encode DIMSE cmd %v: %v", command, e.Error())
 		}
-		vlog.Infof("Send DIMSE msg: %v", command)
+		vlog.VI(1).Infof("Send DIMSE msg: %v", command)
 		pdus := splitDataIntoPDUs(sm, event.dimsePayload.abstractSyntaxName, true /*command*/, e.Bytes())
 		for _, pdu := range pdus {
 			sendPDU(sm, &pdu)
 		}
 		if command.HasData() {
-			vlog.Infof("Send DIMSE data of %db, command: %v", len(event.dimsePayload.data), command)
+			vlog.VI(1).Infof("Send DIMSE data of %db, command: %v", len(event.dimsePayload.data), command)
 			pdus := splitDataIntoPDUs(sm, event.dimsePayload.abstractSyntaxName, false /*data*/, event.dimsePayload.data)
 			for _, pdu := range pdus {
 				sendPDU(sm, &pdu)

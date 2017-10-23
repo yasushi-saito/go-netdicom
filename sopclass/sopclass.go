@@ -12,10 +12,12 @@ type SOPUID struct {
 	UID  string
 }
 
+// For issuing C-ECHO
 var VerificationClasses = []SOPUID{
 	SOPUID{"VerificationSOPClass", "1.2.840.10008.1.1"},
 }
 
+// For issuing C-STORE or C-GET
 var StorageClasses = []SOPUID{
 	SOPUID{"ComputedRadiographyImageStorage", "1.2.840.10008.5.1.4.1.1.1"},
 	SOPUID{"DigitalXRayImagePresentationStorage", "1.2.840.10008.5.1.4.1.1.1.1"},
@@ -134,17 +136,20 @@ var StorageClasses = []SOPUID{
 	SOPUID{"ImplantTemplateGroupStorage", "1.2.840.10008.5.1.4.45.1"},
 }
 
+// For issuing C-FIND
 var QRFindClasses = []SOPUID{
 	SOPUID{"PatientRootQueryRetrieveInformationModelFind", "1.2.840.10008.5.1.4.1.2.1.1"},
 	SOPUID{"StudyRootQueryRetrieveInformationModelFind", "1.2.840.10008.5.1.4.1.2.2.1"},
 	SOPUID{"PatientStudyOnlyQueryRetrieveInformationModelFind", "1.2.840.10008.5.1.4.1.2.3.1"},
 	SOPUID{"ModalityWorklistInformationFind", "1.2.840.10008.5.1.4.31"}}
 
+// For issuing C-MOVE
 var QRMoveClasses = []SOPUID{
 	SOPUID{"PatientRootQueryRetrieveInformationModelMove", "1.2.840.10008.5.1.4.1.2.1.2"},
 	SOPUID{"StudyRootQueryRetrieveInformationModelMove", "1.2.840.10008.5.1.4.1.2.2.2"},
 	SOPUID{"PatientStudyOnlyQueryRetrieveInformationModelMove", "1.2.840.10008.5.1.4.1.2.3.2"}}
 
+// TODO(saito) Does this really work?
 var QRGetClasses = []SOPUID{
 	SOPUID{"PatientRootQueryRetrieveInformationModelGet", "1.2.840.10008.5.1.4.1.2.1.3"},
 	SOPUID{"StudyRootQueryRetrieveInformationModelGet", "1.2.840.10008.5.1.4.1.2.2.3"},

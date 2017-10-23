@@ -17,6 +17,7 @@ import (
 
 var serverAddr string
 var cstoreData []byte
+var nEchoRequests int
 var once sync.Once
 
 func initTest() {
@@ -29,6 +30,7 @@ func initTest() {
 		}
 		go func() {
 			params := netdicom.ServiceProviderParams{
+				CEcho:  onCEchoRequest,
 				CStore: onCStoreRequest,
 				CFind:  onCFindRequest,
 			}
@@ -40,10 +42,16 @@ func initTest() {
 				}
 				vlog.Infof("Accepted connection %v", conn)
 				netdicom.RunProviderForConn(conn, params)
+				vlog.Infof("Done with connection %v", conn)
 			}
 		}()
 		serverAddr = listener.Addr().String()
 	})
+}
+
+func onCEchoRequest() dimse.Status {
+	nEchoRequests++
+	return dimse.Success
 }
 
 func onCStoreRequest(
@@ -158,13 +166,13 @@ func TestStoreSingleFile(t *testing.T) {
 		vlog.Fatal(err)
 	}
 	su := netdicom.NewServiceUser(params)
+	defer su.Release()
 	su.Connect(serverAddr)
 	err = su.CStore(dataset)
 	if err != nil {
 		vlog.Fatal(err)
 	}
 	vlog.Infof("Store done!!")
-	su.Release()
 
 	out, err := getCStoreData()
 	if err != nil {
@@ -173,15 +181,36 @@ func TestStoreSingleFile(t *testing.T) {
 	checkFileBodiesEqual(t, dataset, out)
 }
 
+func TestEcho(t *testing.T) {
+	initTest()
+	params, err := netdicom.NewServiceUserParams(
+		"dontcare", "testclient", sopclass.VerificationClasses,
+		dicomio.StandardTransferSyntaxes)
+	if err != nil {
+		vlog.Fatal(err)
+	}
+	su := netdicom.NewServiceUser(params)
+	defer su.Release()
+	su.Connect(serverAddr)
+	oldCount := nEchoRequests
+	err = su.CEcho()
+	if err != nil {
+		vlog.Fatal(err)
+	}
+	if nEchoRequests != oldCount + 1 {
+		vlog.Fatal("cecho handler did not run")
+	}
+}
+
 func TestFind(t *testing.T) {
 	initTest()
 	params, err := netdicom.NewServiceUserParams(
 		"dontcare", "testclient", sopclass.QRFindClasses,
 		dicomio.StandardTransferSyntaxes)
-	su := netdicom.NewServiceUser(params)
 	if err != nil {
 		vlog.Fatal(err)
 	}
+	su := netdicom.NewServiceUser(params)
 	su.Connect(serverAddr)
 	filter := []*dicom.Element{
 		dicom.MustNewElement(dicom.TagPatientName, "foohah"),

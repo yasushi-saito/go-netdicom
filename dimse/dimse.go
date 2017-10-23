@@ -22,7 +22,8 @@ type Message interface {
 	fmt.Stringer // Print human-readable description for debugging.
 	Encode(*dicomio.Encoder)
 	GetMessageID() uint16 // Extract the message ID field.
-	HasData() bool // Do we expact data P_DATA_TF packets after the command packets?
+	CommandField() int    // Return the command field value of this message.
+	HasData() bool        // Do we expact data P_DATA_TF packets after the command packets?
 }
 
 // Result of a DIMSE call.

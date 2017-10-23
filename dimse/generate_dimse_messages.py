@@ -129,6 +129,11 @@ def generate_go_definition(m: Message, out: IO[str]):
     print('}', file=out)
 
     print('', file=out)
+    print(f'func (v* {m.name}) CommandField() int {{', file=out)
+    print(f'	return {m.command_field}', file=out)
+    print('}', file=out)
+
+    print('', file=out)
     print(f'func (v* {m.name}) GetMessageID() uint16 {{', file=out)
     if m.type == Type.REQUEST:
         print(f'	return v.MessageID', file=out)
@@ -191,6 +196,9 @@ import (
         """, file=out)
         for m in MESSAGES:
             generate_go_definition(m, out)
+
+        for m in MESSAGES:
+            print(f'const CommandField{m.name} = {m.command_field}', file=out)
 
         print('func decodeMessageForType(d* messageDecoder, commandField uint16) Message {', file=out)
         print('	switch commandField {', file=out)
