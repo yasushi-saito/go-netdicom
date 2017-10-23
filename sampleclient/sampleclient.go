@@ -5,7 +5,6 @@ import (
 	"flag"
 
 	"github.com/yasushi-saito/go-dicom"
-	"github.com/yasushi-saito/go-dicom/dicomuid"
 	"github.com/yasushi-saito/go-netdicom"
 	"github.com/yasushi-saito/go-netdicom/sopclass"
 	"v.io/x/lib/vlog"
@@ -19,42 +18,37 @@ var (
 	findFlag          = flag.String("find", "", "blah")
 )
 
-func cStore(server, inPath string) {
+func newServiceUser(sopClasses []string) *netdicom.ServiceUser {
+	su, err := netdicom.NewServiceUser(netdicom.ServiceUserParams{
+		CalledAETitle:  *aeTitleFlag,
+		CallingAETitle: *remoteAETitleFlag,
+		SOPClasses:     sopClasses})
+	if err != nil {
+		vlog.Fatal(err)
+	}
+	defer su.Release()
+	vlog.Infof("Connecting to %s", *serverFlag)
+	su.Connect(*serverFlag)
+	return su
+}
+
+func cStore(inPath string) {
+	su := newServiceUser(sopclass.StorageClasses)
+	defer su.Release()
 	dataset, err := dicom.ReadDataSetFromFile(inPath, dicom.ReadOptions{})
 	if err != nil {
 		vlog.Fatalf("%s: %v", inPath, err)
 	}
-	su, err := netdicom.NewServiceUser(netdicom.ServiceUserParams{
-		CalledAETitle:  *aeTitleFlag,
-		CallingAETitle: *remoteAETitleFlag,
-		SOPClasses:     sopclass.StorageClasses})
-	if err != nil {
-		vlog.Fatal(err)
-	}
-	defer su.Release()
-	su.Connect(server)
-
 	err = su.CStore(dataset)
 	if err != nil {
 		vlog.Fatalf("%s: cstore failed: %v", inPath, err)
 	}
-	vlog.Infof("C-STORE done!!")
+	vlog.Infof("C-STORE finished successfully")
 }
 
-func cFind(server, argStr string) {
-	su, err := netdicom.NewServiceUser(netdicom.ServiceUserParams{
-		CalledAETitle:    *aeTitleFlag,
-		CallingAETitle:   *remoteAETitleFlag,
-		SOPClasses:       sopclass.QRFindClasses,
-		TransferSyntaxes: []string{dicomuid.ExplicitVRLittleEndian}, // for testing
-	})
-	if err != nil {
-		vlog.Fatal(err)
-	}
-
+func cFind(argStr string) {
+	su := newServiceUser(sopclass.StorageClasses)
 	defer su.Release()
-	vlog.Infof("Connecting to %s", server)
-	su.Connect(server)
 	args := []*dicom.Element{
 		dicom.MustNewElement(dicom.TagSpecificCharacterSet, "ISO_IR 100"),
 		dicom.MustNewElement(dicom.TagAccessionNumber, ""),
@@ -73,7 +67,7 @@ func cFind(server, argStr string) {
 				dicom.MustNewElement(dicom.TagScheduledPerformingPhysicianName, ""),
 				dicom.MustNewElement(dicom.TagScheduledProcedureStepStatus, ""))),
 	}
-	for result := range su.CFind(netdicom.CFindStudyQRLevel, args) {
+	for result := range su.CFind(netdicom.QRLevelStudy, args) {
 		if result.Err != nil {
 			vlog.Errorf("C-FIND error: %v", result.Err)
 			continue
@@ -90,9 +84,9 @@ func main() {
 	vlog.ConfigureLibraryLoggerFromFlags()
 
 	if *storeFlag != "" {
-		cStore(*serverFlag, *storeFlag)
+		cStore(*storeFlag)
 	} else if *findFlag != "" {
-		cFind(*serverFlag, *findFlag)
+		cFind(*findFlag)
 	} else {
 		vlog.Fatal("Either -store or -find must be set")
 	}

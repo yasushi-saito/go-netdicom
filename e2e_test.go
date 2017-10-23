@@ -174,7 +174,7 @@ func readDICOMFile(path string) *dicom.DataSet {
 	return dataset
 }
 
-func newServiceUser(t *testing.T, server string, sopClasses []sopclass.SOPUID) *netdicom.ServiceUser {
+func newServiceUser(t *testing.T, server string, sopClasses []string) *netdicom.ServiceUser {
 	initTest()
 	su, err := netdicom.NewServiceUser(netdicom.ServiceUserParams{SOPClasses: sopClasses})
 	if err != nil {
@@ -216,6 +216,7 @@ func TestEcho(t *testing.T) {
 
 func TestFind(t *testing.T) {
 	su := newServiceUser(t, serverAddr, sopclass.QRFindClasses)
+	defer su.Release()
 	filter := []*dicom.Element{
 		dicom.MustNewElement(dicom.TagPatientName, "foohah"),
 	}
@@ -241,6 +242,7 @@ func TestFind(t *testing.T) {
 
 func TestCGet(t *testing.T) {
 	su := newServiceUser(t, serverAddr, sopclass.QRGetClasses)
+	defer su.Release()
 	filter := []*dicom.Element{
 		dicom.MustNewElement(dicom.TagPatientName, "foohah"),
 	}

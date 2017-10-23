@@ -5,7 +5,6 @@ import (
 	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-dicom/dicomuid"
 	"github.com/yasushi-saito/go-netdicom/pdu"
-	"github.com/yasushi-saito/go-netdicom/sopclass"
 	"v.io/x/lib/vlog"
 )
 
@@ -64,15 +63,15 @@ func newContextManager(label string) *contextManager {
 // maxPDUSize is the maximum PDU size, in bytes, that the clients is willing to
 // receive. maxPDUSize is encoded in one of the items.
 func (m *contextManager) generateAssociateRequest(
-	services []sopclass.SOPUID, transferSyntaxUIDs []string) []pdu.SubItem {
+	sopClassUIDs []string, transferSyntaxUIDs []string) []pdu.SubItem {
 	items := []pdu.SubItem{
 		&pdu.ApplicationContextItem{
 			Name: pdu.DICOMApplicationContextItemName,
 		}}
 	var contextID byte = 1
-	for _, sop := range services {
+	for _, sop := range sopClassUIDs {
 		syntaxItems := []pdu.SubItem{
-			&pdu.AbstractSyntaxSubItem{Name: sop.UID},
+			&pdu.AbstractSyntaxSubItem{Name: sop},
 		}
 		for _, syntaxUID := range transferSyntaxUIDs {
 			syntaxItems = append(syntaxItems, &pdu.TransferSyntaxSubItem{Name: syntaxUID})

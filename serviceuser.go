@@ -10,7 +10,6 @@ import (
 	"github.com/yasushi-saito/go-dicom/dicomio"
 	"github.com/yasushi-saito/go-dicom/dicomuid"
 	"github.com/yasushi-saito/go-netdicom/dimse"
-	"github.com/yasushi-saito/go-netdicom/sopclass"
 	"v.io/x/lib/vlog"
 )
 
@@ -24,12 +23,7 @@ const (
 
 // ServiceUser encapsulates implements the client side of DICOM network protocol.
 //
-//  params, err := netdicom.NewServiceUserParams(
-//     "dontcare" /*remote app-entity title*/,
-//     "testclient" /*this app-entity title*/,
-//     sopclass.QRFindClasses, /* SOP classes to use in the requests*/
-//     nil /* transfer syntaxes to use; unually nil suffices */)
-//  user := netdicom.NewServiceUser(params)
+//  user, err := netdicom.NewServiceUser(netdicom.ServiceUserParams{SOPClasses: sopclass.QRFindClasses})
 //  // Connect to server 1.2.3.4, port 8888
 //  user.Connect("1.2.3.4:8888")
 //  // Send test.dcm to the server
@@ -42,7 +36,6 @@ const (
 // methods concurrently - say two CStore requests - from two goroutines.  You
 // must wait for one CStore to finish before issuing another one.
 type ServiceUser struct {
-	// downcallCh chan stateEvent
 	upcallCh chan upcallEvent
 
 	mu   *sync.Mutex
@@ -60,8 +53,9 @@ type ServiceUserParams struct {
 	CalledAETitle  string // If empty, set to "unknown-called-ae"
 	CallingAETitle string // If empty, set to "unknown-calling-ae"
 
-	// List of SOPUIDs wanted by the user.
-	SOPClasses []sopclass.SOPUID
+	// List of SOPUIDs wanted by the user. Typically the value is one of the
+	// variables defined in sopclass.
+	SOPClasses []string
 
 	// List of Transfer syntaxes supported by the user.  If you know the
 	// transer syntax of the file you are going to copy, set that here.
@@ -74,11 +68,6 @@ type ServiceUserParams struct {
 	TransferSyntaxes []string
 }
 
-// NewServiceUserParams creates a ServiceUserParams.  requiredServices is the
-// abstract syntaxes (SOP classes) that the client wishes to use in the
-// requests.  It's usually one of the lists defined in the sopclass package.  If
-// transferSyntaxUIDs is empty, the exhaustive list of syntaxes defined in the
-// DICOM standard is used.
 func validateServiceUserParams(params *ServiceUserParams) error {
 	if params.CalledAETitle == "" {
 		params.CalledAETitle = "unknown-called-ae"
