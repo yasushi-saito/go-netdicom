@@ -12,9 +12,11 @@ import (
 )
 
 var (
-	serverFlag = flag.String("server", "localhost:10000", "host:port of the remote application entity")
-	storeFlag  = flag.String("store", "", "If set, issue C-STORE to copy this file to the remote server")
-	findFlag   = flag.String("find", "", "blah")
+	serverFlag        = flag.String("server", "localhost:10000", "host:port of the remote application entity")
+	storeFlag         = flag.String("store", "", "If set, issue C-STORE to copy this file to the remote server")
+	aeTitleFlag       = flag.String("ae-title", "testclient", "AE title of the client")
+	remoteAETitleFlag = flag.String("remote-ae-title", "testserver", "AE title of the server")
+	findFlag          = flag.String("find", "", "blah")
 )
 
 func cStore(server, inPath string) {
@@ -22,12 +24,13 @@ func cStore(server, inPath string) {
 	if err != nil {
 		vlog.Fatalf("%s: %v", inPath, err)
 	}
-	params, err := netdicom.NewServiceUserParams(
-		"dontcare", "testclient", sopclass.StorageClasses, nil)
+	su, err := netdicom.NewServiceUser(netdicom.ServiceUserParams{
+		CalledAETitle:  *aeTitleFlag,
+		CallingAETitle: *remoteAETitleFlag,
+		SOPClasses:     sopclass.StorageClasses})
 	if err != nil {
 		vlog.Fatal(err)
 	}
-	su := netdicom.NewServiceUser(params)
 	defer su.Release()
 	su.Connect(server)
 
@@ -39,13 +42,16 @@ func cStore(server, inPath string) {
 }
 
 func cFind(server, argStr string) {
-	params, err := netdicom.NewServiceUserParams(
-		"dontcare", "testclient", sopclass.QRFindClasses,
-		[]string{dicomuid.ExplicitVRLittleEndian})
+	su, err := netdicom.NewServiceUser(netdicom.ServiceUserParams{
+		CalledAETitle:    *aeTitleFlag,
+		CallingAETitle:   *remoteAETitleFlag,
+		SOPClasses:       sopclass.QRFindClasses,
+		TransferSyntaxes: []string{dicomuid.ExplicitVRLittleEndian}, // for testing
+	})
 	if err != nil {
 		vlog.Fatal(err)
 	}
-	su := netdicom.NewServiceUser(params)
+
 	defer su.Release()
 	vlog.Infof("Connecting to %s", server)
 	su.Connect(server)

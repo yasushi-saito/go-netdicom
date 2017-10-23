@@ -165,8 +165,8 @@ var actionAe2 = &stateAction{"AE-2", "Connection established on the user side. S
 		sm.conn = event.conn
 		go networkReaderThread(sm.netCh, event.conn, DefaultMaxPDUSize, sm.label)
 		items := sm.contextManager.generateAssociateRequest(
-			sm.userParams.RequiredServices,
-			sm.userParams.SupportedTransferSyntaxes)
+			sm.userParams.SOPClasses,
+			sm.userParams.TransferSyntaxes)
 		pdu := &pdu.A_ASSOCIATE{
 			Type:            pdu.PDUTypeA_ASSOCIATE_RQ,
 			ProtocolVersion: pdu.CurrentProtocolVersion,
@@ -933,8 +933,8 @@ func runStateMachineForServiceUser(
 	upcallCh chan upcallEvent,
 	downcallCh chan stateEvent) {
 	doassert(params.CallingAETitle != "")
-	doassert(len(params.RequiredServices) > 0)
-	doassert(len(params.SupportedTransferSyntaxes) > 0)
+	doassert(len(params.SOPClasses) > 0)
+	doassert(len(params.TransferSyntaxes) > 0)
 	label := fmt.Sprintf("sm(u)-%d", atomic.AddInt32(&smSeq, 1))
 	sm := &stateMachine{
 		label:          label,

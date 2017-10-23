@@ -2,7 +2,6 @@
 package netdicom
 
 import (
-	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -58,11 +57,11 @@ type ServiceUser struct {
 }
 
 type ServiceUserParams struct {
-	CalledAETitle  string // Must be nonempty
-	CallingAETitle string // Must be nonempty
+	CalledAETitle  string // If empty, set to "unknown-called-ae"
+	CallingAETitle string // If empty, set to "unknown-calling-ae"
 
 	// List of SOPUIDs wanted by the user.
-	RequiredServices []sopclass.SOPUID
+	SOPClasses []sopclass.SOPUID
 
 	// List of Transfer syntaxes supported by the user.  If you know the
 	// transer syntax of the file you are going to copy, set that here.
@@ -72,7 +71,7 @@ type ServiceUserParams struct {
 	// TODO(saito) Support reencoding internally on C_STORE, etc. The DICOM
 	// spec is particularly moronic here, since we could just have specified
 	// the transfer syntax per data sent.
-	SupportedTransferSyntaxes []string
+	TransferSyntaxes []string
 }
 
 // NewServiceUserParams creates a ServiceUserParams.  requiredServices is the
@@ -80,39 +79,36 @@ type ServiceUserParams struct {
 // requests.  It's usually one of the lists defined in the sopclass package.  If
 // transferSyntaxUIDs is empty, the exhaustive list of syntaxes defined in the
 // DICOM standard is used.
-func NewServiceUserParams(
-	calledAETitle string,
-	callingAETitle string,
-	requiredServices []sopclass.SOPUID,
-	transferSyntaxUIDs []string) (ServiceUserParams, error) {
-	if calledAETitle == "" {
-		return ServiceUserParams{}, errors.New("NewServiceUSerParams: Empty calledAETitle")
+func validateServiceUserParams(params *ServiceUserParams) error {
+	if params.CalledAETitle == "" {
+		params.CalledAETitle = "unknown-called-ae"
 	}
-	if callingAETitle == "" {
-		return ServiceUserParams{}, errors.New("NewServiceUSerParams: Empty callingAETitle")
+	if params.CallingAETitle == "" {
+		params.CallingAETitle = "unknown-calling-ae"
 	}
-	if len(transferSyntaxUIDs) == 0 {
-		transferSyntaxUIDs = dicomio.StandardTransferSyntaxes
+	if len(params.SOPClasses) == 0 {
+		return fmt.Errorf("Empty ServiceUserParams.SOPClasses")
+	}
+	if len(params.TransferSyntaxes) == 0 {
+		params.TransferSyntaxes = dicomio.StandardTransferSyntaxes
 	} else {
-		for i, uid := range transferSyntaxUIDs {
+		for i, uid := range params.TransferSyntaxes {
 			canonicalUID, err := dicomio.CanonicalTransferSyntaxUID(uid)
 			if err != nil {
-				return ServiceUserParams{}, err
+				return err
 			}
-			transferSyntaxUIDs[i] = canonicalUID
+			params.TransferSyntaxes[i] = canonicalUID
 		}
 	}
-	return ServiceUserParams{
-		CalledAETitle:             calledAETitle,
-		CallingAETitle:            callingAETitle,
-		RequiredServices:          requiredServices,
-		SupportedTransferSyntaxes: transferSyntaxUIDs,
-	}, nil
+	return nil
 }
 
 // NewServiceUser creates a new ServiceUser. The caller must call either
 // Connect() or SetConn() before calling any other method, such as Cstore.
-func NewServiceUser(params ServiceUserParams) *ServiceUser {
+func NewServiceUser(params ServiceUserParams) (*ServiceUser, error) {
+	if err := validateServiceUserParams(&params); err != nil {
+		return nil, err
+	}
 	mu := &sync.Mutex{}
 	su := &ServiceUser{
 		// sm: NewStateMachineForServiceUser(params, nil, nil),
@@ -122,7 +118,6 @@ func NewServiceUser(params ServiceUserParams) *ServiceUser {
 		mu:       mu,
 		cond:     sync.NewCond(mu),
 		status:   serviceUserInitial,
-		// activeCommands: make(map[uint16]*userCommandState),
 	}
 	go runStateMachineForServiceUser(params, su.upcallCh, su.disp.downcallCh)
 	go func() {
@@ -146,7 +141,7 @@ func NewServiceUser(params ServiceUserParams) *ServiceUser {
 		su.status = serviceUserClosed
 		su.mu.Unlock()
 	}()
-	return su
+	return su, nil
 }
 
 func (su *ServiceUser) waitUntilReady() error {
@@ -372,6 +367,8 @@ func (su *ServiceUser) CFind(qrLevel CFindQRLevel, filter []*dicom.Element) chan
 	return ch
 }
 
+// CAUTION! Not yet functional
+//
 // CGet runs a C-GET command. It calls "cb" for every dataset received. "cb"
 // should return dimse.Success iff the data was successfully and stably written. This
 // function blocks until it receives all datasets and the command finishes.

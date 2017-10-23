@@ -33,6 +33,7 @@ func initTest() {
 				CEcho:  onCEchoRequest,
 				CStore: onCStoreRequest,
 				CFind:  onCFindRequest,
+				CGet:   onCGetRequest,
 			}
 			for {
 				conn, err := listener.Accept()
@@ -113,6 +114,23 @@ func onCFindRequest(
 	close(ch)
 }
 
+func onCGetRequest(
+	transferSyntaxUID string,
+	sopClassUID string,
+	filters []*dicom.Element,
+	ch chan netdicom.CMoveResult) {
+	vlog.Infof("Received cget request")
+
+	path := "testdata/IM-0001-0003.dcm"
+	dataset := readDICOMFile(path)
+	ch <- netdicom.CMoveResult{
+		Remaining: -1,
+		Path:      path,
+		DataSet:   dataset,
+	}
+	close(ch)
+}
+
 func checkFileBodiesEqual(t *testing.T, in, out *dicom.DataSet) {
 	var removeMetaElems = func(f *dicom.DataSet) []*dicom.Element {
 		var elems []*dicom.Element
@@ -157,18 +175,22 @@ func readDICOMFile(path string) *dicom.DataSet {
 	return dataset
 }
 
+func newServiceUser(t *testing.T, server string, sopClasses []sopclass.SOPUID) *netdicom.ServiceUser {
+	initTest()
+	su, err := netdicom.NewServiceUser(netdicom.ServiceUserParams{SOPClasses: sopClasses})
+	if err != nil {
+		t.Fatal(err)
+	}
+	su.Connect(serverAddr)
+	return su
+}
+
 func TestStoreSingleFile(t *testing.T) {
 	initTest()
 	dataset := readDICOMFile("testdata/IM-0001-0003.dcm")
-	params, err := netdicom.NewServiceUserParams(
-		"dontcare", "testclient", sopclass.StorageClasses, nil)
-	if err != nil {
-		vlog.Fatal(err)
-	}
-	su := netdicom.NewServiceUser(params)
+	su := newServiceUser(t, serverAddr, sopclass.StorageClasses)
 	defer su.Release()
-	su.Connect(serverAddr)
-	err = su.CStore(dataset)
+	err := su.CStore(dataset)
 	if err != nil {
 		vlog.Fatal(err)
 	}
@@ -182,36 +204,45 @@ func TestStoreSingleFile(t *testing.T) {
 }
 
 func TestEcho(t *testing.T) {
-	initTest()
-	params, err := netdicom.NewServiceUserParams(
-		"dontcare", "testclient", sopclass.VerificationClasses,
-		dicomio.StandardTransferSyntaxes)
-	if err != nil {
-		vlog.Fatal(err)
-	}
-	su := netdicom.NewServiceUser(params)
+	su := newServiceUser(t, serverAddr, sopclass.VerificationClasses)
 	defer su.Release()
-	su.Connect(serverAddr)
 	oldCount := nEchoRequests
-	err = su.CEcho()
-	if err != nil {
+	if err := su.CEcho(); err != nil {
 		vlog.Fatal(err)
 	}
-	if nEchoRequests != oldCount + 1 {
+	if nEchoRequests != oldCount+1 {
 		vlog.Fatal("cecho handler did not run")
 	}
 }
 
 func TestFind(t *testing.T) {
-	initTest()
-	params, err := netdicom.NewServiceUserParams(
-		"dontcare", "testclient", sopclass.QRFindClasses,
-		dicomio.StandardTransferSyntaxes)
-	if err != nil {
-		vlog.Fatal(err)
+	su := newServiceUser(t, serverAddr, sopclass.QRFindClasses)
+	filter := []*dicom.Element{
+		dicom.MustNewElement(dicom.TagPatientName, "foohah"),
 	}
-	su := netdicom.NewServiceUser(params)
-	su.Connect(serverAddr)
+	var namesFound []string
+
+	for result := range su.CFind(netdicom.CFindPatientQRLevel, filter) {
+		vlog.Errorf("Got result: %v", result)
+		if result.Err != nil {
+			t.Error(result.Err)
+			continue
+		}
+		for _, elem := range result.Elements {
+			if elem.Tag != dicom.TagPatientName {
+				t.Error(elem)
+			}
+			namesFound = append(namesFound, elem.MustGetString())
+		}
+	}
+	if len(namesFound) != 2 || namesFound[0] != "johndoe" || namesFound[1] != "johndoe2" {
+		t.Error(namesFound)
+	}
+}
+
+func TestCGet(t *testing.T) {
+	t.Skip("Not yet functional")
+	su := newServiceUser(t, serverAddr, sopclass.QRGetClasses)
 	filter := []*dicom.Element{
 		dicom.MustNewElement(dicom.TagPatientName, "foohah"),
 	}
@@ -238,12 +269,11 @@ func TestFind(t *testing.T) {
 func TestNonexistentServer(t *testing.T) {
 	initTest()
 	dataset := readDICOMFile("testdata/IM-0001-0003.dcm")
-	params, err := netdicom.NewServiceUserParams(
-		"dontcare", "testclient", sopclass.StorageClasses, nil)
+	su, err := netdicom.NewServiceUser(netdicom.ServiceUserParams{
+		SOPClasses: sopclass.StorageClasses})
 	if err != nil {
 		t.Fatal(err)
 	}
-	su := netdicom.NewServiceUser(params)
 	su.Connect(":99999")
 	err = su.CStore(dataset)
 	if err == nil || err.Error() != "Connection failed" {

@@ -407,52 +407,19 @@ func elementsString(elems []*dicom.Element) string {
 
 // Send "ds" to remoteHostPort using C-STORE. Called as part of C-MOVE.
 func runCStoreOnNewAssociation(myAETitle, remoteAETitle, remoteHostPort string, ds *dicom.DataSet) error {
-	params, err := NewServiceUserParams(remoteAETitle, myAETitle, sopclass.StorageClasses, nil)
+	su, err := NewServiceUser(ServiceUserParams{
+		CalledAETitle:    remoteAETitle,
+		CallingAETitle:   myAETitle,
+		SOPClasses: sopclass.StorageClasses})
 	if err != nil {
 		return err
 	}
-	su := NewServiceUser(params)
 	defer su.Release()
 	su.Connect(remoteHostPort)
 	err = su.CStore(ds)
 	vlog.VI(1).Infof("C-STORE subop done: %v", err)
 	return err
 }
-
-// func (dh *providerCommandDispatcher) handleEvent(event upcallEvent) {
-// 	context, err := event.cm.lookupByContextID(event.contextID)
-// 	if err != nil {
-// 		vlog.Infof("Invalid context ID %d: %v", event.contextID, err)
-// 		dh.downcallCh <- stateEvent{event: evt19, pdu: nil, err: err}
-// 		return
-// 	}
-// 	messageID := event.command.GetMessageID()
-// 	dc, found := dh.findOrCreateCommand(messageID, event.cm, context)
-// 	if found {
-// 		vlog.VI(1).Infof("Forwarding command to existing command: %+v", event.command, dc)
-// 		dc.upcallCh <- event
-// 		vlog.VI(1).Infof("Done forwarding command to existing command: %+v", event.command, dc)
-// 		return
-// 	}
-// 	go func() {
-// 		defer dh.deleteCommand(dc)
-// 		switch c := event.command.(type) {
-// 		case *dimse.C_STORE_RQ:
-// 			dc.handleCStore(c, event.data)
-// 		case *dimse.C_FIND_RQ:
-// 			dc.handleCFind(c, event.data)
-// 		case *dimse.C_MOVE_RQ:
-// 			dc.handleCMove(c, event.data)
-// 		case *dimse.C_GET_RQ:
-// 			dc.handleCGet(c, event.data)
-// 		case *dimse.C_ECHO_RQ:
-// 			dc.handleCEcho(c)
-// 		default:
-// 			// TODO: handle errors properly.
-// 			vlog.Fatalf("Unknown PROVIDER message type: %v", c)
-// 		}
-// 	}()
-// }
 
 // NewServiceProvider creates a new DICOM server object.  "listenAddr" is the
 // TCP address to listen to. E.g., ":1234" will listen to port 1234 at all the
