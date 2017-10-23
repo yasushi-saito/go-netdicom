@@ -149,8 +149,9 @@ var QRMoveClasses = []SOPUID{
 	SOPUID{"StudyRootQueryRetrieveInformationModelMove", "1.2.840.10008.5.1.4.1.2.2.2"},
 	SOPUID{"PatientStudyOnlyQueryRetrieveInformationModelMove", "1.2.840.10008.5.1.4.1.2.3.2"}}
 
-// TODO(saito) Does this really work?
-var QRGetClasses = []SOPUID{
+// For issuing C-GET
+var QRGetClasses = append([]SOPUID{
 	SOPUID{"PatientRootQueryRetrieveInformationModelGet", "1.2.840.10008.5.1.4.1.2.1.3"},
 	SOPUID{"StudyRootQueryRetrieveInformationModelGet", "1.2.840.10008.5.1.4.1.2.2.3"},
-	SOPUID{"PatientStudyOnlyQueryRetrieveInformationModelGet", "1.2.840.10008.5.1.4.1.2.3.3"}}
+	SOPUID{"PatientStudyOnlyQueryRetrieveInformationModelGet", "1.2.840.10008.5.1.4.1.2.3.3"}},
+	StorageClasses...)

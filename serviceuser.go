@@ -241,11 +241,16 @@ func (su *ServiceUser) CStore(ds *dicom.DataSet) error {
 	return runCStoreOnAssociation(cs.upcallCh, su.disp.downcallCh, su.cm, cs.messageID, ds)
 }
 
-type CFindQRLevel int
+type QRLevel int
+type qrOpType int
 
 const (
-	CFindPatientQRLevel CFindQRLevel = iota
-	CFindStudyQRLevel
+	QRLevelPatient QRLevel = iota
+	QRLevelStudy
+
+	qrOpCFind qrOpType = iota
+	qrOpCGet
+	qrOpCMove
 )
 
 type CFindResult struct {
@@ -261,15 +266,29 @@ type CMoveResult struct {
 	DataSet   *dicom.DataSet // Contents of the file.
 }
 
-func encodeCFindPayload(qrLevel CFindQRLevel, filter []*dicom.Element, cm *contextManager) (contextManagerEntry, []byte, error) {
+func encodeQRPayload(opType qrOpType, qrLevel QRLevel, filter []*dicom.Element, cm *contextManager) (contextManagerEntry, []byte, error) {
 	var sopClassUID string
 	var qrLevelString string
 	switch qrLevel {
-	case CFindPatientQRLevel:
-		sopClassUID = dicomuid.PatientRootQRFind
+	case QRLevelPatient:
+		switch opType {
+		case qrOpCFind:
+			sopClassUID = dicomuid.PatientRootQRFind
+		case qrOpCGet:
+			sopClassUID = dicomuid.PatientRootQRGet
+		case qrOpCMove:
+			sopClassUID = dicomuid.PatientRootQRMove
+		}
 		qrLevelString = "PATIENT"
-	case CFindStudyQRLevel:
-		sopClassUID = dicomuid.StudyRootQRFind
+	case QRLevelStudy:
+		switch opType {
+		case qrOpCFind:
+			sopClassUID = dicomuid.StudyRootQRFind
+		case qrOpCGet:
+			sopClassUID = dicomuid.StudyRootQRGet
+		case qrOpCMove:
+			sopClassUID = dicomuid.StudyRootQRMove
+		}
 		qrLevelString = "STUDY"
 	default:
 		return contextManagerEntry{}, nil, fmt.Errorf("Invalid C-FIND QR lever: %d", qrLevel)
@@ -308,7 +327,7 @@ func encodeCFindPayload(qrLevel CFindQRLevel, filter []*dicom.Element, cm *conte
 // filter is the list of elements to match and retrieve.
 //
 // REQUIRES: Connect() or SetConn has been called.
-func (su *ServiceUser) CFind(qrLevel CFindQRLevel, filter []*dicom.Element) chan CFindResult {
+func (su *ServiceUser) CFind(qrLevel QRLevel, filter []*dicom.Element) chan CFindResult {
 	ch := make(chan CFindResult, 128)
 	err := su.waitUntilReady()
 	if err != nil {
@@ -316,7 +335,7 @@ func (su *ServiceUser) CFind(qrLevel CFindQRLevel, filter []*dicom.Element) chan
 		close(ch)
 		return ch
 	}
-	context, payload, err := encodeCFindPayload(qrLevel, filter, su.cm)
+	context, payload, err := encodeQRPayload(qrOpCFind, qrLevel, filter, su.cm)
 	if err != nil {
 		ch <- CFindResult{Err: err}
 		close(ch)
@@ -367,18 +386,16 @@ func (su *ServiceUser) CFind(qrLevel CFindQRLevel, filter []*dicom.Element) chan
 	return ch
 }
 
-// CAUTION! Not yet functional
-//
 // CGet runs a C-GET command. It calls "cb" for every dataset received. "cb"
 // should return dimse.Success iff the data was successfully and stably written. This
 // function blocks until it receives all datasets and the command finishes.
-func (su *ServiceUser) CGet(qrLevel CFindQRLevel, filter []*dicom.Element,
+func (su *ServiceUser) CGet(qrLevel QRLevel, filter []*dicom.Element,
 	cb func(transferSyntaxUID, SOPClassUID, sopInstanceUID string, data []byte) dimse.Status) error {
 	err := su.waitUntilReady()
 	if err != nil {
 		return err
 	}
-	context, payload, err := encodeCFindPayload(qrLevel, filter, su.cm)
+	context, payload, err := encodeQRPayload(qrOpCGet, qrLevel, filter, su.cm)
 	if err != nil {
 		return err
 	}

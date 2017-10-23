@@ -120,7 +120,6 @@ func onCGetRequest(
 	filters []*dicom.Element,
 	ch chan netdicom.CMoveResult) {
 	vlog.Infof("Received cget request")
-
 	path := "testdata/IM-0001-0003.dcm"
 	dataset := readDICOMFile(path)
 	ch <- netdicom.CMoveResult{
@@ -222,7 +221,7 @@ func TestFind(t *testing.T) {
 	}
 	var namesFound []string
 
-	for result := range su.CFind(netdicom.CFindPatientQRLevel, filter) {
+	for result := range su.CFind(netdicom.QRLevelPatient, filter) {
 		vlog.Errorf("Got result: %v", result)
 		if result.Err != nil {
 			t.Error(result.Err)
@@ -241,29 +240,42 @@ func TestFind(t *testing.T) {
 }
 
 func TestCGet(t *testing.T) {
-	t.Skip("Not yet functional")
 	su := newServiceUser(t, serverAddr, sopclass.QRGetClasses)
 	filter := []*dicom.Element{
 		dicom.MustNewElement(dicom.TagPatientName, "foohah"),
 	}
-	var namesFound []string
 
-	for result := range su.CFind(netdicom.CFindPatientQRLevel, filter) {
-		vlog.Errorf("Got result: %v", result)
-		if result.Err != nil {
-			t.Error(result.Err)
-			continue
-		}
-		for _, elem := range result.Elements {
-			if elem.Tag != dicom.TagPatientName {
-				t.Error(elem)
+	var cgetData []byte
+
+	err := su.CGet(netdicom.QRLevelPatient, filter,
+		func(transferSyntaxUID, sopClassUID, sopInstanceUID string, data []byte) dimse.Status {
+			vlog.Infof("Got data: %v %v %v %d bytes", transferSyntaxUID, sopClassUID, sopInstanceUID, len(data))
+			if len(cgetData) > 0 {
+				t.Fatal("Received multiple C-GET responses")
 			}
-			namesFound = append(namesFound, elem.MustGetString())
-		}
+			e := dicomio.NewBytesEncoder(nil, dicomio.UnknownVR)
+			dicom.WriteFileHeader(e,
+				[]*dicom.Element{
+					dicom.MustNewElement(dicom.TagTransferSyntaxUID, transferSyntaxUID),
+					dicom.MustNewElement(dicom.TagMediaStorageSOPClassUID, sopClassUID),
+					dicom.MustNewElement(dicom.TagMediaStorageSOPInstanceUID, sopInstanceUID),
+				})
+			e.WriteBytes(data)
+			cgetData = e.Bytes()
+			return dimse.Success
+		})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(namesFound) != 2 || namesFound[0] != "johndoe" || namesFound[1] != "johndoe2" {
-		t.Error(namesFound)
+	if len(cgetData) == 0 {
+		t.Fatal("No data received")
 	}
+	ds, err := dicom.ReadDataSetInBytes(cgetData, dicom.ReadOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := readDICOMFile("testdata/IM-0001-0003.dcm")
+	checkFileBodiesEqual(t, expected, ds)
 }
 
 func TestNonexistentServer(t *testing.T) {
