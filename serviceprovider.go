@@ -271,6 +271,7 @@ func handleCEcho(
 	cs.sendMessage(resp, nil)
 }
 
+// ServiceProviderParams defines parameters for ServiceProvider.
 type ServiceProviderParams struct {
 	// The application-entity title of the server. Must be nonempty
 	AETitle string
@@ -301,6 +302,7 @@ type ServiceProviderParams struct {
 	CStore CStoreCallback
 }
 
+// DefaultMaxPDUSize is the the PDU size advertized by go-netdicom.
 const DefaultMaxPDUSize = 4 << 20
 
 // CStoreCallback is called C-STORE request.  sopInstanceUID is the UID of the
@@ -407,9 +409,9 @@ func elementsString(elems []*dicom.Element) string {
 // Send "ds" to remoteHostPort using C-STORE. Called as part of C-MOVE.
 func runCStoreOnNewAssociation(myAETitle, remoteAETitle, remoteHostPort string, ds *dicom.DataSet) error {
 	su, err := NewServiceUser(ServiceUserParams{
-		CalledAETitle:    remoteAETitle,
-		CallingAETitle:   myAETitle,
-		SOPClasses: sopclass.StorageClasses})
+		CalledAETitle:  remoteAETitle,
+		CallingAETitle: myAETitle,
+		SOPClasses:     sopclass.StorageClasses})
 	if err != nil {
 		return err
 	}
@@ -479,8 +481,8 @@ func (sp *ServiceProvider) Run() {
 	}
 }
 
-// Return the TCP address that the server is listening on. It is the address
-// passed to the NewServiceProvider(), except that if value was of form
+// ListenAddr returns the TCP address that the server is listening on. It is the
+// address passed to the NewServiceProvider(), except that if value was of form
 // <name>:0, the ":0" part is replaced by the actual port numwber.
 func (sp *ServiceProvider) ListenAddr() net.Addr {
 	return sp.listener.Addr()

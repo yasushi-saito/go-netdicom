@@ -18,7 +18,8 @@ type faultInjectorStateTransition struct {
 	action *stateAction
 }
 
-// Unittest helper.
+// FaultInjector is a unittest helper. It's used by the statemachine to inject
+// faults.
 type FaultInjector struct {
 	fuzz  []byte
 	steps int
@@ -66,13 +67,19 @@ func fuzzExponentialInRange(f *FaultInjector, max int) int {
 	return v
 }
 
-func NewFaultInjector(fuzz []byte) *FaultInjector {
+// NewFuzzFaultInjector creates a new fuzzing fault injector
+func NewFuzzFaultInjector(fuzz []byte) *FaultInjector {
 	return &FaultInjector{fuzz: fuzz}
 }
 
+// SetUserFaultInjector sets a singleton fault injector to be used by the user
+// (client)-side statemachines.
 func SetUserFaultInjector(f *FaultInjector) {
 	userFaults = f
 }
+
+// SetProviderFaultInjector sets a singleton fault injector to be used by the
+// provider (server)-side statemachines.
 func SetProviderFaultInjector(f *FaultInjector) {
 	providerFaults = f
 }

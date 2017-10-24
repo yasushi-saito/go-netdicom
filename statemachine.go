@@ -191,10 +191,9 @@ var actionAe3 = &stateAction{"AE-3", "Issue A-ASSOCIATE confirmation (accept) pr
 				cm:        sm.contextManager,
 			}
 			return sta06
-		} else {
-			vlog.Error(err)
-			return actionAa8.Callback(sm, event)
 		}
+		vlog.Error(err)
+		return actionAa8.Callback(sm, event)
 	}}
 
 var actionAe4 = &stateAction{"AE-4", "Issue A-ASSOCIATE confirmation (reject) primitive and close transport connection",
@@ -429,9 +428,8 @@ var actionAr8 = &stateAction{"AR-8", "Issue A-RELEASE indication (release collis
 	func(sm *stateMachine, event stateEvent) stateType {
 		if sm.isUser {
 			return sta09
-		} else {
-			return sta10
 		}
+		return sta10
 	}}
 
 var actionAr9 = &stateAction{"AR-9", "Send A-RELEASE-RP PDU",

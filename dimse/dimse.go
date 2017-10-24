@@ -17,7 +17,7 @@ import (
 	"v.io/x/lib/vlog"
 )
 
-// Common interface for all C-XXX message types.
+// Message defines the common interface for all DIMSE message types.
 type Message interface {
 	fmt.Stringer // Print human-readable description for debugging.
 	Encode(*dicomio.Encoder)
@@ -26,8 +26,8 @@ type Message interface {
 	HasData() bool        // Do we expact data P_DATA_TF packets after the command packets?
 }
 
-// Result of a DIMSE call.
-// P3.7 C defines list of status codes and error payloads.
+// Status represents a result of a DIMSE call.  P3.7 C defines list of status
+// codes and error payloads.
 type Status struct {
 	// Status==StatusSuccess on success. A non-zero value on error.
 	Status StatusCode
@@ -144,7 +144,7 @@ func encodeField(e *dicomio.Encoder, tag dicom.Tag, v interface{}) {
 const CommandDataSetTypeNull uint16 = 0x101
 const CommandDataSetTypeNonNull uint16 = 1
 
-// OK status for a call.
+// Success is an OK status for a call.
 var Success = Status{Status: StatusSuccess}
 
 // StatusCode represents a DIMSE service response code, as defined in P3.7
@@ -299,6 +299,7 @@ func (a *CommandAssembler) AddDataPDU(pdu *pdu.P_DATA_TF) (byte, Message, []byte
 // Generate a new message ID that's unique within the "su".
 var nextMessageID int32 = 123
 
+// NewMessageID allocates a yet-unused message ID.
 func NewMessageID() uint16 {
 	id := atomic.AddInt32(&nextMessageID, 1)
 	return uint16(id % 0x10000)

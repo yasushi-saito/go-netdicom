@@ -14,12 +14,12 @@ func standardUID(uid string) string {
 	return dicomuid.MustLookup(uid).UID
 }
 
-// For issuing C-ECHO
+// VerificationClasses is for issuing C-ECHO
 var VerificationClasses = []string{
 	standardUID("1.2.840.10008.1.1"),
 }
 
-// For issuing C-STORE or C-GET
+// StorageClasses for issuing C-STORE requests.
 var StorageClasses = []string{
 	standardUID("1.2.840.10008.5.1.4.1.1.1"),
 	standardUID("1.2.840.10008.5.1.4.1.1.1.1"),
@@ -138,20 +138,20 @@ var StorageClasses = []string{
 	standardUID("1.2.840.10008.5.1.4.45.1"),
 }
 
-// For issuing C-FIND
+// QRFindClasses is for issuing C-FIND requests.
 var QRFindClasses = []string{
 	standardUID("1.2.840.10008.5.1.4.1.2.1.1"),
 	standardUID("1.2.840.10008.5.1.4.1.2.2.1"),
 	standardUID("1.2.840.10008.5.1.4.1.2.3.1"),
 	standardUID("1.2.840.10008.5.1.4.31")}
 
-// For issuing C-MOVE
+// QRMoveClasses is for issuing C-MOVE requests.
 var QRMoveClasses = []string{
 	standardUID("1.2.840.10008.5.1.4.1.2.1.2"),
 	standardUID("1.2.840.10008.5.1.4.1.2.2.2"),
 	standardUID("1.2.840.10008.5.1.4.1.2.3.2")}
 
-// For issuing C-GET
+// QRGetClasses is for issuing C-GET requests.
 var QRGetClasses = append([]string{
 	standardUID("1.2.840.10008.5.1.4.1.2.1.3"),
 	standardUID("1.2.840.10008.5.1.4.1.2.2.3"),

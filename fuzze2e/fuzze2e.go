@@ -63,8 +63,8 @@ func init() {
 }
 
 func Fuzz(data []byte) int {
-	listener := startServer(netdicom.NewFaultInjector(data))
-	runClient(listener.Addr().String(), netdicom.NewFaultInjector(data))
+	listener := startServer(netdicom.NewFuzzFaultInjector(data))
+	runClient(listener.Addr().String(), netdicom.NewFuzzFaultInjector(data))
 	listener.Close()
 	return 0
 }

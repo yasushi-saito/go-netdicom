@@ -1,5 +1,6 @@
-// This file implements the ServiceUser (i.e., a DICOM DIMSE client) class.
 package netdicom
+
+// This file implements the ServiceUser (i.e., a DICOM DIMSE client) class.
 
 import (
 	"fmt"
@@ -49,6 +50,7 @@ type ServiceUser struct {
 	// activeCommands map[uint16]*userCommandState // List of commands running
 }
 
+// ServiceUserParams defines parameters for a ServiceUser.
 type ServiceUserParams struct {
 	CalledAETitle  string // If empty, set to "unknown-called-ae"
 	CallingAETitle string // If empty, set to "unknown-calling-ae"
@@ -167,8 +169,8 @@ func (su *ServiceUser) SetConn(conn net.Conn) {
 	su.disp.downcallCh <- stateEvent{event: evt02, pdu: nil, err: nil, conn: conn}
 }
 
-// Send a C-ECHO request to the remote AE. Returns nil iff the remote AE
-// responds ok.
+// CEcho send a C-ECHO request to the remote AE and waits for a
+// response. Returns nil iff the remote AE responds ok.
 func (su *ServiceUser) CEcho() error {
 	err := su.waitUntilReady()
 	if err != nil {
@@ -242,12 +244,14 @@ const (
 	qrOpCMove
 )
 
+// CFindResult is an object streamed by CFind method.
 type CFindResult struct {
 	// Exactly one of Err or Elements is set.
 	Err      error
 	Elements []*dicom.Element // Elements belonging to one dataset.
 }
 
+// CMoveResult is an object streamed by CMove method.
 type CMoveResult struct {
 	Remaining int // Number of files remaining to be sent. Set -1 if unknown.
 	Err       error

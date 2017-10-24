@@ -12,7 +12,7 @@ import (
 	"v.io/x/lib/vlog"
 )
 
-// Interface for DUL messages like A-ASSOCIATE-AC, P-DATA-TF.
+// PDU is the interface for DUL messages like A-ASSOCIATE-AC, P-DATA-TF.
 type PDU interface {
 	fmt.Stringer // Print human-readable description for debugging.
 	// Encode the PDU payload. The "payload" here excludes the first 6 bytes
@@ -20,7 +20,7 @@ type PDU interface {
 	WritePayload(*dicomio.Encoder)
 }
 
-// Possible Type field for PDUs.
+// PDUType defines the value of the Type field for PDUs.
 type PDUType byte
 
 const (
@@ -33,7 +33,7 @@ const (
 	PDUTypeA_ABORT                = 7
 )
 
-// Interface for DUL items, such as ApplicationContextItem,
+// SubItem is the interface for DUL items, such as ApplicationContextItem,
 // TransferSyntaxSubItem.
 type SubItem interface {
 	fmt.Stringer            // Print human-readable description for debugging.
@@ -210,7 +210,7 @@ func decodeRoleSelectionSubItem(d *dicomio.Decoder, length uint16) *RoleSelectio
 }
 
 func (v *RoleSelectionSubItem) Write(e *dicomio.Encoder) {
-	encodeSubItemHeader(e, ItemTypeRoleSelection, uint16(2 + len(v.SOPClassUID) + 1*2))
+	encodeSubItemHeader(e, ItemTypeRoleSelection, uint16(2+len(v.SOPClassUID)+1*2))
 	e.WriteUInt16(uint16(len(v.SOPClassUID)))
 	e.WriteString(v.SOPClassUID)
 	e.WriteByte(v.SCURole)
@@ -275,10 +275,6 @@ func encodeSubItemWithName(e *dicomio.Encoder, itemType byte, name string) {
 func decodeSubItemWithName(d *dicomio.Decoder, length uint16) string {
 	return d.ReadString(int(length))
 }
-
-//func (item *SubItemWithName) String() string {
-//	return fmt.Sprintf("subitem{type: 0x%0x name: \"%s\"}", item.Type, item.Name)
-//}
 
 type ApplicationContextItem subItemWithName
 
@@ -446,7 +442,7 @@ func ReadPresentationDataValueItem(d *dicomio.Decoder) PresentationDataValueItem
 }
 
 func (v *PresentationDataValueItem) Write(e *dicomio.Encoder) {
-	var header byte = 0
+	var header byte
 	if v.Command {
 		header |= 1
 	}
@@ -463,6 +459,7 @@ func (v *PresentationDataValueItem) String() string {
 	return fmt.Sprintf("presentationdatavalue{context: %d, cmd:%v last:%v value: %d bytes}", v.ContextID, v.Command, v.Last, len(v.Value))
 }
 
+// EncodePDU serializes "pdu" into []byte.
 func EncodePDU(pdu PDU) ([]byte, error) {
 	var pduType PDUType
 	switch n := pdu.(type) {
@@ -495,6 +492,8 @@ func EncodePDU(pdu PDU) ([]byte, error) {
 	return append(header[:], payload...), nil
 }
 
+// EncodePDU reads a "pdu" from a stream. maxPDUSize defines the maximum
+// possible PDU size, in bytes, accepted by the caller.
 func ReadPDU(in io.Reader, maxPDUSize int) (PDU, error) {
 	var pduType PDUType
 	var skip byte
@@ -518,7 +517,7 @@ func ReadPDU(in io.Reader, maxPDUSize int) (PDU, error) {
 	d := dicomio.NewDecoder(in, int64(length),
 		binary.BigEndian,  // PDU is always big endian
 		dicomio.UnknownVR) // irrelevant for PDU parsing
-	var pdu PDU = nil
+	var pdu PDU
 	switch pduType {
 	case PDUTypeA_ASSOCIATE_RQ:
 		fallthrough
