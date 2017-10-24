@@ -759,13 +759,15 @@ type stateMachine struct {
 	commandAssembler dimse.CommandAssembler
 
 	// Only for testing.
-	faults *FaultInjector
+	faults FaultInjector
 }
 
 func closeConnection(sm *stateMachine) {
 	close(sm.upcallCh)
-	vlog.Infof("%s: Closing connection %v", sm.label, sm.conn)
-	sm.conn.Close()
+	vlog.VI(1).Infof("%s: Closing connection %v", sm.label, sm.conn)
+	if sm.conn != nil {
+		sm.conn.Close()
+	}
 }
 
 func sendPDU(sm *stateMachine, v pdu.PDU) {
@@ -918,13 +920,16 @@ func runOneStep(sm *stateMachine) {
 		for _, s := range strings.Split(msg, "\n") {
 			vlog.Infof(s)
 		}
-		vlog.Fatalf(msg)
-	}
-	if sm.faults != nil {
-		sm.faults.onStateTransition(sm.currentState, &event, action)
+		vlog.Errorf(msg)
+
+		action = actionAa2 // This will force connection abortion
 	}
 	vlog.VI(2).Infof("%s: Running action %v", sm.label, action)
-	sm.currentState = action.Callback(sm, event)
+	newState := action.Callback(sm, event)
+	if sm.faults != nil {
+		sm.faults.onStateTransition(sm.currentState, &event, action, newState)
+	}
+	sm.currentState = newState
 	vlog.VI(2).Infof("Next state: %v", sm.currentState.String())
 }
 

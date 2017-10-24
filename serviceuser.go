@@ -153,7 +153,9 @@ func (su *ServiceUser) waitUntilReady() error {
 // Connect connects to the server at the given "host:port". Either Connect or
 // SetConn must be before calling CStore, etc.
 func (su *ServiceUser) Connect(serverAddr string) {
-	doassert(su.status == serviceUserInitial)
+	if su.status != serviceUserInitial {
+		vlog.Fatalf("Connect() called with wrong state: %v", su.status)
+	}
 	conn, err := net.Dial("tcp", serverAddr)
 	if err != nil {
 		vlog.Infof("Connect(%s): %v", serverAddr, err)
@@ -439,9 +441,7 @@ func (su *ServiceUser) CGet(qrLevel QRLevel, filter []*dicom.Element,
 // Release shuts down the connection. It must be called exactly once.  After
 // Release(), no other operation can be performed on the ServiceUser object.
 func (su *ServiceUser) Release() {
-	su.waitUntilReady()
 	su.disp.downcallCh <- stateEvent{event: evt11}
-
 	su.mu.Lock()
 	defer su.mu.Unlock()
 	su.status = serviceUserClosed
