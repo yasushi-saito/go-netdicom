@@ -10,7 +10,6 @@ import (
 	"github.com/yasushi-saito/go-dicom/dicomio"
 	"github.com/yasushi-saito/go-dicom/dicomuid"
 	"github.com/yasushi-saito/go-netdicom/dimse"
-	"github.com/yasushi-saito/go-netdicom/sopclass"
 	"v.io/x/lib/vlog"
 )
 
@@ -24,12 +23,7 @@ const (
 
 // ServiceUser encapsulates implements the client side of DICOM network protocol.
 //
-//  params, err := netdicom.NewServiceUserParams(
-//     "dontcare" /*remote app-entity title*/,
-//     "testclient" /*this app-entity title*/,
-//     sopclass.QRFindClasses, /* SOP classes to use in the requests*/
-//     nil /* transfer syntaxes to use; unually nil suffices */)
-//  user := netdicom.NewServiceUser(params)
+//  user, err := netdicom.NewServiceUser(netdicom.ServiceUserParams{SOPClasses: sopclass.QRFindClasses})
 //  // Connect to server 1.2.3.4, port 8888
 //  user.Connect("1.2.3.4:8888")
 //  // Send test.dcm to the server
@@ -42,7 +36,6 @@ const (
 // methods - say CStore and CFind requests - concurrently from two goroutines.
 // You must wait for CStore to finish before issuing CFind.
 type ServiceUser struct {
-	// downcallCh chan stateEvent
 	upcallCh chan upcallEvent
 
 	mu   *sync.Mutex
@@ -65,7 +58,7 @@ type ServiceUserParams struct {
 
 	// List of SOPUIDs wanted by the client. The value is typically one of
 	// the constants listed in sopclass package.
-	SOPClasses []sopclass.SOPUID
+	SOPClasses []string
 
 	// List of Transfer syntaxes supported by the user.  If you know the
 	// transer syntax of the file you are going to copy, set that here.

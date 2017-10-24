@@ -310,22 +310,21 @@ type ServiceProviderParams struct {
 
 const DefaultMaxPDUSize = 4 << 20
 
-// CStoreCallback is called C-STORE request.  sopInstanceUID are the IDs of the
+// CStoreCallback is called C-STORE request.  sopInstanceUID is the UID of the
 // data.  sopClassUID is the data type requested
-// (e.g.,"1.2.840.10008.5.1.4.1.1.1.2"), and transferSyntaxUID is the data
-// encoding requested (e.g., "1.2.840.10008.1.2.1").  These args come from the
-// request packat.
+// (e.g.,"1.2.840.10008.5.1.4.1.1.1.2"), and transferSyntaxUID is the encoding
+// of the data (e.g., "1.2.840.10008.1.2.1").  These args are extracted from the
+// request packet.
 //
-// "data" is the payload, i.e., a sequence of serialized
-// dicom.DataElement objects.  Note that "data" usually does not contain
-// metadata elements (elements whose tag.group=2 -- those include
-// TransferSyntaxUID and MediaStorageSOPClassUID), since they are
-// stripped by the requstor (two key metadata are passed as
-// sop{Class,Instance)UID).
+// "data" is the payload, i.e., a sequence of serialized dicom.DataElement
+// objects in transferSyntaxUID.  "data" does not contain metadata elements
+// (elements whose Tag.Group=2 -- e.g., TransferSyntaxUID and
+// MediaStorageSOPClassUID), since they are stripped by the requster (two key
+// metadata are passed as sop{Class,Instance)UID).
 //
-// The handler should store encode the sop{Class,InstanceUID} as the
-//DICOM header, followed by data. It should return either 0 on success,
-//or one of CStoreStatus* error codes.
+// The function should store encode the sop{Class,InstanceUID} as the DICOM
+// header, followed by data. It should return either dimse.Success0 on success,
+// or one of CStoreStatus* error codes on errors.
 type CStoreCallback func(
 	transferSyntaxUID string,
 	sopClassUID string,
@@ -334,12 +333,12 @@ type CStoreCallback func(
 
 // CFindCallback implements a C-FIND handler.  sopClassUID is the data type
 // requested (e.g.,"1.2.840.10008.5.1.4.1.1.1.2"), and transferSyntaxUID is the
-// data encoding requested (e.g., "1.2.840.10008.1.2.1").  hese args come from
-// the request packat.
+// data encoding requested (e.g., "1.2.840.10008.1.2.1").  These args are
+// extracted from the request packet.
 //
-// This function stream CFindResult objects through "ch". The function may
-// block.  To report a matched DICOM dataset, the callback should send one
-// CFindResult with nonempty Element field. To report multiple DICOM-dataset
+// This function should stream CFindResult objects through "ch". The function
+// may block.  To report a matched DICOM dataset, the function should send one
+// CFindResult with a nonempty Element field. To report multiple DICOM-dataset
 // matches, the callback should send multiple CFindResult objects, one for each
 // dataset.  The callback must close the channel after it produces all the
 // responses.
@@ -351,8 +350,8 @@ type CFindCallback func(
 
 // CMoveCallback implements C-MOVE or C-GET handler.  sopClassUID is the data
 // type requested (e.g.,"1.2.840.10008.5.1.4.1.1.1.2"), and transferSyntaxUID is
-// the data encoding requested (e.g., "1.2.840.10008.1.2.1").  hese args come
-// from the request packat.
+// the data encoding requested (e.g., "1.2.840.10008.1.2.1").  These args are
+// extracted from the request packet.
 //
 // The callback must stream datasets or error to "ch". The callback may
 // block. The callback must close the channel after it produces all the

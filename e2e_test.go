@@ -162,7 +162,7 @@ func readDICOMFile(path string) *dicom.DataSet {
 	return dataset
 }
 
-func newServiceUser(t *testing.T, sopClasses []sopclass.SOPUID) *netdicom.ServiceUser {
+func newServiceUser(t *testing.T, sopClasses []string) *netdicom.ServiceUser {
 	initTest()
 	su, err := netdicom.NewServiceUser(netdicom.ServiceUserParams{SOPClasses: sopClasses})
 	if err != nil {

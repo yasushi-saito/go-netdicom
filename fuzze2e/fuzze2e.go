@@ -48,12 +48,10 @@ func runClient(serverAddr string, faults *netdicom.FaultInjector) {
 		log.Fatal(err)
 	}
 	netdicom.SetUserFaultInjector(faults)
-	params, err := netdicom.NewServiceUserParams(
-		"dontcare", "testclient", sopclass.StorageClasses, nil)
+	su, err := netdicom.NewServiceUser(netdicom.ServiceUserParams{SOPClasses: sopclass.StorageClasses})
 	if err != nil {
 		log.Fatal(err)
 	}
-	su := netdicom.NewServiceUser(params)
 	su.Connect(serverAddr)
 	err = su.CStore(dataset)
 	log.Printf("Store done with status: %v", err)
