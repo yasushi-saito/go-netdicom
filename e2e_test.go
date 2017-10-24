@@ -218,6 +218,7 @@ func (fi *testFaultInjector) onStateTransition(oldState stateType, event *stateE
 
 func (fi *testFaultInjector) onSend(data []byte) faultInjectorAction {
 	if fi.connected {
+		vlog.Errorf("Disconnecting!")
 		return faultInjectorDisconnect
 	}
 	return faultInjectorContinue
@@ -229,7 +230,6 @@ func (fi *testFaultInjector) String() string {
 
 // Similar to the previous test, but inject a network failure during send.
 func TestStoreFailure1(t *testing.T) {
-	t.Skip("doesn't work yet")
 	dataset := mustReadDICOMFile("testdata/IM-0001-0003.dcm")
 	SetUserFaultInjector(&testFaultInjector{})
 	defer SetUserFaultInjector(nil)
@@ -237,7 +237,7 @@ func TestStoreFailure1(t *testing.T) {
 	su := mustNewServiceUser(t, sopclass.StorageClasses)
 	defer su.Release()
 	err := su.CStore(dataset)
-	if err == nil || strings.Index(err.Error(), "Foohah") < 0 {
+	if err == nil || strings.Index(err.Error(), "Connection closed") < 0 {
 		vlog.Fatal(err)
 	}
 }

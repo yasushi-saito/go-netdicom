@@ -470,6 +470,7 @@ func RunProviderForConn(conn net.Conn, params ServiceProviderParams) {
 	for event := range upcallCh {
 		disp.handleEvent(event)
 	}
+	disp.close()
 	vlog.VI(2).Info("Finished provider")
 }
 

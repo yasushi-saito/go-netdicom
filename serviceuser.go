@@ -128,6 +128,7 @@ func NewServiceUser(params ServiceUserParams) (*ServiceUser, error) {
 			su.disp.handleEvent(event)
 		}
 		vlog.VI(1).Infof("Service user dispatcher finished")
+		su.disp.close()
 		su.mu.Lock()
 		su.cond.Broadcast()
 		su.status = serviceUserClosed
