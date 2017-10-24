@@ -9,44 +9,33 @@ import (
 	"github.com/yasushi-saito/go-netdicom"
 	"github.com/yasushi-saito/go-netdicom/dimse"
 	"github.com/yasushi-saito/go-netdicom/sopclass"
-	"net"
 	"sync"
 	"testing"
 	"v.io/x/lib/vlog"
 )
 
-var serverAddr string
-var cstoreData []byte
+var provider *netdicom.ServiceProvider
+var cstoreData []byte            // data received by the cstore handler
+var cstoreStatus = dimse.Success // status returned by the cstore handler
 var nEchoRequests int
+
 var once sync.Once
 
 func initTest() {
 	once.Do(func() {
 		flag.Parse()
 		vlog.ConfigureLibraryLoggerFromFlags()
-		listener, err := net.Listen("tcp", ":0")
+		var err error
+		provider, err = netdicom.NewServiceProvider(netdicom.ServiceProviderParams{
+			CEcho:  onCEchoRequest,
+			CStore: onCStoreRequest,
+			CFind:  onCFindRequest,
+			CGet:   onCGetRequest,
+		}, ":0")
 		if err != nil {
 			vlog.Fatal(err)
 		}
-		go func() {
-			params := netdicom.ServiceProviderParams{
-				CEcho:  onCEchoRequest,
-				CStore: onCStoreRequest,
-				CFind:  onCFindRequest,
-				CGet:   onCGetRequest,
-			}
-			for {
-				conn, err := listener.Accept()
-				if err != nil {
-					vlog.Infof("Accept error: %v", err)
-					continue
-				}
-				vlog.Infof("Accepted connection %v", conn)
-				netdicom.RunProviderForConn(conn, params)
-				vlog.Infof("Done with connection %v", conn)
-			}
-		}()
-		serverAddr = listener.Addr().String()
+		go provider.Run()
 	})
 }
 
@@ -72,11 +61,8 @@ func onCStoreRequest(
 			dicom.MustNewElement(dicom.TagMediaStorageSOPInstanceUID, sopInstanceUID),
 		})
 	e.WriteBytes(data)
-	if cstoreData != nil {
-		vlog.Fatal("Received C-STORE data twice")
-	}
 	cstoreData = e.Bytes()
-	vlog.Infof("Received C-STORE request")
+	vlog.Infof("Received C-STORE request, %d bytes", len(cstoreData))
 	return dimse.Success
 }
 
@@ -130,6 +116,8 @@ func onCGetRequest(
 	close(ch)
 }
 
+// Check that two datasets, "in" and "out" are the same, except for metadata
+// elements.
 func checkFileBodiesEqual(t *testing.T, in, out *dicom.DataSet) {
 	var removeMetaElems = func(f *dicom.DataSet) []*dicom.Element {
 		var elems []*dicom.Element
@@ -174,20 +162,21 @@ func readDICOMFile(path string) *dicom.DataSet {
 	return dataset
 }
 
-func newServiceUser(t *testing.T, server string, sopClasses []sopclass.SOPUID) *netdicom.ServiceUser {
+func newServiceUser(t *testing.T, sopClasses []sopclass.SOPUID) *netdicom.ServiceUser {
 	initTest()
 	su, err := netdicom.NewServiceUser(netdicom.ServiceUserParams{SOPClasses: sopClasses})
 	if err != nil {
 		t.Fatal(err)
 	}
-	su.Connect(serverAddr)
+	vlog.Infof("Connecting to %v", provider.ListenAddr().String())
+	su.Connect(provider.ListenAddr().String())
 	return su
 }
 
 func TestStoreSingleFile(t *testing.T) {
 	initTest()
 	dataset := readDICOMFile("testdata/IM-0001-0003.dcm")
-	su := newServiceUser(t, serverAddr, sopclass.StorageClasses)
+	su := newServiceUser(t, sopclass.StorageClasses)
 	defer su.Release()
 	err := su.CStore(dataset)
 	if err != nil {
@@ -203,7 +192,7 @@ func TestStoreSingleFile(t *testing.T) {
 }
 
 func TestEcho(t *testing.T) {
-	su := newServiceUser(t, serverAddr, sopclass.VerificationClasses)
+	su := newServiceUser(t, sopclass.VerificationClasses)
 	defer su.Release()
 	oldCount := nEchoRequests
 	if err := su.CEcho(); err != nil {
@@ -215,7 +204,8 @@ func TestEcho(t *testing.T) {
 }
 
 func TestFind(t *testing.T) {
-	su := newServiceUser(t, serverAddr, sopclass.QRFindClasses)
+	su := newServiceUser(t, sopclass.QRFindClasses)
+	defer su.Release()
 	filter := []*dicom.Element{
 		dicom.MustNewElement(dicom.TagPatientName, "foohah"),
 	}
@@ -240,7 +230,8 @@ func TestFind(t *testing.T) {
 }
 
 func TestCGet(t *testing.T) {
-	su := newServiceUser(t, serverAddr, sopclass.QRGetClasses)
+	su := newServiceUser(t, sopclass.QRGetClasses)
+	defer su.Release()
 	filter := []*dicom.Element{
 		dicom.MustNewElement(dicom.TagPatientName, "foohah"),
 	}
