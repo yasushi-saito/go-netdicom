@@ -8,21 +8,40 @@ import (
 	"v.io/x/lib/vlog"
 )
 
+// serviceDispatcher multiplexes statemachine upcall events to DIMSE commands.
+type serviceDispatcher struct {
+	downcallCh chan stateEvent // for sending PDUs to the statemachine.
+
+	mu sync.Mutex
+
+	// Set of active DIMSE commands running. Keys are message IDs.
+	activeCommands map[uint16]*serviceCommandState // guarded by mu
+
+	// A callback to be called when a dimse request message arrives. Keys
+	// are DIMSE CommandField. The callback typically creates a new command
+	// by calling findOrCreateCommand.
+	callbacks map[int]serviceCallback // guarded by mu
+}
+
+type serviceCallback func(msg dimse.Message, data []byte, cs *serviceCommandState)
+
+// Per-DIMSE-command state.
 type serviceCommandState struct {
 	disp      *serviceDispatcher  // Parent.
-	messageID uint16              // Provider MessageID.
+	messageID uint16              // Command's MessageID.
 	context   contextManagerEntry // Transfersyntax/sopclass for this command.
 	cm        *contextManager     // For looking up context -> transfersyntax/sopclass mappings
 
-	// upcallCh streams PROVIDER command+data for the given messageID.
+	// upcallCh streams command+data for this messageID.
 	upcallCh chan upcallEvent
 }
 
-func (cs *serviceCommandState) sendMessage(resp dimse.Message, data []byte) {
-	vlog.VI(1).Infof("Sending PROVIDER message: %v %v", resp, cs.disp)
+// Send a command+data combo to the remote peer. data may be nil.
+func (cs *serviceCommandState) sendMessage(cmd dimse.Message, data []byte) {
+	vlog.VI(1).Infof("Sending DIMSE message: %v %v", cmd, cs.disp)
 	payload := &stateEventDIMSEPayload{
 		abstractSyntaxName: cs.context.abstractSyntaxUID,
-		command:            resp,
+		command:            cmd,
 		data:               data,
 	}
 	cs.disp.downcallCh <- stateEvent{
@@ -31,18 +50,6 @@ func (cs *serviceCommandState) sendMessage(resp dimse.Message, data []byte) {
 		conn:         nil,
 		dimsePayload: payload,
 	}
-}
-
-type serviceCallback func(
-	msg dimse.Message, data []byte,
-	cs *serviceCommandState)
-
-type serviceDispatcher struct {
-	downcallCh chan stateEvent // for sending PDUs to the statemachine.
-
-	mu             sync.Mutex
-	activeCommands map[uint16]*serviceCommandState // guarded by mu
-	callbacks      map[int]serviceCallback         // guarded by mu
 }
 
 func (disp *serviceDispatcher) findOrCreateCommand(
@@ -117,6 +124,7 @@ func (disp *serviceDispatcher) handleEvent(event upcallEvent) {
 	}()
 }
 
+// Must be called exactly once to shut down the dispatcher.
 func (disp *serviceDispatcher) close() {
 	disp.mu.Lock()
 	for _, cs := range disp.activeCommands {

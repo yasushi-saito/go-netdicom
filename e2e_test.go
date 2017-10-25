@@ -1,53 +1,43 @@
-package netdicom_test
+package netdicom
 
 import (
 	"errors"
 	"flag"
+	"os"
+	"strings"
+	"sync"
+	"testing"
+
 	"github.com/yasushi-saito/go-dicom"
 	"github.com/yasushi-saito/go-dicom/dicomio"
 	"github.com/yasushi-saito/go-dicom/dicomuid"
-	"github.com/yasushi-saito/go-netdicom"
 	"github.com/yasushi-saito/go-netdicom/dimse"
 	"github.com/yasushi-saito/go-netdicom/sopclass"
-	"net"
-	"sync"
-	"testing"
 	"v.io/x/lib/vlog"
 )
 
-var serverAddr string
-var cstoreData []byte
+var provider *ServiceProvider
+
+var cstoreData []byte            // data received by the cstore handler
+var cstoreStatus = dimse.Success // status returned by the cstore handler
 var nEchoRequests int
 var once sync.Once
 
-func initTest() {
-	once.Do(func() {
-		flag.Parse()
-		vlog.ConfigureLibraryLoggerFromFlags()
-		listener, err := net.Listen("tcp", ":0")
-		if err != nil {
-			vlog.Fatal(err)
-		}
-		go func() {
-			params := netdicom.ServiceProviderParams{
-				CEcho:  onCEchoRequest,
-				CStore: onCStoreRequest,
-				CFind:  onCFindRequest,
-				CGet:   onCGetRequest,
-			}
-			for {
-				conn, err := listener.Accept()
-				if err != nil {
-					vlog.Infof("Accept error: %v", err)
-					continue
-				}
-				vlog.Infof("Accepted connection %v", conn)
-				netdicom.RunProviderForConn(conn, params)
-				vlog.Infof("Done with connection %v", conn)
-			}
-		}()
-		serverAddr = listener.Addr().String()
-	})
+func TestMain(m *testing.M) {
+	flag.Parse()
+	vlog.ConfigureLibraryLoggerFromFlags()
+	var err error
+	provider, err = NewServiceProvider(ServiceProviderParams{
+		CEcho:  onCEchoRequest,
+		CStore: onCStoreRequest,
+		CFind:  onCFindRequest,
+		CGet:   onCGetRequest,
+	}, ":0")
+	if err != nil {
+		vlog.Fatal(err)
+	}
+	go provider.Run()
+	os.Exit(m.Run())
 }
 
 func onCEchoRequest() dimse.Status {
@@ -72,19 +62,16 @@ func onCStoreRequest(
 			dicom.MustNewElement(dicom.TagMediaStorageSOPInstanceUID, sopInstanceUID),
 		})
 	e.WriteBytes(data)
-	if cstoreData != nil {
-		vlog.Fatal("Received C-STORE data twice")
-	}
 	cstoreData = e.Bytes()
-	vlog.Infof("Received C-STORE request")
-	return dimse.Success
+	vlog.Infof("Received C-STORE request, %d bytes", len(cstoreData))
+	return cstoreStatus
 }
 
 func onCFindRequest(
 	transferSyntaxUID string,
 	sopClassUID string,
 	filters []*dicom.Element,
-	ch chan netdicom.CFindResult) {
+	ch chan CFindResult) {
 	vlog.Infof("Received cfind request")
 	found := 0
 	for _, elem := range filters {
@@ -105,10 +92,10 @@ func onCFindRequest(
 	if found != 2 {
 		vlog.Fatalf("Didn't find expected filters: %v", filters)
 	}
-	ch <- netdicom.CFindResult{
+	ch <- CFindResult{
 		Elements: []*dicom.Element{dicom.MustNewElement(dicom.TagPatientName, "johndoe")},
 	}
-	ch <- netdicom.CFindResult{
+	ch <- CFindResult{
 		Elements: []*dicom.Element{dicom.MustNewElement(dicom.TagPatientName, "johndoe2")},
 	}
 	close(ch)
@@ -118,11 +105,11 @@ func onCGetRequest(
 	transferSyntaxUID string,
 	sopClassUID string,
 	filters []*dicom.Element,
-	ch chan netdicom.CMoveResult) {
+	ch chan CMoveResult) {
 	vlog.Infof("Received cget request")
 	path := "testdata/IM-0001-0003.dcm"
-	dataset := readDICOMFile(path)
-	ch <- netdicom.CMoveResult{
+	dataset := mustReadDICOMFile(path)
+	ch <- CMoveResult{
 		Remaining: -1,
 		Path:      path,
 		DataSet:   dataset,
@@ -130,6 +117,8 @@ func onCGetRequest(
 	close(ch)
 }
 
+// Check that two datasets, "in" and "out" are the same, except for metadata
+// elements.
 func checkFileBodiesEqual(t *testing.T, in, out *dicom.DataSet) {
 	var removeMetaElems = func(f *dicom.DataSet) []*dicom.Element {
 		var elems []*dicom.Element
@@ -155,8 +144,9 @@ func checkFileBodiesEqual(t *testing.T, in, out *dicom.DataSet) {
 	}
 }
 
+// Get the dataset received by the cstore handler.
 func getCStoreData() (*dicom.DataSet, error) {
-	if cstoreData == nil {
+	if len(cstoreData) == 0 {
 		return nil, errors.New("Did not receive C-STORE data")
 	}
 	f, err := dicom.ReadDataSetInBytes(cstoreData, dicom.ReadOptions{})
@@ -166,7 +156,7 @@ func getCStoreData() (*dicom.DataSet, error) {
 	return f, nil
 }
 
-func readDICOMFile(path string) *dicom.DataSet {
+func mustReadDICOMFile(path string) *dicom.DataSet {
 	dataset, err := dicom.ReadDataSetFromFile(path, dicom.ReadOptions{})
 	if err != nil {
 		vlog.Fatal(err)
@@ -174,20 +164,19 @@ func readDICOMFile(path string) *dicom.DataSet {
 	return dataset
 }
 
-func newServiceUser(t *testing.T, server string, sopClasses []string) *netdicom.ServiceUser {
-	initTest()
-	su, err := netdicom.NewServiceUser(netdicom.ServiceUserParams{SOPClasses: sopClasses})
+func mustNewServiceUser(t *testing.T, sopClasses []string) *ServiceUser {
+	su, err := NewServiceUser(ServiceUserParams{SOPClasses: sopClasses})
 	if err != nil {
 		t.Fatal(err)
 	}
-	su.Connect(serverAddr)
+	vlog.Infof("Connecting to %v", provider.ListenAddr().String())
+	su.Connect(provider.ListenAddr().String())
 	return su
 }
 
-func TestStoreSingleFile(t *testing.T) {
-	initTest()
-	dataset := readDICOMFile("testdata/IM-0001-0003.dcm")
-	su := newServiceUser(t, serverAddr, sopclass.StorageClasses)
+func TestStore(t *testing.T) {
+	dataset := mustReadDICOMFile("testdata/IM-0001-0003.dcm")
+	su := mustNewServiceUser(t, sopclass.StorageClasses)
 	defer su.Release()
 	err := su.CStore(dataset)
 	if err != nil {
@@ -202,27 +191,78 @@ func TestStoreSingleFile(t *testing.T) {
 	checkFileBodiesEqual(t, dataset, out)
 }
 
+// Arrange so that the cstore server returns an error. The client should detect
+// that.
+func TestStoreFailure0(t *testing.T) {
+	dataset := mustReadDICOMFile("testdata/IM-0001-0003.dcm")
+	cstoreStatus = dimse.Status{Status: dimse.StatusNotAuthorized, ErrorComment: "Foohah"}
+	defer func() { cstoreStatus = dimse.Success }()
+	su := mustNewServiceUser(t, sopclass.StorageClasses)
+	defer su.Release()
+	err := su.CStore(dataset)
+	if err == nil || strings.Index(err.Error(), "Foohah") < 0 {
+		vlog.Fatal(err)
+	}
+}
+
+type testFaultInjector struct {
+	connected bool
+}
+
+func (fi *testFaultInjector) onStateTransition(oldState stateType, event *stateEvent, action *stateAction, newState stateType) {
+	if newState == sta06 {
+		// sta06 is the "association ready" state.
+		fi.connected = true
+	}
+}
+
+func (fi *testFaultInjector) onSend(data []byte) faultInjectorAction {
+	if fi.connected {
+		vlog.Errorf("Disconnecting!")
+		return faultInjectorDisconnect
+	}
+	return faultInjectorContinue
+}
+
+func (fi *testFaultInjector) String() string {
+	return "testFaultInjector"
+}
+
+// Similar to the previous test, but inject a network failure during send.
+func TestStoreFailure1(t *testing.T) {
+	dataset := mustReadDICOMFile("testdata/IM-0001-0003.dcm")
+	SetUserFaultInjector(&testFaultInjector{})
+	defer SetUserFaultInjector(nil)
+
+	su := mustNewServiceUser(t, sopclass.StorageClasses)
+	defer su.Release()
+	err := su.CStore(dataset)
+	if err == nil || strings.Index(err.Error(), "Connection closed") < 0 {
+		vlog.Fatal(err)
+	}
+}
+
 func TestEcho(t *testing.T) {
-	su := newServiceUser(t, serverAddr, sopclass.VerificationClasses)
+	su := mustNewServiceUser(t, sopclass.VerificationClasses)
 	defer su.Release()
 	oldCount := nEchoRequests
 	if err := su.CEcho(); err != nil {
 		vlog.Fatal(err)
 	}
 	if nEchoRequests != oldCount+1 {
-		vlog.Fatal("cecho handler did not run")
+		vlog.Fatal("C-ECHO handler did not run")
 	}
 }
 
 func TestFind(t *testing.T) {
-	su := newServiceUser(t, serverAddr, sopclass.QRFindClasses)
+	su := mustNewServiceUser(t, sopclass.QRFindClasses)
 	defer su.Release()
 	filter := []*dicom.Element{
 		dicom.MustNewElement(dicom.TagPatientName, "foohah"),
 	}
 	var namesFound []string
 
-	for result := range su.CFind(netdicom.QRLevelPatient, filter) {
+	for result := range su.CFind(QRLevelPatient, filter) {
 		vlog.Errorf("Got result: %v", result)
 		if result.Err != nil {
 			t.Error(result.Err)
@@ -241,7 +281,7 @@ func TestFind(t *testing.T) {
 }
 
 func TestCGet(t *testing.T) {
-	su := newServiceUser(t, serverAddr, sopclass.QRGetClasses)
+	su := mustNewServiceUser(t, sopclass.QRGetClasses)
 	defer su.Release()
 	filter := []*dicom.Element{
 		dicom.MustNewElement(dicom.TagPatientName, "foohah"),
@@ -249,7 +289,7 @@ func TestCGet(t *testing.T) {
 
 	var cgetData []byte
 
-	err := su.CGet(netdicom.QRLevelPatient, filter,
+	err := su.CGet(QRLevelPatient, filter,
 		func(transferSyntaxUID, sopClassUID, sopInstanceUID string, data []byte) dimse.Status {
 			vlog.Infof("Got data: %v %v %v %d bytes", transferSyntaxUID, sopClassUID, sopInstanceUID, len(data))
 			if len(cgetData) > 0 {
@@ -276,24 +316,31 @@ func TestCGet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected := readDICOMFile("testdata/IM-0001-0003.dcm")
+	expected := mustReadDICOMFile("testdata/IM-0001-0003.dcm")
 	checkFileBodiesEqual(t, expected, ds)
 }
 
-func TestNonexistentServer(t *testing.T) {
-	initTest()
-	dataset := readDICOMFile("testdata/IM-0001-0003.dcm")
-	su, err := netdicom.NewServiceUser(netdicom.ServiceUserParams{
+func TestReleaseWithoutConnect(t *testing.T) {
+	su, err := NewServiceUser(ServiceUserParams{
 		SOPClasses: sopclass.StorageClasses})
 	if err != nil {
 		t.Fatal(err)
 	}
-	su.Connect(":99999")
-	err = su.CStore(dataset)
-	if err == nil || err.Error() != "Connection failed" {
-		vlog.Fatalf("Expect CStore to fail: %v", err)
-	}
 	su.Release()
+}
+
+func TestNonexistentServer(t *testing.T) {
+	su, err := NewServiceUser(ServiceUserParams{
+		SOPClasses: sopclass.StorageClasses})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer su.Release()
+	su.Connect(":99999")
+	err = su.CStore(mustReadDICOMFile("testdata/IM-0001-0003.dcm"))
+	if err == nil || err.Error() != "Connection failed" {
+		vlog.Fatalf("Expect C-STORE to fail: %v", err)
+	}
 }
 
 // TODO(saito) Test that the state machine shuts down propelry.

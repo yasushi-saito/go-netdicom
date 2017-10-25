@@ -10,7 +10,7 @@ import (
 	"net"
 )
 
-func startServer(faults *netdicom.FaultInjector) net.Listener {
+func startServer(faults netdicom.FaultInjector) net.Listener {
 	netdicom.SetProviderFaultInjector(faults)
 	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
@@ -40,7 +40,7 @@ func startServer(faults *netdicom.FaultInjector) net.Listener {
 	return listener
 }
 
-func runClient(serverAddr string, faults *netdicom.FaultInjector) {
+func runClient(serverAddr string, faults netdicom.FaultInjector) {
 	dataset, err := dicom.ReadDataSetFromFile(
 		"../testdata/reportsi.dcm",
 		dicom.ReadOptions{})

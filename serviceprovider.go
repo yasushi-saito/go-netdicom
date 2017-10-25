@@ -13,6 +13,13 @@ import (
 	"v.io/x/lib/vlog"
 )
 
+type CMoveResult struct {
+	Remaining int // Number of files remaining to be sent. Set -1 if unknown.
+	Err       error
+	Path      string         // Path name of the DICOM file being copied. Used only for reporting errors.
+	DataSet   *dicom.DataSet // Contents of the file.
+}
+
 func handleCStore(
 	cb CStoreCallback,
 	c *dimse.C_STORE_RQ, data []byte,
@@ -465,6 +472,7 @@ func RunProviderForConn(conn net.Conn, params ServiceProviderParams) {
 	for event := range upcallCh {
 		disp.handleEvent(event)
 	}
+	disp.close()
 	vlog.VI(2).Info("Finished provider")
 }
 

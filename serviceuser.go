@@ -34,8 +34,8 @@ const (
 //  user.Release()
 //
 // The ServiceUser class is thread compatible. That is, you cannot call C*
-// methods concurrently - say two CStore requests - from two goroutines.  You
-// must wait for one CStore to finish before issuing another one.
+// methods - say CStore and CFind requests - concurrently from two goroutines.
+// You must wait for CStore to finish before issuing CFind.
 type ServiceUser struct {
 	upcallCh chan upcallEvent
 
@@ -52,11 +52,14 @@ type ServiceUser struct {
 
 // ServiceUserParams defines parameters for a ServiceUser.
 type ServiceUserParams struct {
-	CalledAETitle  string // If empty, set to "unknown-called-ae"
-	CallingAETitle string // If empty, set to "unknown-calling-ae"
+	// Application-entity title of the peer. If empty, set to "unknown-called-ae"
+	CalledAETitle string
+	// Application-entity title of the client. If empty, set to
+	// "unknown-calling-ae"
+	CallingAETitle string
 
-	// List of SOPUIDs wanted by the user. Typically the value is one of the
-	// variables defined in sopclass.
+	// List of SOPUIDs wanted by the client. The value is typically one of
+	// the constants listed in sopclass package.
 	SOPClasses []string
 
 	// List of Transfer syntaxes supported by the user.  If you know the
@@ -126,7 +129,8 @@ func NewServiceUser(params ServiceUserParams) (*ServiceUser, error) {
 			doassert(event.eventType == upcallEventData)
 			su.disp.handleEvent(event)
 		}
-		vlog.Infof("Service user dispatcher finished")
+		vlog.VI(1).Infof("Service user dispatcher finished")
+		su.disp.close()
 		su.mu.Lock()
 		su.cond.Broadcast()
 		su.status = serviceUserClosed
@@ -152,7 +156,9 @@ func (su *ServiceUser) waitUntilReady() error {
 // Connect connects to the server at the given "host:port". Either Connect or
 // SetConn must be before calling CStore, etc.
 func (su *ServiceUser) Connect(serverAddr string) {
-	doassert(su.status == serviceUserInitial)
+	if su.status != serviceUserInitial {
+		vlog.Fatalf("Connect() called with wrong state: %v", su.status)
+	}
 	conn, err := net.Dial("tcp", serverAddr)
 	if err != nil {
 		vlog.Infof("Connect(%s): %v", serverAddr, err)
@@ -249,14 +255,6 @@ type CFindResult struct {
 	// Exactly one of Err or Elements is set.
 	Err      error
 	Elements []*dicom.Element // Elements belonging to one dataset.
-}
-
-// CMoveResult is an object streamed by CMove method.
-type CMoveResult struct {
-	Remaining int // Number of files remaining to be sent. Set -1 if unknown.
-	Err       error
-	Path      string         // Path name of the DICOM file being copied. Used only for reporting errors.
-	DataSet   *dicom.DataSet // Contents of the file.
 }
 
 func encodeQRPayload(opType qrOpType, qrLevel QRLevel, filter []*dicom.Element, cm *contextManager) (contextManagerEntry, []byte, error) {
@@ -380,8 +378,8 @@ func (su *ServiceUser) CFind(qrLevel QRLevel, filter []*dicom.Element) chan CFin
 }
 
 // CGet runs a C-GET command. It calls "cb" for every dataset received. "cb"
-// should return dimse.Success iff the data was successfully and stably written. This
-// function blocks until it receives all datasets and the command finishes.
+// should return dimse.Success iff the data was successfully and stably
+// written. This function blocks until it receives all datasets from the server.
 func (su *ServiceUser) CGet(qrLevel QRLevel, filter []*dicom.Element,
 	cb func(transferSyntaxUID, SOPClassUID, sopInstanceUID string, data []byte) dimse.Status) error {
 	err := su.waitUntilReady()
@@ -425,13 +423,13 @@ func (su *ServiceUser) CGet(qrLevel QRLevel, filter []*dicom.Element,
 		event, ok := <-cs.upcallCh
 		if !ok {
 			su.status = serviceUserClosed
-			return fmt.Errorf("Connection closed while waiting for C-FIND response")
+			return fmt.Errorf("Connection closed while waiting for C-GET response")
 		}
 		doassert(event.eventType == upcallEventData)
 		doassert(event.command != nil)
 		resp, ok := event.command.(*dimse.C_GET_RSP)
 		if !ok {
-			return fmt.Errorf("Found wrong response for C-FIND: %v", event.command)
+			return fmt.Errorf("Found wrong response for C-GET: %v", event.command)
 		}
 		if resp.Status.Status != dimse.StatusPending {
 			if resp.Status.Status != 0 {
@@ -447,9 +445,7 @@ func (su *ServiceUser) CGet(qrLevel QRLevel, filter []*dicom.Element,
 // Release shuts down the connection. It must be called exactly once.  After
 // Release(), no other operation can be performed on the ServiceUser object.
 func (su *ServiceUser) Release() {
-	su.waitUntilReady()
 	su.disp.downcallCh <- stateEvent{event: evt11}
-
 	su.mu.Lock()
 	defer su.mu.Unlock()
 	su.status = serviceUserClosed

@@ -20,16 +20,40 @@ type faultInjectorStateTransition struct {
 
 // FaultInjector is a unittest helper. It's used by the statemachine to inject
 // faults.
-type FaultInjector struct {
+type FaultInjector interface {
+	fmt.Stringer
+	// Called when an "event" happens when at "oldState" and transitions to
+	// "newState"
+	onStateTransition(oldState stateType, event *stateEvent, action *stateAction, newState stateType)
+	onSend(data []byte) faultInjectorAction
+}
+
+func SetUserFaultInjector(f FaultInjector) {
+	userFaults = f
+}
+func SetProviderFaultInjector(f FaultInjector) {
+	providerFaults = f
+}
+
+func getUserFaultInjector() FaultInjector {
+	return userFaults
+}
+func getProviderFaultInjector() FaultInjector {
+	return providerFaults
+}
+
+var userFaults, providerFaults FaultInjector
+
+// FuzzFaultInjector is used by fuzz tests to inject faults somewhat
+// deterministically.
+type FuzzFaultInjector struct {
 	fuzz  []byte
 	steps int
 
 	stateHistory []faultInjectorStateTransition
 }
 
-var userFaults, providerFaults *FaultInjector
-
-func fuzzByte(f *FaultInjector) byte {
+func fuzzByte(f *FuzzFaultInjector) byte {
 	doassert(len(f.fuzz) > 0)
 	v := f.fuzz[f.steps]
 	f.steps++
@@ -39,19 +63,19 @@ func fuzzByte(f *FaultInjector) byte {
 	return v
 }
 
-func fuzzUInt16(f *FaultInjector) uint16 {
+func fuzzUInt16(f *FuzzFaultInjector) uint16 {
 	return (uint16(fuzzByte(f)) << 8) |
 		uint16(fuzzByte(f))
 }
 
-func fuzzUInt32(f *FaultInjector) uint32 {
+func fuzzUInt32(f *FuzzFaultInjector) uint32 {
 	return (uint32(fuzzByte(f)) << 24) |
 		(uint32(fuzzByte(f)) << 16) |
 		(uint32(fuzzByte(f)) << 8) |
 		uint32(fuzzByte(f))
 }
 
-func fuzzExponentialInRange(f *FaultInjector, max int) int {
+func fuzzExponentialInRange(f *FuzzFaultInjector, max int) int {
 	// Generate a uniform number in range [0,1]
 	r := float64(fuzzUInt16(f)) / float64(0xffff)
 	doassert(r >= 0 && r <= 1.0)
@@ -68,35 +92,15 @@ func fuzzExponentialInRange(f *FaultInjector, max int) int {
 }
 
 // NewFuzzFaultInjector creates a new fuzzing fault injector
-func NewFuzzFaultInjector(fuzz []byte) *FaultInjector {
-	return &FaultInjector{fuzz: fuzz}
+func NewFuzzFaultInjector(fuzz []byte) FaultInjector {
+	return &FuzzFaultInjector{fuzz: fuzz}
 }
 
-// SetUserFaultInjector sets a singleton fault injector to be used by the user
-// (client)-side statemachines.
-func SetUserFaultInjector(f *FaultInjector) {
-	userFaults = f
+func (f *FuzzFaultInjector) onStateTransition(oldState stateType, event *stateEvent, action *stateAction, newState stateType) {
+	f.stateHistory = append(f.stateHistory, faultInjectorStateTransition{oldState, event, action})
 }
 
-// SetProviderFaultInjector sets a singleton fault injector to be used by the
-// provider (server)-side statemachines.
-func SetProviderFaultInjector(f *FaultInjector) {
-	providerFaults = f
-}
-
-func getUserFaultInjector() *FaultInjector {
-	return userFaults
-}
-func getProviderFaultInjector() *FaultInjector {
-	return providerFaults
-}
-
-// Called when an "event" happens when at "state".
-func (f *FaultInjector) onStateTransition(state stateType, event *stateEvent, action *stateAction) {
-	f.stateHistory = append(f.stateHistory, faultInjectorStateTransition{state, event, action})
-}
-
-func (f *FaultInjector) onSend(data []byte) faultInjectorAction {
+func (f *FuzzFaultInjector) onSend(data []byte) faultInjectorAction {
 	if len(f.fuzz) == 0 {
 		return faultInjectorContinue
 	}
@@ -112,7 +116,7 @@ func (f *FaultInjector) onSend(data []byte) faultInjectorAction {
 	return faultInjectorContinue
 }
 
-func (f *FaultInjector) String() string {
+func (f *FuzzFaultInjector) String() string {
 	s := "statehistory:{"
 	for i, e := range f.stateHistory {
 		if i > 0 {
