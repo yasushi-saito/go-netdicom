@@ -28,9 +28,14 @@ type FaultInjector interface {
 	onSend(data []byte) faultInjectorAction
 }
 
+// SetUserFaultInjector sets the fault injector to be used by all user (client)
+// side statemachines.
 func SetUserFaultInjector(f FaultInjector) {
 	userFaults = f
 }
+
+// SetProviderFaultInjector sets the fault injector to be used by all provider
+// (server) side statemachines.
 func SetProviderFaultInjector(f FaultInjector) {
 	providerFaults = f
 }
@@ -44,16 +49,16 @@ func getProviderFaultInjector() FaultInjector {
 
 var userFaults, providerFaults FaultInjector
 
-// FuzzFaultInjector is used by fuzz tests to inject faults somewhat
+// fuzzFaultInjector is used by fuzz tests to inject faults somewhat
 // deterministically.
-type FuzzFaultInjector struct {
+type fuzzFaultInjector struct {
 	fuzz  []byte
 	steps int
 
 	stateHistory []faultInjectorStateTransition
 }
 
-func fuzzByte(f *FuzzFaultInjector) byte {
+func fuzzByte(f *fuzzFaultInjector) byte {
 	doassert(len(f.fuzz) > 0)
 	v := f.fuzz[f.steps]
 	f.steps++
@@ -63,19 +68,19 @@ func fuzzByte(f *FuzzFaultInjector) byte {
 	return v
 }
 
-func fuzzUInt16(f *FuzzFaultInjector) uint16 {
+func fuzzUInt16(f *fuzzFaultInjector) uint16 {
 	return (uint16(fuzzByte(f)) << 8) |
 		uint16(fuzzByte(f))
 }
 
-func fuzzUInt32(f *FuzzFaultInjector) uint32 {
+func fuzzUInt32(f *fuzzFaultInjector) uint32 {
 	return (uint32(fuzzByte(f)) << 24) |
 		(uint32(fuzzByte(f)) << 16) |
 		(uint32(fuzzByte(f)) << 8) |
 		uint32(fuzzByte(f))
 }
 
-func fuzzExponentialInRange(f *FuzzFaultInjector, max int) int {
+func fuzzExponentialInRange(f *fuzzFaultInjector, max int) int {
 	// Generate a uniform number in range [0,1]
 	r := float64(fuzzUInt16(f)) / float64(0xffff)
 	doassert(r >= 0 && r <= 1.0)
@@ -93,14 +98,14 @@ func fuzzExponentialInRange(f *FuzzFaultInjector, max int) int {
 
 // NewFuzzFaultInjector creates a new fuzzing fault injector
 func NewFuzzFaultInjector(fuzz []byte) FaultInjector {
-	return &FuzzFaultInjector{fuzz: fuzz}
+	return &fuzzFaultInjector{fuzz: fuzz}
 }
 
-func (f *FuzzFaultInjector) onStateTransition(oldState stateType, event *stateEvent, action *stateAction, newState stateType) {
+func (f *fuzzFaultInjector) onStateTransition(oldState stateType, event *stateEvent, action *stateAction, newState stateType) {
 	f.stateHistory = append(f.stateHistory, faultInjectorStateTransition{oldState, event, action})
 }
 
-func (f *FuzzFaultInjector) onSend(data []byte) faultInjectorAction {
+func (f *fuzzFaultInjector) onSend(data []byte) faultInjectorAction {
 	if len(f.fuzz) == 0 {
 		return faultInjectorContinue
 	}
@@ -116,7 +121,7 @@ func (f *FuzzFaultInjector) onSend(data []byte) faultInjectorAction {
 	return faultInjectorContinue
 }
 
-func (f *FuzzFaultInjector) String() string {
+func (f *fuzzFaultInjector) String() string {
 	s := "statehistory:{"
 	for i, e := range f.stateHistory {
 		if i > 0 {

@@ -238,11 +238,18 @@ func (su *ServiceUser) CStore(ds *dicom.DataSet) error {
 	return runCStoreOnAssociation(cs.upcallCh, su.disp.downcallCh, su.cm, cs.messageID, ds)
 }
 
+// QRLevel is used to specify the element hierarchy assumed during C-FIND,
+// C-GET, and C-MOVE. P3.4, C.3.
+//
+// http://dicom.nema.org/Dicom/2013/output/chtml/part04/sect_C.3.html
 type QRLevel int
 type qrOpType int
 
 const (
+	// QRLevelPatient chooses Patient-Root QR model.  P3.4, C.3.1
 	QRLevelPatient QRLevel = iota
+
+	// QRLevelStudy chooses Study-Root QR model.  P3.4, C.3.2
 	QRLevelStudy
 
 	qrOpCFind qrOpType = iota
@@ -377,11 +384,17 @@ func (su *ServiceUser) CFind(qrLevel QRLevel, filter []*dicom.Element) chan CFin
 	return ch
 }
 
-// CGet runs a C-GET command. It calls "cb" for every dataset received. "cb"
-// should return dimse.Success iff the data was successfully and stably
-// written. This function blocks until it receives all datasets from the server.
+// CGet runs a C-GET command. It calls "cb" sequentially for every dataset
+// received. "cb" should return dimse.Success iff the data was successfully and
+// stably written. This function blocks until it receives all datasets from the
+// server.
+//
+// The "data" arg to "cb" is the serialized dataset, encoded according to
+// transferSyntaxUID.
+//
+// TODO(saito) We should parse the data into DataSet before passing to "cb".
 func (su *ServiceUser) CGet(qrLevel QRLevel, filter []*dicom.Element,
-	cb func(transferSyntaxUID, SOPClassUID, sopInstanceUID string, data []byte) dimse.Status) error {
+	cb func(transferSyntaxUID, sopClassUID, sopInstanceUID string, data []byte) dimse.Status) error {
 	err := su.waitUntilReady()
 	if err != nil {
 		return err
